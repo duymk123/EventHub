@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: auth-service
+  profiles:
+    # Use the mysql profile when the database is ready.
+    default: no-db
+
+server:
+  port: "${SERVER_PORT:8081}"

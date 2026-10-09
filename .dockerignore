@@ -1,0 +1,12 @@
+**/target
+**/.idea
+**/*.iml
+**/.git
+**/.env
+**/.env.*
+**/*.log
+**/.m2
+**/.maven-user-home
+front-end
+docs
+infrastructure

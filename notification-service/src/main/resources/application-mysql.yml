@@ -1,0 +1,10 @@
+# Optional profile; existing MySQL settings are preserved for later use.
+spring:
+  datasource:
+    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_notification}?serverTimezone=UTC}"
+    username: "${DB_USERNAME:eventhub}"
+    password: "${DB_PASSWORD}"
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false

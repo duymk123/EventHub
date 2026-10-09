@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: ticket-service
+  profiles:
+    # Use the mysql profile when the database is ready.
+    default: no-db
+
+server:
+  port: "${SERVER_PORT:8083}"

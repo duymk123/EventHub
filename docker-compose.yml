@@ -1,0 +1,106 @@
+# Start the backend skeleton without a database: docker compose up --build -d
+# Database and other infrastructure will be configured later.
+name: eventhub
+
+services:
+  auth-service:
+    image: eventhub/auth-service:local
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: no-db
+      SERVER_PORT: "8081"
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  event-service:
+    image: eventhub/event-service:local
+    build:
+      context: .
+      dockerfile: event-service/Dockerfile
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: no-db
+      SERVER_PORT: "8082"
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  ticket-service:
+    image: eventhub/ticket-service:local
+    build:
+      context: .
+      dockerfile: ticket-service/Dockerfile
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_PROFILES_ACTIVE: no-db
+      SERVER_PORT: "8083"
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  order-service:
+    image: eventhub/order-service:local
+    build:
+      context: .
+      dockerfile: order-service/Dockerfile
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_PROFILES_ACTIVE: no-db
+      SERVER_PORT: "8084"
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  notification-service:
+    image: eventhub/notification-service:local
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_PROFILES_ACTIVE: no-db
+      SERVER_PORT: "8085"
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  analytics-service:
+    image: eventhub/analytics-service:local
+    build:
+      context: .
+      dockerfile: analytics-service/Dockerfile
+    ports:
+      - "8086:8086"
+    environment:
+      SPRING_PROFILES_ACTIVE: no-db
+      SERVER_PORT: "8086"
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  api-gateway:
+    image: eventhub/api-gateway:local
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: no-db
+      SERVER_PORT: "8080"
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+networks:
+  eventhub:
+    driver: bridge
