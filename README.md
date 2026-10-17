@@ -1,6 +1,6 @@
 ## 🐳 Báo cáo Cấu hình Docker & Port Mapping (EventHub Microservices)
 
-Hệ thống **EventHub** sử dụng **Docker Compose** để đóng gói và vận hành toàn bộ các vi dịch vụ cùng hệ thống cơ sở hạ tầng (PostgreSQL, Kafka, Zookeeper).
+Hệ thống **EventHub** sử dụng **Docker Compose** để đóng gói và vận hành toàn bộ các vi dịch vụ cùng hệ thống cơ sở hạ tầng (mySQL, Kafka, Zookeeper).
 
 ---
 
