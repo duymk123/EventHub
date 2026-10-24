@@ -4,13 +4,7 @@
 
 Cần cài Docker Desktop (Windows/macOS) hoặc Docker Engine kèm Docker Compose plugin (Linux). Không cần cài Java hay MySQL trên máy để chạy Compose.
 
-Mỗi thành viên tạo file cấu hình riêng từ file mẫu ở thư mục gốc:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Mở `.env` và đặt `MYSQL_ROOT_PASSWORD`, `DB_USERNAME`, `DB_PASSWORD` theo máy của mình. Tên đăng nhập app mặc định là `eventhub`; có thể giữ nguyên và chỉ đổi mật khẩu. Không commit file `.env`; Git đã bỏ qua file này. `.env.example` không chứa mật khẩu thật và được commit để thành viên mới có thể copy.
+Mỗi thành viên cần có file `.env` ở thư mục gốc, chứa `MYSQL_ROOT_PASSWORD` với mật khẩu MySQL local của mình. Compose tự đọc file này; không cần thêm `--env-file` hay chạy lệnh copy mỗi lần khởi động. `.env` bị Git bỏ qua nên mỗi thành viên tạo file này một lần sau khi clone. `.env.example` là file tham khảo; có thể mở nó để lấy dòng cấu hình rồi tự tạo `.env`.
 
 Chạy từ thư mục gốc dự án:
 
@@ -18,21 +12,41 @@ Chạy từ thư mục gốc dự án:
 docker compose up --build -d
 ```
 
-Compose tự tạo container MySQL, volume named `eventhub_mysql_data`, bảy database riêng cho các service, rồi khởi chạy ứng dụng sau khi MySQL khỏe mạnh. Volume nằm trong vùng quản lý của Docker trên máy từng thành viên; không cần chạy `docker volume create` và không cần chia sẻ volume qua Git.
+Compose khởi chạy một container cho mỗi backend service và một MySQL container riêng cho từng service. Mỗi MySQL chỉ tạo database tương ứng, dùng cổng `3306` bên trong Docker và một host port riêng để kết nối từ DBeaver. Các host port được cố định từ `33101` đến `33107`, tránh trùng với project khác đang dùng `33061`–`33065`. Nếu máy đã dùng một port này, đổi port tương ứng trực tiếp trong `docker-compose.yml`.
 
-Xem trạng thái bằng `docker compose ps`; log bằng `docker compose logs -f mysql` hoặc `docker compose logs -f auth-service`. Dừng container mà giữ dữ liệu bằng `docker compose down`. Muốn xóa database local và tạo lại từ đầu, dùng `docker compose down -v` (xóa toàn bộ dữ liệu trong volume).
+Docker tự tạo bảy named volume trên máy từng thành viên; không cần chạy `docker volume create` hoặc chia sẻ volume qua Git. `docker compose down` giữ dữ liệu. `docker compose down -v` xóa cả bảy database volume.
 
-Các file trong `infrastructure/mysql/init` chỉ chạy khi volume database được khởi tạo lần đầu. Thêm database vào đây nếu thêm service có schema riêng. Nếu sau này thêm dữ liệu mẫu dạng SQL, cần nạp sau khi Hibernate đã tạo bảng; script khởi tạo của MySQL chạy trước khi ứng dụng khởi động.
+Trong DBeaver, kết nối host `127.0.0.1`, username `root`, mật khẩu trong `.env`, rồi dùng port và database tương ứng:
 
-Trong profile `mysql`, Hibernate dùng `ddl-auto: update` để tạo/cập nhật bảng từ entity khi chạy local. Repo hiện chưa có entity `@Entity`, nên Hibernate chưa có bảng nào để sinh cho đến khi nhóm thêm entity. Đây là cấu hình tiện cho phát triển; khi schema ổn định, nên quản lý thay đổi bằng migration.
+| Service | Database | Host port mặc định | Docker service name |
+| --- | --- | ---: | --- |
+| Auth | `eventhub_auth` | `33101` | `auth-db` |
+| Event | `eventhub_event` | `33102` | `event-db` |
+| Ticket | `eventhub_ticket` | `33103` | `ticket-db` |
+| Order | `eventhub_order` | `33104` | `order-db` |
+| Notification | `eventhub_notification` | `33105` | `notification-db` |
+| Analytics | `eventhub_analytics` | `33106` | `analytics-db` |
+| API Gateway | `eventhub_gateway` | `33107` | `api-gateway-db` |
+
+Ví dụ: để kết nối database Auth, nhập host `127.0.0.1`, port `33101`, username `root`, mật khẩu trong `.env`, database `eventhub_auth`. Backend service kết nối tới hostname Docker tương ứng (ví dụ `auth-db`) trên cổng `3306`.
+
+Các ứng dụng Spring Boot lắng nghe trên cổng `8080` bên trong từng container. Host ports lần lượt là `8080` cho API Gateway và `8081`–`8086` cho các backend; ví dụ `8081:8080` nghĩa là truy cập Auth từ máy ở `localhost:8081`, còn bên trong container ứng dụng nghe cổng `8080`. Host port phải khác nhau giữa các container đang chạy trên cùng máy.
+
+Tài khoản `root` được dùng cho phát triển local theo yêu cầu hiện tại. Không dùng cấu hình này cho môi trường production.
+
+Xem trạng thái bằng `docker compose ps`; xem log MySQL bằng `docker compose logs -f auth-db` hoặc log ứng dụng bằng `docker compose logs -f auth-service`. Dừng container mà giữ dữ liệu bằng `docker compose down`. Muốn xóa toàn bộ database local và tạo lại từ đầu, dùng `docker compose down -v`.
+
+Đặt SQL `INSERT` mẫu trong `infrastructure/mysql/seed`, mỗi service một file, rồi nạp vào đúng DB container sau khi service đã khởi động. Xem hướng dẫn trong thư mục seed. Cơ chế init mặc định của MySQL chỉ chạy khi volume mới; không dùng cơ chế đó cho `INSERT` cần chạy sau Hibernate.
+
+Mỗi `application.yml` chứa trực tiếp cấu hình datasource MySQL; Spring Boot tự đọc file này khi ứng dụng khởi động trong Docker. Hibernate dùng `ddl-auto: update` để tạo/cập nhật bảng từ entity. Repo hiện chưa có entity `@Entity`, nên Hibernate chưa có bảng nào để sinh cho đến khi nhóm thêm entity. Đây là cấu hình tiện cho phát triển; khi schema ổn định, nên quản lý thay đổi bằng migration.
 
 ## Cấu trúc chính
 
 - Mỗi thư mục `*-service` là một Spring Boot service, có Dockerfile riêng.
 - `api-gateway` là gateway backend; cổng mặc định 8080.
-- `docker-compose.yml` định nghĩa các service, mạng nội bộ, MySQL và volume.
-- `.env.example` là mẫu cấu hình; mỗi thành viên tự tạo `.env` riêng.
-- `infrastructure/mysql/init` chứa script khởi tạo các database MySQL lần đầu.
+- `docker-compose.yml` định nghĩa một instance cho mỗi backend service và một MySQL container/volume riêng tương ứng.
+- `.env.example` là mẫu cấu hình; mỗi thành viên tạo file `.env` riêng.
+- `infrastructure/mysql/seed` chứa hướng dẫn và SQL dữ liệu mẫu cho từng service.
 
 ## Build backend bằng Maven
 

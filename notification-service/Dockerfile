@@ -7,5 +7,5 @@ RUN chmod +x mvnw && ./mvnw -B -pl notification-service -am -DskipTests package
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /workspace/notification-service/target/notification-service-0.0.1-SNAPSHOT.jar app.jar
-EXPOSE 8085
+EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
