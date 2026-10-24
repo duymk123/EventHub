@@ -8,7 +8,7 @@ Dependency: Spring Web, Lombok, Spring Data JPA, MySQL Driver; Spring Boot Test 
 Mở `EventHub/pom.xml` dưới dạng Maven project để nhận đủ 7 module.
 Chọn Project SDK và Maven Runner JRE là JDK 23, đặt language level là Java 21.
 Nếu Lombok chưa được IDE nhận, kiểm tra annotation processing trong Java Compiler.
-Chạy lớp `com.eventhub.event.EventServiceApplication`. Profile mặc định `no-db` chạy được khi chưa có MySQL.
+Chạy lớp `com.eventhub.event.EventServiceApplication`. Ứng dụng dùng MySQL; cấu hình datasource nằm trong application.yml.
 
 ## Build và test
 
@@ -25,20 +25,10 @@ Test khởi động context với profile `test`, không kết nối MySQL.
 
 ## Cấu hình YAML và chạy ứng dụng
 
-- `application.yml`: tên ứng dụng, cổng và profile mặc định `no-db`.
-- `application-no-db.yml`: tắt tự cấu hình datasource/JPA khi chưa có database.
-- `application-mysql.yml`: cấu hình MySQL tùy chọn, dùng khi database sẵn sàng.
+- `application.yml`: tên ứng dụng, cổng, datasource MySQL và cấu hình JPA.
 - `src/test/resources/application-test.yml`: cấu hình test không kết nối database.
 
-Chạy ngay khung ứng dụng: `.\mvnw.cmd spring-boot:run`, không cần biến MySQL.
-Để chạy với database sau này, chọn profile `mysql`:
-
-```powershell
-$env:SPRING_PROFILES_ACTIVE = 'mysql'
-```
-
-
-Tạo trước database `eventhub_event` và tài khoản có quyền truy cập database đó trên MySQL.
+Ứng dụng cần MySQL khi chạy thường. Tạo trước database `eventhub_event` và tài khoản có quyền truy cập database đó trên MySQL.
 Đây là tên ban đầu, có thể đổi bằng `DB_NAME` khi có thiết kế dữ liệu.
 
 ```powershell
@@ -52,7 +42,7 @@ $env:DB_PASSWORD = '<mật khẩu MySQL của bạn>'
 
 Cổng mặc định: `8082`; đổi bằng `SERVER_PORT`. Có thể dùng `DB_URL` để thay toàn bộ JDBC URL.
 Không commit mật khẩu. Spring Boot không tự đọc file `.env`; nhập biến trong shell hoặc IDE.
-`ddl-auto=none`: ứng dụng không tự tạo/sửa bảng. Hiện chưa có entity, API nghiệp vụ hay migration.
+`ddl-auto=update`: Hibernate tạo/cập nhật bảng từ entity. Hiện chưa có entity, API nghiệp vụ hay migration.
 
 ## Docker
 
@@ -60,9 +50,9 @@ Build từ thư mục gốc **EventHub**, vì module dùng chung parent POM:
 
 ```powershell
 docker build -f event-service/Dockerfile -t eventhub/event-service .
-docker run --rm -p 8082:8082 -e SPRING_PROFILES_ACTIVE=no-db eventhub/event-service
+docker compose up --build -d
 ```
 
 Trong container, `DB_HOST` phải trỏ tới máy/container MySQL có thể truy cập được.
 Nếu MySQL chạy trên máy Windows với Docker Desktop, dùng `DB_HOST=host.docker.internal`.
-Docker build dùng JDK 23 và runtime dùng Java 21. Docker Compose đã cấu hình đủ 7 module, chạy profile `no-db`. Từ gốc EventHub: `docker compose up --build -d`.
+Compose khởi chạy các service cùng MySQL. Spring Boot đọc datasource trực tiếp từ application.yml.

@@ -7,5 +7,5 @@ RUN chmod +x mvnw && ./mvnw -B -pl ticket-service -am -DskipTests package
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /workspace/ticket-service/target/ticket-service-0.0.1-SNAPSHOT.jar app.jar
-EXPOSE 8083
+EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]

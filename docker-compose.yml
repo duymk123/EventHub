@@ -1,19 +1,136 @@
-# Start all services and the local MySQL database: docker compose up --build -d
 name: eventhub
 
 services:
-  mysql:
+  auth-db:
     image: mysql:8.4
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_ROOT_HOST: "%"
       MYSQL_DATABASE: eventhub_auth
-      MYSQL_USER: ${DB_USERNAME:-eventhub}
-      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
     ports:
-      - "${MYSQL_PORT:-3306}:3306"
+      - "33101:3306"
     volumes:
-      - mysql_data:/var/lib/mysql
-      - ./infrastructure/mysql/init:/docker-entrypoint-initdb.d:ro
+      - auth_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  event-db:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: eventhub_event
+    ports:
+      - "33102:3306"
+    volumes:
+      - event_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  ticket-db:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: eventhub_ticket
+    ports:
+      - "33103:3306"
+    volumes:
+      - ticket_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  order-db:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: eventhub_order
+    ports:
+      - "33104:3306"
+    volumes:
+      - order_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  notification-db:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: eventhub_notification
+    ports:
+      - "33105:3306"
+    volumes:
+      - notification_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  analytics-db:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: eventhub_analytics
+    ports:
+      - "33106:3306"
+    volumes:
+      - analytics_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  api-gateway-db:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: eventhub_gateway
+    ports:
+      - "33107:3306"
+    volumes:
+      - api_gateway_mysql_data:/var/lib/mysql
     healthcheck:
       test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
       interval: 5s
@@ -30,20 +147,19 @@ services:
       context: .
       dockerfile: auth-service/Dockerfile
     ports:
-      - "8081:8081"
+      - "8081:8080"
     environment:
-      SPRING_PROFILES_ACTIVE: mysql
-      SERVER_PORT: "8081"
-      DB_HOST: mysql
+      SERVER_PORT: "8080"
+      DB_HOST: auth-db
       DB_PORT: "3306"
       DB_NAME: eventhub_auth
-      DB_USERNAME: ${DB_USERNAME:-eventhub}
-      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     restart: unless-stopped
     networks:
       - eventhub
     depends_on:
-      mysql:
+      auth-db:
         condition: service_healthy
 
   event-service:
@@ -52,20 +168,19 @@ services:
       context: .
       dockerfile: event-service/Dockerfile
     ports:
-      - "8082:8082"
+      - "8082:8080"
     environment:
-      SPRING_PROFILES_ACTIVE: mysql
-      SERVER_PORT: "8082"
-      DB_HOST: mysql
+      SERVER_PORT: "8080"
+      DB_HOST: event-db
       DB_PORT: "3306"
       DB_NAME: eventhub_event
-      DB_USERNAME: ${DB_USERNAME:-eventhub}
-      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     restart: unless-stopped
     networks:
       - eventhub
     depends_on:
-      mysql:
+      event-db:
         condition: service_healthy
 
   ticket-service:
@@ -74,20 +189,19 @@ services:
       context: .
       dockerfile: ticket-service/Dockerfile
     ports:
-      - "8083:8083"
+      - "8083:8080"
     environment:
-      SPRING_PROFILES_ACTIVE: mysql
-      SERVER_PORT: "8083"
-      DB_HOST: mysql
+      SERVER_PORT: "8080"
+      DB_HOST: ticket-db
       DB_PORT: "3306"
       DB_NAME: eventhub_ticket
-      DB_USERNAME: ${DB_USERNAME:-eventhub}
-      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     restart: unless-stopped
     networks:
       - eventhub
     depends_on:
-      mysql:
+      ticket-db:
         condition: service_healthy
 
   order-service:
@@ -96,20 +210,19 @@ services:
       context: .
       dockerfile: order-service/Dockerfile
     ports:
-      - "8084:8084"
+      - "8084:8080"
     environment:
-      SPRING_PROFILES_ACTIVE: mysql
-      SERVER_PORT: "8084"
-      DB_HOST: mysql
+      SERVER_PORT: "8080"
+      DB_HOST: order-db
       DB_PORT: "3306"
       DB_NAME: eventhub_order
-      DB_USERNAME: ${DB_USERNAME:-eventhub}
-      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     restart: unless-stopped
     networks:
       - eventhub
     depends_on:
-      mysql:
+      order-db:
         condition: service_healthy
 
   notification-service:
@@ -118,20 +231,19 @@ services:
       context: .
       dockerfile: notification-service/Dockerfile
     ports:
-      - "8085:8085"
+      - "8085:8080"
     environment:
-      SPRING_PROFILES_ACTIVE: mysql
-      SERVER_PORT: "8085"
-      DB_HOST: mysql
+      SERVER_PORT: "8080"
+      DB_HOST: notification-db
       DB_PORT: "3306"
       DB_NAME: eventhub_notification
-      DB_USERNAME: ${DB_USERNAME:-eventhub}
-      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     restart: unless-stopped
     networks:
       - eventhub
     depends_on:
-      mysql:
+      notification-db:
         condition: service_healthy
 
   analytics-service:
@@ -140,20 +252,19 @@ services:
       context: .
       dockerfile: analytics-service/Dockerfile
     ports:
-      - "8086:8086"
+      - "8086:8080"
     environment:
-      SPRING_PROFILES_ACTIVE: mysql
-      SERVER_PORT: "8086"
-      DB_HOST: mysql
+      SERVER_PORT: "8080"
+      DB_HOST: analytics-db
       DB_PORT: "3306"
       DB_NAME: eventhub_analytics
-      DB_USERNAME: ${DB_USERNAME:-eventhub}
-      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     restart: unless-stopped
     networks:
       - eventhub
     depends_on:
-      mysql:
+      analytics-db:
         condition: service_healthy
 
   api-gateway:
@@ -164,18 +275,17 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SPRING_PROFILES_ACTIVE: mysql
       SERVER_PORT: "8080"
-      DB_HOST: mysql
+      DB_HOST: api-gateway-db
       DB_PORT: "3306"
       DB_NAME: eventhub_gateway
-      DB_USERNAME: ${DB_USERNAME:-eventhub}
-      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
     restart: unless-stopped
     networks:
       - eventhub
     depends_on:
-      mysql:
+      api-gateway-db:
         condition: service_healthy
 
 networks:
@@ -183,4 +293,10 @@ networks:
     driver: bridge
 
 volumes:
-  mysql_data:
+  auth_mysql_data:
+  event_mysql_data:
+  ticket_mysql_data:
+  order_mysql_data:
+  notification_mysql_data:
+  analytics_mysql_data:
+  api_gateway_mysql_data:
