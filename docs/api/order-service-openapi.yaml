@@ -1,0 +1,627 @@
+openapi: 3.0.3
+info:
+  title: EventHub - Order Service API
+  version: 1.0.0
+  description: |-
+    API contract của order-service. Endpoint lấy từ spec Notion; request/response được suy ra từ luồng xử lý.
+
+    Luồng: `Tạo Order -> Reserve vé 3 phút (ticket-service) -> Thanh toán -> Confirm và phát hành vé`.
+    Quá 3 phút chưa thanh toán thành công thì Order `EXPIRED`, Reservation được release.
+
+    - Giá lấy từ ticket-service, client không được gửi giá hoặc tổng tiền.
+    - Kết quả thanh toán chính thức lấy từ webhook hoặc API verify của gateway, không tin redirect từ client.
+    - Webhook idempotent theo `providerEventId`: lặp lại vẫn trả 2xx nhưng không xử lý lần hai.
+    - Refund chỉ tạo khi Order PAID, vé chưa check-in và còn >= 48 giờ trước sự kiện. Chỉ hủy vé sau khi gateway hoàn tiền thành công.
+
+    **Kafka (producer):** `order.paid` (chỉ phát sau khi vé đã phát hành), `order.failed` (kèm `reason`: PAYMENT_FAILED / EXPIRED), `order.refunded`.
+
+    Trạng thái: Order `PENDING_PAYMENT -> PAID -> REFUNDED`, hoặc `PENDING_PAYMENT -> FAILED | EXPIRED`;
+    Payment `CREATED -> PENDING -> SUCCEEDED | FAILED`;
+    Refund `REQUESTED -> APPROVED -> PROCESSING -> REFUNDED`, hoặc `REQUESTED -> REJECTED`, `APPROVED | PROCESSING -> FAILED`.
+
+
+    Đã đối chiếu với BC_32_V2: id của orders, reservations, payments, refund_requests là UUID (VARCHAR(36)).
+servers:
+- url: http://localhost:8080/api/v1
+  description: API Gateway (local)
+tags:
+- name: Order
+- name: Payment
+- name: Refund
+- name: Admin - Refund
+paths:
+  /orders:
+    post:
+      tags:
+      - Order
+      operationId: createOrder
+      summary: Tạo Order và reserve vé
+      description: Lấy giá chính thức từ ticket-service, reserve vé 3 phút, trả Order PENDING_PAYMENT cùng `expiresAt`.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Order đã tạo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: INSUFFICIENT_TICKETS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /orders/me:
+    get:
+      tags:
+      - Order
+      operationId: getMyOrders
+      summary: Lịch sử Order của tôi
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: page
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: size
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Danh sách Order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /orders/{id}:
+    get:
+      tags:
+      - Order
+      operationId: getOrder
+      summary: Chi tiết Order
+      description: Chỉ xem được Order thuộc quyền sở hữu.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: Chi tiết Order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
+  /orders/{id}/payment:
+    post:
+      tags:
+      - Payment
+      operationId: initPayment
+      summary: Khởi tạo thanh toán
+      description: Chỉ khi Order PENDING_PAYMENT và chưa quá `expiresAt`. Tạo hoặc đọc Payment theo `idempotency_key`.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/OrderId'
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InitPaymentRequest'
+      responses:
+        '200':
+          description: Thông tin để khách thanh toán với gateway
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
+        '409':
+          description: ORDER_NOT_PAYABLE hoặc ORDER_EXPIRED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /payments/webhook/{provider}:
+    post:
+      tags:
+      - Payment
+      operationId: paymentWebhook
+      summary: Payment webhook (gateway gọi)
+      description: |
+        Xác thực signature, map tới Payment/Order. SUCCEEDED + Order còn PENDING_PAYMENT thì atomic chuyển PAID rồi Confirm Reservation.
+        SUCCEEDED nhưng Order đã EXPIRED thì không phát hành vé, ghi nhận để hoàn tiền hoặc đối soát.
+        Webhook lặp hoặc gây transition không hợp lệ vẫn trả 2xx. Payload cụ thể phụ thuộc provider; schema dưới là dạng chuẩn hóa.
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: X-Signature
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookPayload'
+      responses:
+        '200':
+          description: Đã tiếp nhận (kể cả webhook lặp)
+        '401':
+          description: INVALID_SIGNATURE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /orders/{id}/refunds:
+    post:
+      tags:
+      - Refund
+      operationId: requestRefund
+      summary: Yêu cầu Refund
+      description: Order phải PAID, chưa có Refund hợp lệ trước đó, vé chưa check-in và còn >= 48 giờ trước sự kiện.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+      responses:
+        '201':
+          description: Refund REQUESTED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
+        '409':
+          description: ORDER_NOT_REFUNDABLE hoặc REFUND_ALREADY_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: REFUND_WINDOW_EXPIRED (dưới 48 giờ) hoặc TICKET_ALREADY_CHECKED_IN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/refunds:
+    get:
+      tags:
+      - Admin - Refund
+      operationId: listRefunds
+      summary: Danh sách Refund
+      description: Role ADMIN hoặc ORGANIZER. Spec dùng `status=REQUESTED` cho danh sách chờ duyệt.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        schema:
+          $ref: '#/components/schemas/RefundStatus'
+      responses:
+        '200':
+          description: Danh sách Refund
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RefundResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/refunds/{id}/approve:
+    post:
+      tags:
+      - Admin - Refund
+      operationId: approveRefund
+      summary: Duyệt Refund
+      description: |
+        Role ADMIN hoặc ORGANIZER. Chuyển PROCESSING, gọi gateway với idempotency key riêng.
+        Chỉ sau khi gateway xác nhận thì Refund và Order chuyển REFUNDED, gọi ticket-service hủy vé và publish `order.refunded`.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/RefundId'
+      responses:
+        '200':
+          description: Refund sau khi duyệt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/RefundNotFound'
+        '409':
+          description: INVALID_REFUND_STATE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/refunds/{id}/reject:
+    post:
+      tags:
+      - Admin - Refund
+      operationId: rejectRefund
+      summary: Từ chối Refund
+      description: Role ADMIN hoặc ORGANIZER.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/RefundId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectRefundRequest'
+      responses:
+        '200':
+          description: Refund REJECTED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/RefundNotFound'
+        '409':
+          description: INVALID_REFUND_STATE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    OrderId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RefundId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    ValidationError:
+      description: VALIDATION_ERROR
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Thiếu hoặc sai JWT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Không đủ quyền hoặc Order không thuộc user
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    OrderNotFound:
+      description: ORDER_NOT_FOUND
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RefundNotFound:
+      description: REFUND_NOT_FOUND
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    OrderStatus:
+      type: string
+      enum:
+      - PENDING_PAYMENT
+      - PAID
+      - FAILED
+      - EXPIRED
+      - REFUNDED
+    PaymentStatus:
+      type: string
+      enum:
+      - CREATED
+      - PENDING
+      - SUCCEEDED
+      - FAILED
+    RefundStatus:
+      type: string
+      enum:
+      - REQUESTED
+      - APPROVED
+      - REJECTED
+      - PROCESSING
+      - REFUNDED
+      - FAILED
+    HolderInput:
+      type: object
+      required:
+      - holderName
+      - holderEmail
+      properties:
+        holderName:
+          type: string
+        holderEmail:
+          type: string
+          format: email
+        holderPhone:
+          type: string
+          nullable: true
+    OrderItemInput:
+      type: object
+      required:
+      - ticketTypeId
+      - quantity
+      - holders
+      properties:
+        ticketTypeId:
+          type: integer
+          format: int64
+        quantity:
+          type: integer
+          minimum: 1
+        holders:
+          type: array
+          description: Thông tin người nhận vé (theo từng vé hoặc nhóm vé)
+          items:
+            $ref: '#/components/schemas/HolderInput'
+    CreateOrderRequest:
+      type: object
+      required:
+      - eventId
+      - items
+      properties:
+        eventId:
+          type: integer
+          format: int64
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/OrderItemInput'
+    OrderItemResponse:
+      type: object
+      description: Snapshot tên và giá tại thời điểm đặt
+      properties:
+        ticketTypeId:
+          type: integer
+          format: int64
+        ticketTypeName:
+          type: string
+          example: VIP
+        quantity:
+          type: integer
+        unitPrice:
+          type: number
+        lineTotal:
+          type: number
+    OrderResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        customerId:
+          type: integer
+          format: int64
+        eventId:
+          type: integer
+          format: int64
+        reservationId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItemResponse'
+        subtotal:
+          type: number
+        totalAmount:
+          type: number
+        currency:
+          type: string
+          example: VND
+        expiresAt:
+          type: string
+          format: date-time
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    OrderPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderResponse'
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+    InitPaymentRequest:
+      type: object
+      properties:
+        provider:
+          type: string
+          description: Tên gateway (nếu hỗ trợ nhiều provider)
+          example: VNPAY
+    PaymentResponse:
+      type: object
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        paymentUrl:
+          type: string
+          description: Payment URL hoặc client token
+        amount:
+          type: number
+    WebhookPayload:
+      type: object
+      required:
+      - providerEventId
+      - providerTransactionId
+      - status
+      properties:
+        providerEventId:
+          type: string
+          description: UNIQUE, dùng chống xử lý lặp
+        providerTransactionId:
+          type: string
+        orderId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+        status:
+          type: string
+          enum:
+          - SUCCEEDED
+          - FAILED
+    RefundRequest:
+      type: object
+      required:
+      - reason
+      properties:
+        reason:
+          type: string
+    RejectRefundRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    RefundResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/RefundStatus'
+        amount:
+          type: number
+        reason:
+          type: string
+        requestedBy:
+          type: integer
+          format: int64
+        approvedBy:
+          type: integer
+          format: int64
+          nullable: true
+        requestedAt:
+          type: string
+          format: date-time
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+        refundedAt:
+          type: string
+          format: date-time
+          nullable: true
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: ORDER_NOT_FOUND
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time

@@ -1,0 +1,740 @@
+openapi: 3.0.3
+info:
+  title: EventHub - Event Service API
+  version: 1.0.0
+  description: |-
+    API contract của event-service (EventHub microservices).
+
+    - Event-service quản lý vòng đời Event và Category.
+    - **Ticket type (VIP / PREMIUM / STANDARD) do ticket-service sở hữu**, không nằm trong service này.
+    - `organizerId` luôn lấy từ JWT, client không gửi.
+
+    Vòng đời Event:
+    `DRAFT -> SUBMITTED -> APPROVED -> PUBLISHED -> CLOSED`, hoặc `SUBMITTED -> REJECTED -> DRAFT` (organizer sửa lại).
+
+
+    Đã đối chiếu với BC_32_V2: bảng `events` không có cột `venue` nên đã bỏ field này.
+    Lưu ý: sơ đồ tuần tự Hình 2.36 (Create Event) trong báo cáo vẫn vẽ theo thiết kế cũ (gửi kèm ticketTypes, load Zone A-D), trái với mục 2.3 (ticket_types nằm ở ticket_service_db). File này theo mục 2.3.
+servers:
+- url: http://localhost:8080/api/v1
+  description: API Gateway (local)
+tags:
+- name: Event
+  description: Vòng đời Event
+- name: Admin - Event
+  description: Duyệt Event
+- name: Organizer
+  description: Event của organizer
+- name: Category
+  description: Danh mục Event
+- name: Internal
+  description: Service-to-service, không expose ra ngoài Gateway
+paths:
+  /events:
+    post:
+      tags:
+      - Event
+      operationId: createEvent
+      summary: EVT-01 Tạo Event (DRAFT)
+      description: Role ORGANIZER. Event được tạo ở trạng thái DRAFT.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRequest'
+      responses:
+        '201':
+          description: Tạo thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: CATEGORY_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+      - Event
+      operationId: searchEvents
+      summary: EVT-07 Tìm kiếm Event (public)
+      description: Chỉ trả Event có trạng thái PUBLISHED. Danh sách không chứa giá vé (giá thuộc ticket-service).
+      parameters:
+      - name: keyword
+        in: query
+        description: Tìm theo title
+        schema:
+          type: string
+      - name: category
+        in: query
+        description: categoryId
+        schema:
+          type: integer
+          format: int64
+      - name: date
+        in: query
+        description: Lọc theo ngày diễn ra (yyyy-MM-dd)
+        schema:
+          type: string
+          format: date
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Danh sách Event (rỗng nếu không có kết quả)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSummaryPage'
+  /events/{id}:
+    parameters:
+    - $ref: '#/components/parameters/EventId'
+    get:
+      tags:
+      - Event
+      operationId: getEventDetail
+      summary: EVT-08 Xem chi tiết Event (public)
+      description: |
+        Chỉ trả Event PUBLISHED. Không kèm ticket types; client lấy qua
+        `GET /events/{eventId}/ticket-types` của ticket-service (hoặc Gateway gom lại).
+      responses:
+        '200':
+          description: Chi tiết Event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+    put:
+      tags:
+      - Event
+      operationId: updateEvent
+      summary: EVT-02 Cập nhật Event
+      description: |
+        Role ORGANIZER (owner). Chỉ sửa được khi DRAFT hoặc REJECTED.
+        Nếu đang REJECTED thì sau khi sửa chuyển về DRAFT và xóa rejectReason.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventRequest'
+      responses:
+        '200':
+          description: Cập nhật thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotEventOwner'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '409':
+          $ref: '#/components/responses/InvalidEventState'
+  /events/{id}/submit:
+    post:
+      tags:
+      - Event
+      operationId: submitEvent
+      summary: EVT-03 Nộp duyệt
+      description: |
+        Role ORGANIZER (owner). Event phải đang DRAFT.
+        Đề xuất: kiểm tra ticket-service đã cấu hình đủ 3 loại vé (VIP/PREMIUM/STANDARD) trước khi cho submit.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Đã chuyển sang SUBMITTED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotEventOwner'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '409':
+          $ref: '#/components/responses/InvalidEventState'
+        '422':
+          description: TICKET_TYPES_NOT_CONFIGURED - chưa cấu hình đủ 3 loại vé bên ticket-service
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /events/{id}/publish:
+    post:
+      tags:
+      - Event
+      operationId: publishEvent
+      summary: EVT-05 Publish Event
+      description: Role ORGANIZER (owner). Event phải đang APPROVED.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Đã chuyển sang PUBLISHED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotEventOwner'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '409':
+          $ref: '#/components/responses/InvalidEventState'
+  /events/{id}/close:
+    post:
+      tags:
+      - Event
+      operationId: closeEvent
+      summary: EVT-06 Đóng bán vé
+      description: |
+        Role ORGANIZER (owner). Event phải đang PUBLISHED.
+        Ticket-service cần biết để ngừng bán: gọi `/internal/events/{id}` khi reserve,
+        hoặc event-service phát Kafka `event.closed`.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Đã chuyển sang CLOSED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventStatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotEventOwner'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '409':
+          $ref: '#/components/responses/InvalidEventState'
+  /admin/events/{id}/review:
+    patch:
+      tags:
+      - Admin - Event
+      operationId: reviewEvent
+      summary: EVT-04 Admin duyệt / từ chối Event
+      description: Role ADMIN. Event phải đang SUBMITTED. `reason` bắt buộc khi REJECT.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewRequest'
+            examples:
+              approve:
+                value:
+                  decision: APPROVE
+              reject:
+                value:
+                  decision: REJECT
+                  reason: Thiếu thông tin địa điểm
+      responses:
+        '200':
+          description: Kết quả duyệt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventStatusResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+        '409':
+          $ref: '#/components/responses/InvalidEventState'
+  /organizer/events:
+    get:
+      tags:
+      - Organizer
+      operationId: getMyEvents
+      summary: EVT-09 Event của tôi
+      description: Role ORGANIZER. Trả Event do organizer sở hữu, mọi trạng thái.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        schema:
+          $ref: '#/components/schemas/EventStatus'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Danh sách Event của organizer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /categories:
+    get:
+      tags:
+      - Category
+      operationId: listCategories
+      summary: CAT-02 Danh sách Category (public)
+      responses:
+        '200':
+          description: Danh sách Category
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CategoryResponse'
+    post:
+      tags:
+      - Category
+      operationId: createCategory
+      summary: CAT-01 Tạo Category
+      description: Role ADMIN.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+      responses:
+        '201':
+          description: Tạo thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: CATEGORY_NAME_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /categories/{id}:
+    parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    put:
+      tags:
+      - Category
+      operationId: updateCategory
+      summary: CAT-03 Cập nhật Category
+      description: Role ADMIN.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+      responses:
+        '200':
+          description: Cập nhật thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/CategoryNotFound'
+        '409':
+          description: CATEGORY_NAME_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+      - Category
+      operationId: deleteCategory
+      summary: CAT-04 Xóa Category
+      description: Role ADMIN. Từ chối nếu Category đang được Event sử dụng (FK RESTRICT).
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Xóa thành công
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/CategoryNotFound'
+        '409':
+          description: CATEGORY_IN_USE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/events/{id}:
+    get:
+      tags:
+      - Internal
+      operationId: getEventInternal
+      summary: INT-01 Thông tin Event cho service khác
+      description: |
+        Chỉ cho service-to-service. Ticket-service dùng để:
+        xác nhận organizer sở hữu Event khi cấu hình vé, lấy `startTime` cho quy tắc hủy vé 48h,
+        và chặn reserve khi Event không ở PUBLISHED.
+      parameters:
+      - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Thông tin Event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalEventResponse'
+        '404':
+          $ref: '#/components/responses/EventNotFound'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    EventId:
+      name: id
+      in: path
+      required: true
+      description: Event ID
+      schema:
+        type: integer
+        format: int64
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    Size:
+      name: size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+  responses:
+    ValidationError:
+      description: VALIDATION_ERROR
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Thiếu hoặc sai JWT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Không đủ quyền (sai role)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotEventOwner:
+      description: NOT_EVENT_OWNER hoặc sai role
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    EventNotFound:
+      description: EVENT_NOT_FOUND (không tồn tại, hoặc chưa PUBLISHED với API public)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    CategoryNotFound:
+      description: CATEGORY_NOT_FOUND
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InvalidEventState:
+      description: INVALID_EVENT_STATE - trạng thái hiện tại không cho phép thao tác
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    EventStatus:
+      type: string
+      enum:
+      - DRAFT
+      - SUBMITTED
+      - APPROVED
+      - REJECTED
+      - PUBLISHED
+      - CLOSED
+    ReviewDecision:
+      type: string
+      enum:
+      - APPROVE
+      - REJECT
+    EventRequest:
+      type: object
+      required:
+      - title
+      - categoryId
+      - startTime
+      - endTime
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          example: Đêm nhạc Mùa Đông 2026
+        description:
+          type: string
+          nullable: true
+        categoryId:
+          type: integer
+          format: int64
+          example: 1
+        startTime:
+          type: string
+          format: date-time
+          description: Phải ở tương lai
+          example: '2026-12-01T19:00:00Z'
+        endTime:
+          type: string
+          format: date-time
+          description: Phải sau startTime
+          example: '2026-12-01T22:00:00Z'
+    EventResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 10
+        organizerId:
+          type: integer
+          format: int64
+          example: 5
+        category:
+          $ref: '#/components/schemas/CategoryRef'
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        rejectReason:
+          type: string
+          nullable: true
+          description: Đề xuất thêm (ERD chưa có cột reject_reason)
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    EventSummary:
+      type: object
+      description: Item trong danh sách tìm kiếm public, không có giá vé
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        category:
+          $ref: '#/components/schemas/CategoryRef'
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+    EventStatusResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 10
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        rejectReason:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+    ReviewRequest:
+      type: object
+      required:
+      - decision
+      properties:
+        decision:
+          $ref: '#/components/schemas/ReviewDecision'
+        reason:
+          type: string
+          nullable: true
+          description: Bắt buộc khi decision = REJECT
+    InternalEventResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        organizerId:
+          type: integer
+          format: int64
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+    PageMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        totalElements:
+          type: integer
+          format: int64
+          example: 1
+        totalPages:
+          type: integer
+          example: 1
+    EventSummaryPage:
+      allOf:
+      - $ref: '#/components/schemas/PageMeta'
+      - type: object
+        properties:
+          items:
+            type: array
+            items:
+              $ref: '#/components/schemas/EventSummary'
+    EventPage:
+      allOf:
+      - $ref: '#/components/schemas/PageMeta'
+      - type: object
+        properties:
+          items:
+            type: array
+            items:
+              $ref: '#/components/schemas/EventResponse'
+    CategoryRef:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        name:
+          type: string
+          example: Âm nhạc
+    CategoryRequest:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          description: Unique
+          example: Âm nhạc
+        description:
+          type: string
+          nullable: true
+    CategoryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: EVENT_NOT_FOUND
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
