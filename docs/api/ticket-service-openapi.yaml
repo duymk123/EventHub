@@ -1,0 +1,721 @@
+openapi: 3.0.3
+info:
+  title: EventHub - Ticket Service API
+  version: 1.0.0
+  description: |-
+    API contract của ticket-service. Endpoint lấy từ spec Notion; request/response được suy ra từ luồng xử lý.
+
+    **Ticket service sở hữu Ticket Type.** Mỗi Event có đúng 3 loại vé: `VIP` (Main Center), `PREMIUM` (Left/Right Wing), `STANDARD` (Rear),
+    mỗi loại có giá và quota riêng.
+
+    - Reserve giữ vé tối đa 3 phút, idempotent theo `orderId`.
+    - Confirm chỉ gọi sau khi Order đã PAID; Confirm/Release/Expire/Cancel gọi lặp phải idempotent.
+    - Chỉ hủy vé sau Refund thành công, còn ít nhất 48 giờ trước sự kiện và vé chưa check-in.
+    - `/internal/*` chỉ cho service-to-service; `/gate/*` chỉ cho thiết bị quét QR hợp lệ.
+
+    **Kafka (producer):** `ticket.issued`, `ticket.checked-in`, `ticket.checked-out`, `ticket.cancelled`.
+
+    Trạng thái: Reservation `RESERVED -> CONFIRMED | RELEASED | EXPIRED`; Ticket `ISSUED -> CHECKED_IN -> CHECKED_OUT`, hoặc `ISSUED -> CANCELLED`.
+
+
+    Đã đối chiếu với BC_32_V2: id của reservation, ticket, order là UUID (VARCHAR(36)); id của ticket_types là BIGINT. `tickets` chỉ lưu `holder_name`, nên response không còn email và mốc check-in.
+servers:
+- url: http://localhost:8080/api/v1
+  description: API Gateway (local)
+tags:
+- name: Ticket Type
+- name: Ticket
+- name: Gate
+- name: Internal
+paths:
+  /ticket-types:
+    post:
+      tags:
+      - Ticket Type
+      operationId: createTicketTypes
+      summary: Khởi tạo 3 Ticket Type cho Event
+      description: |
+        Role ORGANIZER (owner của Event, kiểm tra qua `GET /internal/events/{id}` của event-service).
+        `name` chỉ nhận VIP / PREMIUM / STANDARD, mỗi loại đúng một lần.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTicketTypesRequest'
+      responses:
+        '201':
+          description: Đã tạo 3 Ticket Type
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TicketTypeResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: TICKET_TYPES_ALREADY_EXIST
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /ticket-types/{id}:
+    put:
+      tags:
+      - Ticket Type
+      operationId: updateTicketType
+      summary: Cập nhật giá, quota, trạng thái
+      description: Tên không đổi. `totalQuota` không được nhỏ hơn số vé đã bán + đang giữ.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTicketTypeRequest'
+      responses:
+        '200':
+          description: Cập nhật thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketTypeResponse'
+        '400':
+          description: VALIDATION_ERROR hoặc QUOTA_BELOW_SOLD_RESERVED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: TICKET_TYPE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /events/{eventId}/ticket-types:
+    get:
+      tags:
+      - Ticket Type
+      operationId: listTicketTypesByEvent
+      summary: Xem Ticket Type, giá và số vé còn lại
+      description: Public, số lượng gần realtime.
+      parameters:
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Danh sách Ticket Type của Event
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TicketTypeResponse'
+  /tickets/me:
+    get:
+      tags:
+      - Ticket
+      operationId: getMyTickets
+      summary: Danh sách vé của tôi
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Vé của người dùng hiện tại
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TicketResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /tickets/{id}/qr:
+    get:
+      tags:
+      - Ticket
+      operationId: getTicketQr
+      summary: Lấy QR của vé
+      description: Kiểm tra quyền sở hữu. QR là token opaque, không chứa dữ liệu nhạy cảm.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Giá trị QR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: TICKET_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /gate/check-in:
+    post:
+      tags:
+      - Gate
+      operationId: checkIn
+      summary: Check-in bằng QR
+      description: Chỉ hợp lệ với vé ISSUED. Cùng một QR không được check-in đồng thời ở hai cổng.
+      security:
+      - gateAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GateScanRequest'
+      responses:
+        '200':
+          description: Check-in thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GateScanResponse'
+        '400':
+          description: INVALID_QR hoặc TICKET_WRONG_EVENT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: INVALID_TICKET_STATE (vé không ở ISSUED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /gate/check-out:
+    post:
+      tags:
+      - Gate
+      operationId: checkOut
+      summary: Check-out bằng QR
+      description: Chỉ hợp lệ với vé CHECKED_IN.
+      security:
+      - gateAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GateScanRequest'
+      responses:
+        '200':
+          description: Check-out thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GateScanResponse'
+        '400':
+          description: INVALID_QR hoặc TICKET_WRONG_EVENT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: INVALID_TICKET_STATE (vé không ở CHECKED_IN)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/reservations:
+    post:
+      tags:
+      - Internal
+      operationId: reserveTickets
+      summary: Reserve Ticket (Order Service gọi)
+      description: |
+        Giữ nhiều Ticket Type tối đa 3 phút. Idempotent theo `orderId`: request lặp trả lại Reservation cũ.
+        Kiểm tra quota + giảm `available` + tăng `reserved` + tạo Reservation trong một transaction atomic.
+        Trả giá chính thức, client không được quyết định giá.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReserveRequest'
+      responses:
+        '200':
+          description: Reservation (mới hoặc đã tồn tại)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationResponse'
+        '404':
+          description: TICKET_TYPE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: INSUFFICIENT_TICKETS hoặc TICKET_TYPE_NOT_ON_SALE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/reservations/{id}/confirm:
+    post:
+      tags:
+      - Internal
+      operationId: confirmReservation
+      summary: Confirm Reservation và phát hành vé
+      description: |
+        Chỉ gọi sau khi Order đã PAID. Atomic `RESERVED -> CONFIRMED`, giảm `reserved`, tăng `sold`, tạo Ticket và QR duy nhất trong cùng transaction.
+        Gọi lặp trả kết quả cũ, không phát hành vé lần hai. Sau commit publish `ticket.issued`.
+        Body `holders` do mình suy ra: Ticket cần holder, mà holder do Order Service giữ.
+      parameters:
+      - $ref: '#/components/parameters/ReservationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmRequest'
+      responses:
+        '200':
+          description: Reservation đã CONFIRMED kèm danh sách vé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfirmResponse'
+        '404':
+          $ref: '#/components/responses/ReservationNotFound'
+        '409':
+          description: RESERVATION_RELEASED_OR_EXPIRED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/reservations/{id}/release:
+    post:
+      tags:
+      - Internal
+      operationId: releaseReservation
+      summary: Release Reservation
+      description: |
+        Atomic `RESERVED -> RELEASED`, trả quota. Reservation đã CONFIRMED/RELEASED/EXPIRED được xử lý idempotent, không cộng quota lần hai.
+        Ticket Scheduler tự chuyển `RESERVED -> EXPIRED` khi quá `expiresAt`.
+      parameters:
+      - $ref: '#/components/parameters/ReservationId'
+      responses:
+        '200':
+          description: Trạng thái Reservation sau khi release
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationStatusResponse'
+        '404':
+          $ref: '#/components/responses/ReservationNotFound'
+  /internal/tickets/cancel-by-order/{orderId}:
+    post:
+      tags:
+      - Internal
+      operationId: cancelTicketsByOrder
+      summary: Hủy vé sau Refund thành công
+      description: |
+        Vé phải ISSUED, chưa check-in và `eventStartTime - now >= 48 giờ`. Chuyển `ISSUED -> CANCELLED`,
+        giảm `sold`, tăng `available` trong cùng transaction, publish `ticket.cancelled`. Gọi lặp trả kết quả idempotent.
+      parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Kết quả hủy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelResponse'
+        '404':
+          description: Không có vé nào thuộc Order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: TICKET_ALREADY_CHECKED_IN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: CANCEL_WINDOW_EXPIRED (còn dưới 48 giờ)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    gateAuth:
+      type: apiKey
+      in: header
+      name: X-Gate-Token
+      description: Thiết bị quét QR đã xác thực (cơ chế cụ thể do bạn chốt)
+  parameters:
+    ReservationId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    ValidationError:
+      description: VALIDATION_ERROR
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Thiếu hoặc sai thông tin xác thực
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Không đủ quyền hoặc không phải owner
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ReservationNotFound:
+      description: RESERVATION_NOT_FOUND
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    TicketTypeName:
+      type: string
+      enum:
+      - VIP
+      - PREMIUM
+      - STANDARD
+    TicketTypeStatus:
+      type: string
+      description: Trạng thái bán. BC_32_V2 chỉ ghi mặc định ACTIVE; INACTIVE là giá trị mình giả định.
+      enum:
+      - ACTIVE
+      - INACTIVE
+    ReservationStatus:
+      type: string
+      enum:
+      - RESERVED
+      - CONFIRMED
+      - RELEASED
+      - EXPIRED
+    TicketStatus:
+      type: string
+      enum:
+      - ISSUED
+      - CHECKED_IN
+      - CHECKED_OUT
+      - CANCELLED
+    TicketTypeInput:
+      type: object
+      required:
+      - name
+      - price
+      - totalQuota
+      properties:
+        name:
+          $ref: '#/components/schemas/TicketTypeName'
+        price:
+          type: number
+          example: 1500000
+        totalQuota:
+          type: integer
+          minimum: 1
+          example: 200
+    CreateTicketTypesRequest:
+      type: object
+      required:
+      - eventId
+      - ticketTypes
+      properties:
+        eventId:
+          type: integer
+          format: int64
+          example: 10
+        ticketTypes:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            $ref: '#/components/schemas/TicketTypeInput'
+    UpdateTicketTypeRequest:
+      type: object
+      properties:
+        price:
+          type: number
+        totalQuota:
+          type: integer
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/TicketTypeStatus'
+    TicketTypeResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        eventId:
+          type: integer
+          format: int64
+        name:
+          $ref: '#/components/schemas/TicketTypeName'
+        price:
+          type: number
+        totalQuota:
+          type: integer
+        availableQuantity:
+          type: integer
+        reservedQuantity:
+          type: integer
+        soldQuantity:
+          type: integer
+        status:
+          $ref: '#/components/schemas/TicketTypeStatus'
+    ReserveItem:
+      type: object
+      required:
+      - ticketTypeId
+      - quantity
+      properties:
+        ticketTypeId:
+          type: integer
+          format: int64
+        quantity:
+          type: integer
+          minimum: 1
+    ReserveRequest:
+      type: object
+      required:
+      - orderId
+      - expiresAt
+      - items
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        expiresAt:
+          type: string
+          format: date-time
+          description: now + 3 phút
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ReserveItem'
+    ReservedItem:
+      type: object
+      properties:
+        ticketTypeId:
+          type: integer
+          format: int64
+        name:
+          $ref: '#/components/schemas/TicketTypeName'
+        quantity:
+          type: integer
+        unitPrice:
+          type: number
+    ReservationResponse:
+      type: object
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ReservationStatus'
+        expiresAt:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReservedItem'
+    ReservationStatusResponse:
+      type: object
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ReservationStatus'
+    Holder:
+      type: object
+      required:
+      - ticketTypeId
+      - holderName
+      - holderEmail
+      properties:
+        ticketTypeId:
+          type: integer
+          format: int64
+        holderName:
+          type: string
+        holderEmail:
+          type: string
+          format: email
+          description: Dùng cho payload Kafka ticket.issued (bảng tickets trong V2 không lưu email)
+        ownerUserId:
+          type: integer
+          format: int64
+          nullable: true
+    ConfirmRequest:
+      type: object
+      required:
+      - holders
+      properties:
+        holders:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Holder'
+    TicketResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        eventId:
+          type: integer
+          format: int64
+        ticketTypeId:
+          type: integer
+          format: int64
+        ticketTypeName:
+          $ref: '#/components/schemas/TicketTypeName'
+        holderName:
+          type: string
+        status:
+          $ref: '#/components/schemas/TicketStatus'
+        issuedAt:
+          type: string
+          format: date-time
+    ConfirmResponse:
+      type: object
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ReservationStatus'
+        tickets:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketResponse'
+    QrResponse:
+      type: object
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        qrCodeValue:
+          type: string
+          description: Token ngẫu nhiên / opaque
+    GateScanRequest:
+      type: object
+      required:
+      - qrCodeValue
+      - eventId
+      - gateId
+      properties:
+        qrCodeValue:
+          type: string
+        eventId:
+          type: integer
+          format: int64
+        gateId:
+          type: string
+    GateScanResponse:
+      type: object
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/TicketStatus'
+        scanType:
+          type: string
+          enum:
+          - CHECK_IN
+          - CHECK_OUT
+        scannedAt:
+          type: string
+          format: date-time
+    CancelResponse:
+      type: object
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        cancelledTickets:
+          type: integer
+        status:
+          type: string
+          example: CANCELLED
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: INSUFFICIENT_TICKETS
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time

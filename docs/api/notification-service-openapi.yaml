@@ -1,0 +1,200 @@
+openapi: 3.0.3
+info:
+  title: EventHub - Notification Service API
+  version: 1.0.0
+  description: |-
+    API contract của notification-service. Service này chủ yếu là **Kafka consumer**, chỉ có ít REST API cho client và admin.
+    Endpoint lấy từ spec Notion; request/response được suy ra từ bảng `notifications` và `notification_templates`.
+
+    **Kafka (consumer):**
+    - `ticket.issued`: gửi email chứa QR cho từng holder (QR sinh bằng ZXing từ `qr_code_value`), tạo thêm in-app notification nếu vé có chủ sở hữu.
+    - `order.failed`, `order.refunded`: gửi email thông báo, ghi log vào bảng `notifications`.
+    - Idempotent theo `eventId` (bảng `processed_events`). Gửi lỗi thì retry (Spring Retry), vượt số lần thì đẩy sang topic `notification.dlq`.
+    - Gửi event reminder; push qua Firebase Cloud Messaging là tuỳ chọn.
+
+    Trạng thái gửi: `PENDING`, `SENT`, `FAILED`.
+
+
+    Đã đối chiếu với BC_32_V2: bảng `notifications` chỉ có id (UUID), recipient_email, status, read_at, created_at; `notification_templates` chỉ có code, subject, body_template. Vì vậy response không còn channel, templateCode, payload. Nếu in-app cần hiển thị nội dung thông báo thì bảng cần thêm cột (V2 chưa có).
+servers:
+- url: http://localhost:8080/api/v1
+  description: API Gateway (local)
+tags:
+- name: Notification
+- name: Admin - Template
+paths:
+  /notifications/me:
+    get:
+      tags:
+      - Notification
+      operationId: getMyNotifications
+      summary: Danh sách thông báo in-app của tôi
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: unreadOnly
+        in: query
+        description: Chỉ lấy thông báo chưa đọc
+        schema:
+          type: boolean
+          default: false
+      responses:
+        '200':
+          description: Danh sách thông báo
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NotificationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /notifications/{id}/read:
+    put:
+      tags:
+      - Notification
+      operationId: markAsRead
+      summary: Đánh dấu đã đọc
+      description: Cập nhật `readAt`. Chỉ thao tác được thông báo của chính mình.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Thông báo sau khi cập nhật
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: NOTIFICATION_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/notification-templates:
+    post:
+      tags:
+      - Admin - Template
+      operationId: upsertTemplate
+      summary: Tạo hoặc chỉnh sửa template
+      description: Role ADMIN. Nếu `code` đã tồn tại thì cập nhật (code là khóa chính).
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateRequest'
+      responses:
+        '200':
+          description: Template sau khi lưu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+        '400':
+          description: VALIDATION_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Unauthorized:
+      description: Thiếu hoặc sai JWT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Không đủ quyền
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    Channel:
+      type: string
+      enum:
+      - EMAIL
+      - PUSH
+      - IN_APP
+    NotificationStatus:
+      type: string
+      enum:
+      - PENDING
+      - SENT
+      - FAILED
+    NotificationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        recipientEmail:
+          type: string
+          format: email
+        status:
+          $ref: '#/components/schemas/NotificationStatus'
+        readAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    TemplateRequest:
+      type: object
+      required:
+      - code
+      - subject
+      - bodyTemplate
+      properties:
+        code:
+          type: string
+          example: ORDER_FAILED
+        subject:
+          type: string
+        bodyTemplate:
+          type: string
+    TemplateResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        subject:
+          type: string
+        bodyTemplate:
+          type: string
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: NOTIFICATION_NOT_FOUND
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time

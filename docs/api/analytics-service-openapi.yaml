@@ -1,0 +1,183 @@
+openapi: 3.0.3
+info:
+  title: EventHub - Analytics Service API
+  version: 1.0.0
+  description: |-
+    API contract của analytics-service. Endpoint lấy từ spec Notion; request/response được suy ra từ bảng `sales_metrics` và `dashboard_snapshot`.
+
+    Service dùng CQRS đơn giản: log chi tiết (`attendance_logs`) là write-model, `dashboard_snapshot` là read-model.
+
+    **Kafka (consumer):**
+    - `order.paid`: UPSERT `sales_metrics` theo (event, ngày), cập nhật `dashboard_snapshot`, push WebSocket.
+    - `ticket.issued`: cộng số vé đã phát hành.
+    - `ticket.checked-in` / `ticket.checked-out`: ghi `attendance_logs`, tăng hoặc giảm `current_attendance`, push WebSocket.
+    - Idempotent theo `eventId` (bảng `processed_events`).
+
+    **WebSocket (OpenAPI không mô tả được, ghi ở đây):**
+    - Endpoint: `/ws/dashboard`.
+    - Client subscribe `/topic/event/{id}/dashboard` để nhận JSON cập nhật realtime, cùng dạng với `DashboardSnapshot` bên dưới.
+
+
+    Đã đối chiếu với BC_32_V2: `sales_metrics` không có ticket_type_id và `dashboard_snapshot` không có total_revenue (chỉ total_tickets, current_attendance, updated_at). Phần chữ của báo cáo lại nói thống kê 'theo hạng vé', nên hai chỗ này cần bạn chốt.
+servers:
+- url: http://localhost:8080/api/v1
+  description: API Gateway (local)
+tags:
+- name: Analytics
+paths:
+  /analytics/events/{id}/sales:
+    get:
+      tags:
+      - Analytics
+      operationId: getSalesReport
+      summary: Báo cáo doanh số theo khoảng thời gian
+      description: Role ORGANIZER. Đọc từ bảng `sales_metrics`.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EventId'
+      - name: from
+        in: query
+        description: Ngày bắt đầu (yyyy-MM-dd)
+        schema:
+          type: string
+          format: date
+      - name: to
+        in: query
+        description: Ngày kết thúc (yyyy-MM-dd)
+        schema:
+          type: string
+          format: date
+      responses:
+        '200':
+          description: Báo cáo doanh số
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesReport'
+        '400':
+          description: VALIDATION_ERROR (from sau to)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /analytics/events/{id}/attendance:
+    get:
+      tags:
+      - Analytics
+      operationId: getAttendance
+      summary: Số người đang có mặt
+      description: Role ORGANIZER. Đọc nhanh `current_attendance` từ `dashboard_snapshot`.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Tình trạng điểm danh hiện tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attendance'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    EventId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+  responses:
+    Unauthorized:
+      description: Thiếu hoặc sai JWT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Không phải ORGANIZER của Event
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    DailySales:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        revenue:
+          type: number
+        ticketsSold:
+          type: integer
+    SalesReport:
+      type: object
+      properties:
+        eventId:
+          type: integer
+          format: int64
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        totalRevenue:
+          type: number
+        totalTicketsSold:
+          type: integer
+        daily:
+          type: array
+          items:
+            $ref: '#/components/schemas/DailySales'
+    Attendance:
+      type: object
+      properties:
+        eventId:
+          type: integer
+          format: int64
+        currentAttendance:
+          type: integer
+        updatedAt:
+          type: string
+          format: date-time
+    DashboardSnapshot:
+      type: object
+      description: Payload đẩy qua WebSocket tại `/topic/event/{id}/dashboard`
+      properties:
+        eventId:
+          type: integer
+          format: int64
+        totalTickets:
+          type: integer
+        currentAttendance:
+          type: integer
+        updatedAt:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: VALIDATION_ERROR
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
