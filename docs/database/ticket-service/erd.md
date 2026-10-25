@@ -68,3 +68,5 @@ erDiagram
         varchar event_id PK
         datetime processed_at
     }
+
+![Ticket service ERD](./1.jpeg)
