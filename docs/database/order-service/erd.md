@@ -43,3 +43,5 @@ erDiagram
         datetime created_at
         datetime updated_at
     }
+
+![Order service ERD](./1.JPEG)
