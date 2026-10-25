@@ -62,7 +62,37 @@ Nếu PR đang mở, các lần `git push` tiếp theo tự cập nhật PR đó
 ```powershell
 gh pr list --base main
 ```
+Các lệnh xem Pull Request bằng GitHub CLI
+1. Xem danh sách Pull Request
 
+Hiển thị danh sách các Pull Request trong repository hiện tại.
+
+powershell
+gh pr list
+
+2. Xem tất cả Pull Request
+
+Hiển thị tất cả PR, bao gồm PR đang mở, đã đóng và đã merge.
+
+powershell
+gh pr list --state all
+
+3. Chỉ xem Pull Request đang mở
+
+Hiển thị các PR có trạng thái open.
+
+powershell
+gh pr list --state open
+
+4. Xem chi tiết một Pull Request
+
+Hiển thị thông tin chi tiết của PR theo số thứ tự.
+
+powershell
+gh pr view 123
+
+
+Thay 123 bằng số PR cần xem.
 ## 5. Review và merge
 
 Một thành viên khác có quyền ghi vào repo review PR. Tác giả không thể tự approve PR của mình.
