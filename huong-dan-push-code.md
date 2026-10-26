@@ -132,3 +132,36 @@ Việc merge `origin/main` khi đang ở `dev/duy` chỉ đồng bộ nhánh cá
 
 Nhánh cá nhân được giữ lại nếu repo tắt **Settings → General → Pull Requests → Automatically delete head branches**. Trong repo EventHub, tùy chọn này hiện đang bỏ chọn.
 
+## 7. Kéo code mới nhất từ `main` vào nhánh riêng
+
+Dùng `git merge` để cập nhật nhánh cá nhân từ `main`.
+
+### Bước 1: Chuyển sang nhánh của bạn
+
+```powershell
+git switch dev/duy
+```
+
+Kiểm tra nhánh hiện tại:
+
+```powershell
+git branch
+```
+
+Dấu `*` cho biết nhánh đang hoạt động.
+
+### Bước 2: Lấy thông tin mới nhất từ remote
+
+```powershell
+git fetch origin
+```
+
+Lệnh này cập nhật thông tin các nhánh trên remote. Nó không thay đổi code trong nhánh hiện tại.
+
+### Bước 3: Merge `main` vào nhánh riêng
+
+```powershell
+git merge origin/main
+```
+
+Lệnh này đưa các thay đổi mới nhất từ `origin/main` vào nhánh `dev/duy`.
