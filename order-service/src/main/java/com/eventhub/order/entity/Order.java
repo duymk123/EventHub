@@ -1,4 +1,4 @@
-package com.eventhub.order.model;
+package com.eventhub.order.entity;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
