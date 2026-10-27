@@ -1,10 +1,12 @@
 package com.eventhub.order.entity;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -13,6 +15,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -30,12 +34,18 @@ public class OrderItem extends BaseEntity {
     @Column(name = "ticket_type_id", nullable = false, length = 36)
     private UUID ticketTypeId;
 
+    @Column(name = "ticket_type_name", nullable = false, length = 100)
+    private String ticketTypeName;
+
     @Column(nullable = false)
     private Integer quantity;
 
     @Column(name = "unit_price", nullable = false, precision = 12, scale = 2)
     private BigDecimal unitPrice;
 
-    @Column(nullable = false, precision = 12, scale = 2)
-    private BigDecimal subtotal;
+    @Column(name = "line_total", nullable = false, precision = 14, scale = 2)
+    private BigDecimal lineTotal;
+
+    @OneToMany(mappedBy = "orderItem", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<OrderHolder> holders = new ArrayList<>();
 }

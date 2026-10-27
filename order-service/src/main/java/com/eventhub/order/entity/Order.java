@@ -3,6 +3,8 @@ package com.eventhub.order.entity;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import lombok.Getter;
@@ -14,7 +16,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -27,38 +29,50 @@ import java.util.UUID;
 public class Order extends BaseEntity {
 
     @JdbcTypeCode(SqlTypes.CHAR)
-    @Column(name = "user_id", nullable = false, length = 36)
-    private UUID userId;
+    @Column(name = "customer_id", nullable = false, length = 36)
+    private UUID customerId;
 
-    @Column(name = "total_amount", nullable = false, precision = 12, scale = 2)
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "event_id", nullable = false, length = 36)
+    private UUID eventId;
+
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "reservation_id", nullable = false, length = 36)
+    private UUID reservationId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private OrderStatus status = OrderStatus.PENDING_PAYMENT;
+
+    @Column(nullable = false, precision = 14, scale = 2)
+    private BigDecimal subtotal = BigDecimal.ZERO;
+
+    @Column(name = "total_amount", nullable = false, precision = 14, scale = 2)
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
-    @Column(nullable = false, length = 30)
-    private String status = "PENDING";
+    @Column(nullable = false, length = 3)
+    private String currency = "VND";
 
-    @Column(name = "payment_status", nullable = false, length = 30)
-    private String paymentStatus = "UNPAID";
+    @Column(name = "expires_at", nullable = false)
+    private Instant expiresAt;
 
-    @Column(name = "idempotency_key", nullable = false, unique = true, length = 100)
-    private String idempotencyKey;
-
-    @Column(name = "expired_at", nullable = false)
-    private LocalDateTime expiredAt;
+    @Column(name = "paid_at")
+    private Instant paidAt;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
+    private Instant updatedAt;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderItem> items = new ArrayList<>();
 
-    @OneToMany(mappedBy = "order")
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Payment> payments = new ArrayList<>();
 
-    @OneToMany(mappedBy = "order")
-    private List<Refund> refunds = new ArrayList<>();
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<RefundRequest> refundRequests = new ArrayList<>();
 }

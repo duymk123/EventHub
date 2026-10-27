@@ -1,4 +1,4 @@
-package com.eventhub.order.model;
+package com.eventhub.order.entity;
 
 import org.hibernate.boot.Metadata;
 import org.hibernate.boot.MetadataSources;
@@ -25,20 +25,23 @@ class UuidColumnMappingTests {
             Metadata metadata = new MetadataSources(registry)
                     .addAnnotatedClass(Order.class)
                     .addAnnotatedClass(OrderItem.class)
+                    .addAnnotatedClass(OrderHolder.class)
                     .addAnnotatedClass(Payment.class)
-                    .addAnnotatedClass(Refund.class)
+                    .addAnnotatedClass(RefundRequest.class)
                     .buildMetadata();
 
-            for (Class<?> entity : new Class<?>[]{Order.class, OrderItem.class, Payment.class, Refund.class}) {
+            for (Class<?> entity : new Class<?>[]{Order.class, OrderItem.class, Payment.class, RefundRequest.class}) {
                 assertThat(metadata.getEntityBinding(entity.getName())
                         .getIdentifier().getType().getReturnedClass()).isEqualTo(UUID.class);
                 assertChar36(metadata, entity, "id");
             }
-            assertChar36(metadata, Order.class, "user_id");
+            assertChar36(metadata, Order.class, "customer_id");
+            assertChar36(metadata, Order.class, "event_id");
+            assertChar36(metadata, Order.class, "reservation_id");
             assertChar36(metadata, OrderItem.class, "ticket_type_id");
             assertChar36(metadata, OrderItem.class, "order_id");
             assertChar36(metadata, Payment.class, "order_id");
-            assertChar36(metadata, Refund.class, "order_id");
+            assertChar36(metadata, RefundRequest.class, "order_id");
         } finally {
             StandardServiceRegistryBuilder.destroy(registry);
         }

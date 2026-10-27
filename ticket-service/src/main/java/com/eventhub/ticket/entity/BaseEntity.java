@@ -1,4 +1,4 @@
-package com.eventhub.order.model;
+package com.eventhub.ticket.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.GeneratedValue;
