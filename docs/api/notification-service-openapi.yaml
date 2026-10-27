@@ -67,6 +67,8 @@ paths:
         schema:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
       responses:
         '204':
           description: Đã đánh dấu đọc, hoặc đã đọc trước đó
@@ -271,6 +273,8 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         channel:
           type: string
           enum:
@@ -311,6 +315,8 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         code:
           type: string
         channel:
