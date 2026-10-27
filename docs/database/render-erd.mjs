@@ -31,6 +31,7 @@ function splitFields(body) {
   parts.push(body.slice(start).trim()); return parts;
 }
 function parse(sql,service) {
+  if (/^(<<<<<<<|=======|>>>>>>>)/m.test(sql)) throw Error('Unresolved merge conflict in '+service+'-service/init.sql');
   const clean=sql.replace(/--[^\r\n]*/g,''); const tables=[];
   for(const match of clean.matchAll(/CREATE\s+TABLE\s+(\w+)\s*\(/gi)) {
     let end=match.index+match[0].length,depth=1,quoted=false;

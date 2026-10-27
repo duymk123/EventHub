@@ -69,7 +69,9 @@ Ghi outbox/delivery log cùng transaction nghiệp vụ, publish có retry và �
 
 ## 7. Hoàn thành một thay đổi
 
-Đọc source-decisions/câu hỏi → migration/entity → repository/CAS → DTO/mapper → service → controller/client/messaging → test cần thiết. Kiểm tra role+sở hữu, invariant, retry, crash và cạnh tranh với luồng tiền/vé. Không viết hàng loạt test phản chiếu implementation cho sửa tài liệu. Context test scaffold chưa kiểm tra DB, Kafka, email hoặc Keycloak.
+Theo yêu cầu chủ dự án ngày 2026-10-28, không giữ hoặc tạo thêm file test, profile test hay dependency chỉ dùng cho test, trừ khi được yêu cầu lại. Kiểm chứng bằng build, kiểm tra tĩnh và chạy thử phù hợp với thay đổi. Những tình huống test trong plan cũ là tiêu chí tham khảo để kiểm tra thủ công, không là yêu cầu sinh test tự động.
+
+Đọc source-decisions/câu hỏi → migration/entity → repository/CAS → DTO/mapper → service → controller/client/messaging → kiểm tra phù hợp. Kiểm tra role+sở hữu, invariant, retry, crash và cạnh tranh với luồng tiền/vé khi chạy thử. Build thành công không thay thế kiểm tra nghiệp vụ/DB/Kafka/Keycloak.
 
 ## 8. Workflow
 

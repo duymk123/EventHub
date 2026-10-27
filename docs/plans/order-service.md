@@ -6,7 +6,7 @@ Ngày 2026-10-28. Đọc [plan chung](00-cross-service-contracts.md), [OpenAPI O
 
 | Hiện có trong code | Mục tiêu và công việc |
 |---|---|
-| BaseEntity dùng UUID CHAR(36) | Giữ quyết định này, tái dùng test PK/FK; không chuyển lại IDENTITY/Long. |
+| BaseEntity dùng UUID CHAR(36) | Giữ quyết định này khi kiểm tra mapping PK/FK; không chuyển lại IDENTITY/Long. |
 | `model/Order`, user_id, PENDING, payment_status, expired_at | Đổi thành entity `PurchaseOrder` bảng orders, customer_id/event_id/reservation_id, PENDING_PAYMENT, subtotal/total_amount/currency/paid_at/expires_at theo DDL. Payment status thuộc payments; không duy trì hai nguồn authoritative. |
 | OrderItem có ticketTypeId/quantity/unitPrice/subtotal | Bổ sung ticket_type_name snapshot, line_total đúng tên và order_holders riêng; không một holder cho cả item nhiều vé. |
 | Payment có transaction_id NOT NULL | Provider + provider_transaction_id nullable trước phản hồi, CREATED/PENDING/SUCCEEDED/FAILED, payment_url và idempotency_key; mã provider là string ngoài hệ thống. |
@@ -105,7 +105,7 @@ API hiện chỉ có reason để xin refund, chưa chọn ticketIds. Nếu C04 
 
 ## 7. Kiểm tra và thứ tự code
 
-1. Refactor entity + migration + giữ/điều chỉnh UuidColumnMappingTests để kiểm tra class/table mới; bổ sung schema contract test chống quay lại Long/IDENTITY.
+1. Refactor entity + migration, đối chiếu DDL/metadata cho class/table mới để tránh quay lại Long/IDENTITY. Không tạo lại file test đã xóa theo yêu cầu chủ dự án.
 2. Query/create/reserve + holders/fingerprint; fake Ticket client và test bù trừ; sau đó MySQL lock/unique.
 3. Payment adapter/verifier khi C06 có câu trả lời; webhook local transaction/task/outbox; worker integration với Ticket.
 4. RefundPolicy/review/worker sau C04/C05; không bật thu tiền/hoàn tiền thật để thử thiếu policy.

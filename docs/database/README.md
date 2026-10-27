@@ -72,14 +72,12 @@ Migration Analytics V1 là nền, **chưa đủ chống đảo thứ tự check-
 
 ## Triển khai và seed
 
+Analytics/Notification đã có đủ bảy entity ánh xạ V1 và enums; metadata đã được đối chiếu với migration. File test đã được xóa theo yêu cầu chủ dự án. Chủ dự án chọn giữ schema hiện tại và bỏ qua BaseEntity: không thêm create_at/update_at/created_by/updated_by/deleted, không thêm migration audit. ProcessedEvent.id phải được gán bằng messageId; các entity nghiệp vụ còn lại dùng UUID generator. Timestamps nghiệp vụ của Analytics được service/projection gán, không thay bằng clock audit.
+
 Notification/Analytics đã dùng Flyway + validate. Auth/Event/Ticket/Order/Gateway còn Hibernate update của scaffold; tài liệu mục tiêu không tự tạo bảng cho các module này. Không chạy init.sql vào DB có dữ liệu, không sửa V1 đã áp dụng. Đổi schema dùng migration mới, backup và kiểm tra dữ liệu trước khi áp dụng. [Seed](../../infrastructure/mysql/seed/README.md).
 
-<<<<<<< HEAD
-Ảnh [Order](order-service/1.JPEG) và [Ticket](ticket-service/1.jpeg) đã được tạo lại từ DDL hiện hành: PK và ID tham chiếu đều là UUID `CHAR(36)`. Có thể tạo lại bằng [render-erd.ps1](render-erd.ps1) trên Windows; `init.sql` và `erd.md` vẫn mô tả đầy đủ constraint/quan hệ.
-=======
 Ảnh [Order](order-service/1.JPEG) và [Ticket](ticket-service/1.jpeg) đã được tạo lại từ cùng model với SVG hiện hành: PK và ID tham chiếu đều là UUID `CHAR(36)`. Có thể tạo lại bằng [render-erd.ps1](render-erd.ps1) trên Windows; `init.sql` và `erd.md` mô tả đầy đủ constraint/quan hệ. SVG là bản đọc bằng mã để đối chiếu tên/kiểu cột, JPEG là bản tương thích để xem.
->>>>>>> 2d5e52cfa09fc1574dc9cd7ae930bf9373836f62
 
-Model Order hiện có đã đổi `BaseEntity.id`, `Order.userId`, `OrderItem.ticketTypeId` sang Java `UUID`, sinh bằng `GenerationType.UUID` và ánh xạ `CHAR(36)`. Các FK `order_id` kế thừa kiểu cột khóa chính UUID. Test Hibernate kiểm tra kiểu cột MySQL của toàn bộ PK/FK hiện có. Các field/trạng thái khác của model Order chưa được coi là đã triển khai đầy đủ hợp đồng V2.
+Model Order hiện có đã đổi `BaseEntity.id`, `Order.userId`, `OrderItem.ticketTypeId` sang Java `UUID`, sinh bằng `GenerationType.UUID` và ánh xạ `CHAR(36)`. Các FK `order_id` kế thừa kiểu cột khóa chính UUID. Mapping PK/FK đã được kiểm tra; không giữ file test theo yêu cầu chủ dự án. Các field/trạng thái khác của model Order chưa được coi là đã triển khai đầy đủ hợp đồng V2.
 
 Thay đổi mapping/DDL không tự chuyển dữ liệu số của DB đã tạo trước đây thành UUID hợp lệ. Nếu có dữ liệu cũ, cần migration giữ mapping UUID giữa các bảng/service; chỉ ép số sang chuỗi không tạo UUID 36 ký tự. Không reset/xóa DB để đổi kiểu ID.

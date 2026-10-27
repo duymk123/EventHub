@@ -16,6 +16,8 @@ Cập nhật 2026-10-28, viết trực tiếp trên `main` theo yêu cầu chủ
 
 Mỗi plan chỉ rõ interface/service methods, repository methods, kiểu dữ liệu và DTO, API → service, transaction/lock, migration còn thiếu, lỗi và test. Tên hàm là thiết kế đề xuất để bắt đầu code; khi đổi phải sửa API/plan/DDL liên quan cùng thay đổi.
 
+**Cập nhật theo yêu cầu chủ dự án ngày 2026-10-28:** đã bỏ toàn bộ file/profile/dependency test. Không tạo lại test khi triển khai các plan này. Các mục test bên dưới và trong sáu plan là danh sách tình huống tham khảo để chạy thử/kiểm tra thủ công; không tự thêm JUnit/Mockito/Testcontainers/GreenMail.
+
 ## Các nguồn không được bỏ qua
 
 Xác nhận trực tiếp của chủ dự án → [đối chiếu BC_32_V2](../architecture/source-decisions.md) → [câu hỏi còn mở](../project-clarifications.md) → [SKILL](../../SKILL.md), [services](../../services.md), [OpenAPI](../api/README.md), [Kafka](../kafka/events.md), [database](../database/README.md). Plan không tự phê duyệt phương án còn C02–C09.
@@ -26,12 +28,12 @@ UUID là quyết định đã chốt: Java `UUID`, MySQL `CHAR(36)`, JSON `strin
 
 | Service | Đã có | Cần xây |
 |---|---|---|
-| Auth | Application/context test | Facade + Keycloak clients, mapping identity/role và security |
-| Event | Application/context test | Toàn bộ nghiệp vụ, entity/repository/Flyway |
-| Ticket | Application/context test | Toàn bộ nghiệp vụ, entity/repository/Flyway/outbox |
-| Order | BaseEntity UUID, Order/OrderItem/Payment/Refund, test UUID | Refactor model còn lệch hợp đồng; các tầng nghiệp vụ/worker/migration |
-| Notification | Application, cấu hình Kafka/mail, Flyway V1 | Entity/repository/API/template/consumer/delivery |
-| Analytics | Application, cấu hình Kafka, Flyway V1 | Entity/repository/projection/API/EventClient/WS |
+| Auth | Application | Facade + Keycloak clients, mapping identity/role và security |
+| Event | Application | Toàn bộ nghiệp vụ, entity/repository/Flyway |
+| Ticket | Application | Toàn bộ nghiệp vụ, entity/repository/Flyway/outbox |
+| Order | BaseEntity UUID, Order/OrderItem/Payment/Refund | Refactor model còn lệch hợp đồng; các tầng nghiệp vụ/worker/migration |
+| Notification | Application, Kafka/mail, Flyway V1, ba entity/enums | Repository/API/template/consumer/delivery |
+| Analytics | Application, Kafka, Flyway V1, bốn entity/enum | Repository/projection/API/EventClient/WS |
 
 API Gateway là phần phụ thuộc chung, không tính thành service nghiệp vụ thứ bảy trong bộ plan này. Nó vẫn cần route REST, route WS riêng, xác thực và chặn public `/internal/**`. Compose có Kafka/UI/Mailpit, chưa có Keycloak/Redis.
 

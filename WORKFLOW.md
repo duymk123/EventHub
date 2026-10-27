@@ -14,7 +14,7 @@ Hai hướng dẫn cũ mâu thuẫn giữa nhánh theo thay đổi và nhánh c�
 
 Code theo Controller → Service interface → ServiceImpl → Repository. Migration và thay đổi hợp đồng đi cùng thay đổi nghiệp vụ. Không FK/join xuyên service. Mỗi PR/thay đổi tập trung vào một mục có thể kiểm tra.
 
-Tài liệu: parse OpenAPI, kiểm tra tham chiếu schema, ID, liên kết và diff. Code: chạy kiểm tra phù hợp; luồng tiền/vé cần kiểm tra idempotency, CAS, cạnh tranh, crash/retry và bù trừ. Context test scaffold không thay thế test tích hợp DB/Kafka/provider.
+Tài liệu: parse OpenAPI, kiểm tra tham chiếu schema, ID, liên kết và diff. Code: build và chạy thử phù hợp; luồng tiền/vé cần kiểm tra idempotency, CAS, cạnh tranh, crash/retry và bù trừ. Theo yêu cầu chủ dự án ngày 2026-10-28, không tạo file/profile/dependency test tự động; các tình huống kiểm tra trong plan được dùng làm checklist chạy thử thủ công.
 
 ## Chia sẻ thay đổi
 

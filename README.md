@@ -35,4 +35,4 @@ docker compose ps
 
 Gateway 8080, Auth 8081, Event 8082, Ticket 8083, Order 8084, Notification 8085, Analytics 8086. Kafka localhost:29092, Kafka UI 8089, Mailpit SMTP 1025/web 8025. MySQL host 33101–33107 là cấu hình scaffold, **không có nghĩa Gateway cần DB nghiệp vụ**.
 
-Compose có Kafka KRaft/UI/Mailpit; chưa có Keycloak/Redis. Notification/Analytics có migration nền V1 + validate; các module khác còn Hibernate update. DB/Auth/API chưa hoàn thiện nên khởi động container không có nghĩa luồng mua vé đã chạy được. Context test không thay thế test tích hợp. Nếu Maven Wrapper lỗi khâu cache trên máy Windows, dùng Maven 3.9.x đã cài cùng tham số và giữ lỗi Wrapper thành công việc riêng.
+Compose có Kafka KRaft/UI/Mailpit; chưa có Keycloak/Redis. Notification/Analytics có migration nền V1 + validate; các module khác còn Hibernate update. DB/Auth/API chưa hoàn thiện nên khởi động container không có nghĩa luồng mua vé đã chạy được. Đã bỏ file/profile/dependency test theo yêu cầu chủ dự án; kiểm chứng bằng build và chạy thử phù hợp. Nếu Maven Wrapper lỗi khâu cache trên máy Windows, dùng Maven 3.9.x đã cài cùng tham số và giữ lỗi Wrapper thành công việc riêng.

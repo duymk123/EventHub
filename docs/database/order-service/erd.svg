@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="2280" height="1611" viewBox="0 0 2280 1611" role="img" aria-labelledby="title desc">
 <title id="title">order-service — UUID CHAR(36)</title>
-<desc id="desc">Reference ERD generated from init.sql, SHA-256 9a775722dfc0a8503cfa6107989d9fddf9d0dba8ecdbe6a5c593c777899b2f16. Every application primary key and ID reference is UUID CHAR(36); only local physical foreign keys are connected.</desc>
+<desc id="desc">Reference ERD generated from init.sql, SHA-256 0da04befceb6e27c1a6616483746535a8f8005aea27061178f2a3e7f0ec90fb9. Every application primary key and ID reference is UUID CHAR(36); only local physical foreign keys are connected.</desc>
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#617891"/></marker></defs>
 <rect width="100%" height="100%" fill="white"/>
 <text x="65" y="65" font-family="Segoe UI,Arial,sans-serif" font-size="36" font-weight="700" fill="#163453">ORDER SERVICE | UUID CHAR(36)</text>
@@ -98,5 +98,5 @@
 <text data-column="created_at" x="1581" y="1436" font-family="Consolas,monospace" font-size="20" fill="#172b4d">created_at</text><text x="2005" y="1436" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
 <text data-column="published_at" x="1581" y="1467" font-family="Consolas,monospace" font-size="20" fill="#172b4d">published_at</text><text x="2005" y="1467" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
 </g>
-<text x="65" y="1576" font-family="Segoe UI,Arial,sans-serif" font-size="21" fill="#52657d">Mũi tên: cha → con, chỉ FK nội bộ. DDL SHA-256: 9a775722dfc0a850</text>
+<text x="65" y="1576" font-family="Segoe UI,Arial,sans-serif" font-size="21" fill="#52657d">Mũi tên: cha → con, chỉ FK nội bộ. DDL SHA-256: 0da04befceb6e27c</text>
 </svg>
