@@ -85,4 +85,4 @@ erDiagram
   }
 ```
 
-Chỉ các đường nối trên là FK nội bộ. ID tham chiếu service khác chỉ là UUID mềm; không truy cập DB khác. Ảnh JPEG cũ trong thư mục là lịch sử, không phải ERD hiện hành. Cột outbox (nếu có) là bổ sung kỹ thuật chống mất message sau commit. Xem mapping/giới hạn ở [database README](../README.md).
+Chỉ các đường nối trên là FK nội bộ. ID tham chiếu service khác chỉ là UUID mềm; không truy cập DB khác. [Ảnh ERD](1.JPEG) đã được tạo lại từ DDL hiện hành với UUID `CHAR(36)`; chạy [script](../render-erd.ps1) để cập nhật khi DDL đổi. Cột outbox là bổ sung kỹ thuật chống mất message sau commit. Xem mapping/giới hạn ở [database README](../README.md).

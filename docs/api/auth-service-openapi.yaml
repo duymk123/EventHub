@@ -276,6 +276,8 @@ components:
       schema:
         type: string
         format: uuid
+        minLength: 36
+        maxLength: 36
   responses:
     ValidationError:
       description: VALIDATION_ERROR
@@ -391,6 +393,8 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         email:
           type: string
           format: email

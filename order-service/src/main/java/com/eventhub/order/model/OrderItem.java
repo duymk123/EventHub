@@ -9,8 +9,11 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 @Entity
 @Table(name = "order_items")
@@ -23,8 +26,9 @@ public class OrderItem extends BaseEntity {
     @JoinColumn(name = "order_id", nullable = false)
     private Order order;
 
-    @Column(name = "ticket_type_id", nullable = false)
-    private Long ticketTypeId;
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "ticket_type_id", nullable = false, length = 36)
+    private UUID ticketTypeId;
 
     @Column(nullable = false)
     private Integer quantity;

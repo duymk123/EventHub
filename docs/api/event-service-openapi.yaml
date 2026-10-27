@@ -74,6 +74,8 @@ paths:
         schema:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
       - $ref: '#/components/parameters/Page'
       - $ref: '#/components/parameters/Size'
       - name: startDate
@@ -353,6 +355,8 @@ paths:
       schema:
         type: string
         format: uuid
+        minLength: 36
+        maxLength: 36
     put:
       tags:
       - Category
@@ -470,6 +474,8 @@ components:
       schema:
         type: string
         format: uuid
+        minLength: 36
+        maxLength: 36
     Page:
       name: page
       in: query
@@ -561,6 +567,8 @@ components:
         categoryId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
           example: 10000000-0000-4000-8000-000000000001
         startTime:
           type: string
@@ -578,10 +586,14 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
           example: 10000000-0000-4000-8000-000000000001
         organizerId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
           example: 10000000-0000-4000-8000-000000000001
         category:
           $ref: '#/components/schemas/CategoryRef'
@@ -615,6 +627,8 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         title:
           type: string
         category:
@@ -631,6 +645,8 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
           example: 10000000-0000-4000-8000-000000000001
         status:
           $ref: '#/components/schemas/EventStatus'
@@ -658,9 +674,13 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         organizerId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         status:
           $ref: '#/components/schemas/EventStatus'
         startTime:
@@ -720,6 +740,8 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
           example: 10000000-0000-4000-8000-000000000001
         name:
           type: string
@@ -743,6 +765,8 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         name:
           type: string
         description:
