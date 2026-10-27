@@ -10,6 +10,7 @@ Hệ thống bán vé sự kiện với sáu service nghiệp vụ và API Gatew
 | [Quyết định và nguồn](docs/architecture/source-decisions.md) | V2 đã làm rõ gì, xung đột trong báo cáo, xác nhận nào thay thế thiết kế cũ |
 | [Các điểm cần chốt](docs/project-clarifications.md) | C01–C09 và phần nào có thể làm trước |
 | [Database](docs/database/README.md) | Quyền sở hữu, DDL/ERD từng service, mapping tên và giới hạn schema |
+| [Plan code sáu service](docs/plans/README.md) | Chi tiết service/repository methods, API mapping, transaction, worker, migration và test |
 | [Service](services.md) | Trách nhiệm, API, trạng thái, quy tắc phối hợp |
 | [OpenAPI](docs/api/README.md) | Hợp đồng mục tiêu sáu service; phần draft chưa phải chức năng đã có |
 | [Kafka](docs/kafka/events.md) | Envelope messageId, payload, key, idempotency, retry/DLQ |

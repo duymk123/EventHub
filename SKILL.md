@@ -7,6 +7,8 @@ description: Quy ước kiến trúc và code EventHub; đọc quyết định B
 
 Đọc [quyết định nguồn](docs/architecture/source-decisions.md), [điểm cần chốt](docs/project-clarifications.md) và [services.md](services.md). Xác nhận trực tiếp của chủ dự án cao hơn báo cáo; báo cáo cao hơn tài liệu phiên bản trước. File này không tự giải quyết câu hỏi đang mở.
 
+Khi triển khai một service, đọc [plan tương ứng trong docs/plans](docs/plans/README.md): service/repository methods, API mapping, transaction, worker và test. [ERD](docs/database/README.md) phải đọc từ DDL/SVG/Mermaid hiện hành; kiểm tra đồng bộ bằng `node docs/database/render-erd.mjs --check`. Không suy ra kiểu ID hoặc thêm bảng từ ảnh cũ hay cột đề xuất chưa có migration.
+
 ## 1. Phạm vi
 
 Hệ thống bán vé sự kiện gồm CUSTOMER, ORGANIZER, ADMIN. Keycloak quản lý đăng nhập/cấp token theo xác nhận mới nhất. Mỗi tài khoản có một vai trò nghiệp vụ trong phạm vi V2; Keycloak có thể chứa role kỹ thuật khác, không tự chuyển các role đó thành quyền EventHub. Chưa có code nghiệp vụ trong scaffold.

@@ -2,6 +2,8 @@
 
 Cập nhật 2026-10-27. Đây là thiết kế mục tiêu, mã nguồn hiện là scaffold. [Quyết định nguồn](docs/architecture/source-decisions.md), [database](docs/database/README.md), [câu hỏi còn mở](docs/project-clarifications.md).
 
+Kế hoạch triển khai chi tiết ngày 2026-10-28: [docs/plans](docs/plans/README.md), gồm từng hàm service/repository, API, transaction, worker, migration và test cho cả sáu service.
+
 Public API có prefix /api/v1 ở server URL OpenAPI; /internal/** là đường trực tiếp service, WS /ws/dashboard là ngoại lệ có route Gateway riêng. UUID cho mọi PK/tham chiếu bảng. Không FK/JOIN xuyên DB.
 
 ## auth-service
