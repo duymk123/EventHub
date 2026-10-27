@@ -76,7 +76,7 @@ Java 21, có thể build bằng JDK 23; Maven Wrapper quản lý Maven. Từ roo
 .\mvnw.cmd -pl notification-service spring-boot:run
 ```
 
-Test profile scaffold không nạp DB; context test không thay thế kiểm tra tích hợp MySQL/Kafka/SMTP. Chạy ngoài Docker cần đặt DB_HOST/PORT/NAME/USERNAME/PASSWORD phù hợp; application.yml lấy DB_PASSWORD từ môi trường.
+Đã bỏ file/profile/dependency test theo yêu cầu chủ dự án. Build không thay thế chạy thử MySQL/Kafka/SMTP. Chạy ngoài Docker cần đặt DB_HOST/PORT/NAME/USERNAME/PASSWORD phù hợp; application.yml lấy DB_PASSWORD từ môi trường.
 
 ## Keycloak, Redis và khoảng cách với thiết kế V2
 

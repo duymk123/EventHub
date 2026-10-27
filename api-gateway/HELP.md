@@ -4,4 +4,4 @@ Hiện là module scaffold Spring Web/JPA, chưa có route hoặc security. Thi�
 
 eventhub_gateway và datasource/JPA trong Compose là dư từ scaffold, chưa có nhu cầu DB nghiệp vụ trong BC_32_V2. Không tạo bảng auth/token/Gateway session để tự thay Keycloak; chỉ bỏ DB/dependency bằng thay đổi triển khai riêng đã kiểm tra.
 
-Build từ root: .\mvnw.cmd -pl api-gateway -am verify. Context test không kết nối MySQL, không kiểm tra route. Xem [Docker.md](../Docker.md), [services.md](../services.md), [các quyết định](../docs/architecture/source-decisions.md).
+Build từ root: .\mvnw.cmd -pl api-gateway -am verify. Đã bỏ file/profile/dependency test; build không xác nhận route hoạt động. Xem [Docker.md](../Docker.md), [services.md](../services.md), [các quyết định](../docs/architecture/source-decisions.md).

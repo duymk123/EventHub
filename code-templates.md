@@ -2,7 +2,9 @@
 
 Ví dụ minh họa Java 21/Spring Boot 3; import và boilerplate được lược bớt, chưa phải code đang có trong module. Đối chiếu [SKILL](SKILL.md), [DDL](docs/database/README.md), [OpenAPI](docs/api/README.md) và [câu hỏi còn mở](docs/project-clarifications.md) trước khi chép mẫu. Keycloak cấp token, không dùng mẫu Auth tự ký JWT/refresh table phiên bản cũ.
 
-## 1. Entity và UUID
+## 1. Entity, UUID và BaseEntity
+
+### 1.1. Entity theo schema hiện tại
 
 ~~~java
 @Entity @Table(name = "events")
@@ -25,6 +27,153 @@ public class Event {
 ~~~
 
 Mẫu chỉ liệt kê các field cần minh họa; map đầy đủ cột DDL khi triển khai. Không thêm venue bắt buộc hoặc event_zones trước C03. Entity PurchaseOrder ánh xạ bảng orders để tránh tên ORDER của JPQL. Tất cả UUID FK mềm/nội bộ dùng cùng CHAR mapping, không chỉ @Id.
+
+### 1.2. BaseEntity có audit và cờ deleted
+
+Dùng mẫu dưới khi bảng có đủ cột audit tương ứng. Đây là mẫu theo yêu cầu chủ dự án; Analytics/Notification hiện vẫn giữ schema V1 và không kế thừa BaseEntity theo lựa chọn trước đó. Muốn áp dụng cho các entity này cần migration trước, không chỉ thêm extends rồi để Hibernate validate thất bại.
+
+`entity/BaseEntity.java` trong chính service đang triển khai:
+
+~~~java
+import jakarta.persistence.Column;
+import jakarta.persistence.EntityListeners;
+import jakarta.persistence.MappedSuperclass;
+import lombok.Getter;
+import lombok.Setter;
+import org.springframework.data.annotation.CreatedBy;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedBy;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+
+import java.time.LocalDateTime;
+
+@Getter
+@Setter
+@MappedSuperclass
+@EntityListeners(AuditingEntityListener.class)
+public class BaseEntity {
+
+    @CreatedDate
+    @Column(name = "create_at")
+    private LocalDateTime createdAt;
+
+    @LastModifiedDate
+    @Column(name = "update_at")
+    private LocalDateTime updatedAt;
+
+    @CreatedBy
+    @Column(name = "created_by", length = 36)
+    private String createdBy;
+
+    @LastModifiedBy
+    @Column(name = "updated_by", length = 36)
+    private String updatedBy;
+
+    @Column(name = "deleted", nullable = false)
+    private boolean deleted;
+}
+~~~
+
+BaseEntity là mapped superclass, không tạo bảng riêng và không tự khai báo khóa chính. Mỗi entity con khai báo UUID theo quy tắc của bảng; ProcessedEvent vẫn phải nhận messageId thay vì sinh ID mới. Tạo BaseEntity cục bộ trong service, không import model của Order hoặc service khác để kế thừa.
+
+### 1.3. Entity kế thừa BaseEntity
+
+Mẫu minh họa cho một bảng mới đã có các cột audit; `audited_records` không phải bảng đang tồn tại trong dự án:
+
+~~~java
+@Entity
+@Table(name = "audited_records")
+@Getter
+@Setter
+@NoArgsConstructor
+public class AuditedRecord extends BaseEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "id", nullable = false, updatable = false, length = 36)
+    private UUID id;
+
+    @Column(name = "label", nullable = false, length = 100)
+    private String label;
+}
+~~~
+
+Không khai báo lại createdAt/updatedAt trong lớp con vì các field này đã được kế thừa. Nếu cần Lombok builder bao gồm field của lớp cha, dùng `@SuperBuilder` nhất quán ở cả cha và con; `@Builder` ở riêng lớp con không bao gồm audit fields.
+
+### 1.4. Bật JPA Auditing
+
+Chỉ thêm cấu hình này vào service thực sự sử dụng BaseEntity. Mẫu lấy actor từ Spring Security nên cần dependency/config security tương ứng; không tự thêm JWT issuer hoặc grant flow mới để dùng auditing.
+
+`config/JpaAuditingConfig.java`:
+
+~~~java
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.auditing.DateTimeProvider;
+import org.springframework.data.domain.AuditorAware;
+import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Optional;
+
+@Configuration
+@EnableJpaAuditing(
+    auditorAwareRef = "auditorAware",
+    dateTimeProviderRef = "utcAuditingDateTimeProvider"
+)
+public class JpaAuditingConfig {
+
+    @Bean
+    public AuditorAware<String> auditorAware() {
+        return () -> {
+            Authentication authentication =
+                SecurityContextHolder.getContext().getAuthentication();
+            if (authentication == null || !authentication.isAuthenticated()
+                    || authentication instanceof AnonymousAuthenticationToken) {
+                return Optional.empty();
+            }
+            return Optional.ofNullable(authentication.getName());
+        };
+    }
+
+    @Bean
+    public DateTimeProvider utcAuditingDateTimeProvider() {
+        return () -> Optional.of(LocalDateTime.now(ZoneOffset.UTC));
+    }
+}
+~~~
+
+Trong mẫu này, security adapter phải map authentication.name về userId UUID đã xác minh nếu created_by/updated_by lưu UUID người thao tác. Không lấy actor từ body/header do client tự khai. Worker Kafka/scheduler không có SecurityContext người dùng sẽ không tự có createdBy/updatedBy; nếu cần audit actor hệ thống, bổ sung provider theo danh tính service đã được cấu hình.
+
+LocalDateTime của audit được quy ước UTC bằng DateTimeProvider trên. Timestamps nghiệp vụ như paidAt, scannedAt, occurredAt, processedAt hoặc lastUpdated vẫn giữ field/mapping riêng theo hợp đồng, không thay bằng thời điểm audit của entity.
+
+### 1.5. Schema và cách sử dụng
+
+DDL minh họa tương ứng cho bảng mới; không chạy tự động vào database hiện có:
+
+~~~sql
+CREATE TABLE audited_records (
+    id CHAR(36) PRIMARY KEY,
+    label VARCHAR(100) NOT NULL,
+    create_at DATETIME(6) NULL,
+    update_at DATETIME(6) NULL,
+    created_by VARCHAR(36) NULL,
+    updated_by VARCHAR(36) NULL,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE
+);
+~~~
+
+- Giữ đúng tên `create_at`/`update_at` của mẫu bạn cung cấp; đây là tên khác với `created_at`/`updated_at` trong một số bảng hiện có. Nếu tái dùng cột cũ, thiết kế mapping bằng `@AttributeOverride` và kiểu dữ liệu phù hợp; không tạo hai property Java trùng tên.
+- Bảng đang có dữ liệu phải thêm migration version mới và xử lý giá trị audit cũ; không sửa migration V1 đã áp dụng. Nếu schema chưa có các cột này thì dùng mẫu không kế thừa ở mục 1.1.
+- `deleted` là cờ dữ liệu, không tự biến `repository.delete()` thành soft delete. Service cần cập nhật cờ và query cần lọc deleted=false theo nghiệp vụ; không xóa cứng rồi coi dữ liệu vẫn còn.
+- AuditingEntityListener chạy theo lifecycle JPA. Native SQL, bulk JPQL update và UPSERT không tự đi qua listener; các câu lệnh đó phải cập nhật timestamp/actor phù hợp nếu cần audit.
+- Không tạo file test hoặc dependency test cho mẫu này theo yêu cầu hiện tại của chủ dự án.
 
 ## 2. DTO
 

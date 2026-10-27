@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2280" height="1611" viewBox="0 0 2280 1611" role="img" aria-labelledby="title desc">
+<title id="title">order-service — UUID CHAR(36)</title>
+<desc id="desc">Reference ERD generated from init.sql, SHA-256 0da04befceb6e27c1a6616483746535a8f8005aea27061178f2a3e7f0ec90fb9. Every application primary key and ID reference is UUID CHAR(36); only local physical foreign keys are connected.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#617891"/></marker></defs>
+<rect width="100%" height="100%" fill="white"/>
+<text x="65" y="65" font-family="Segoe UI,Arial,sans-serif" font-size="36" font-weight="700" fill="#163453">ORDER SERVICE | UUID CHAR(36)</text>
+<text x="65" y="108" font-family="Segoe UI,Arial,sans-serif" font-size="22" fill="#52657d">Nguồn: init.sql. PK và ID tham chiếu đều là UUID 36 ký tự.</text>
+<polyline data-fk="order_items.order_id" points="1070,582 1070,657 390,657 390,692" fill="none" stroke="#617891" stroke-width="3" marker-end="url(#arrow)"><title>orders.id → order_items.order_id</title></polyline>
+<polyline data-fk="order_holders.order_item_id" points="390,969 390,1151 390,1151 390,1203" fill="none" stroke="#617891" stroke-width="3" marker-end="url(#arrow)"><title>order_items.id → order_holders.order_item_id</title></polyline>
+<polyline data-fk="payments.order_id" points="1210,582 1210,623 1140,623 1140,692" fill="none" stroke="#617891" stroke-width="3" marker-end="url(#arrow)"><title>orders.id → payments.order_id</title></polyline>
+<polyline data-fk="refund_requests.order_id" points="1070,582 1070,657 1890,657 1890,692" fill="none" stroke="#617891" stroke-width="3" marker-end="url(#arrow)"><title>orders.id → refund_requests.order_id</title></polyline>
+<polyline data-fk="payment_webhooks.order_id" points="1140,582 1140,617 1505,617 1505,1151 1140,1151 1140,1203" fill="none" stroke="#617891" stroke-width="3" marker-end="url(#arrow)"><title>orders.id → payment_webhooks.order_id</title></polyline>
+<g data-table="orders"><rect x="815" y="150" width="650" height="432" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="815" y="150" width="650" height="48" fill="#163453"/>
+<text x="833" y="183" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">orders</text>
+<text data-column="id" x="831" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="1255" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="customer_id" x="831" y="259" font-family="Consolas,monospace" font-size="20" fill="#08775d">customer_id</text><text x="1255" y="259" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="event_id" x="831" y="290" font-family="Consolas,monospace" font-size="20" fill="#08775d">event_id</text><text x="1255" y="290" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="reservation_id" x="831" y="321" font-family="Consolas,monospace" font-size="20" fill="#08775d">reservation_id</text><text x="1255" y="321" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="status" x="831" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">status</text><text x="1255" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(20)</text>
+<text data-column="subtotal" x="831" y="383" font-family="Consolas,monospace" font-size="20" fill="#172b4d">subtotal</text><text x="1255" y="383" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DECIMAL(14,2)</text>
+<text data-column="total_amount" x="831" y="414" font-family="Consolas,monospace" font-size="20" fill="#172b4d">total_amount</text><text x="1255" y="414" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DECIMAL(14,2)</text>
+<text data-column="currency" x="831" y="445" font-family="Consolas,monospace" font-size="20" fill="#172b4d">currency</text><text x="1255" y="445" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(3)</text>
+<text data-column="expires_at" x="831" y="476" font-family="Consolas,monospace" font-size="20" fill="#172b4d">expires_at</text><text x="1255" y="476" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="paid_at" x="831" y="507" font-family="Consolas,monospace" font-size="20" fill="#172b4d">paid_at</text><text x="1255" y="507" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="created_at" x="831" y="538" font-family="Consolas,monospace" font-size="20" fill="#172b4d">created_at</text><text x="1255" y="538" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="updated_at" x="831" y="569" font-family="Consolas,monospace" font-size="20" fill="#172b4d">updated_at</text><text x="1255" y="569" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+</g>
+<g data-table="order_items"><rect x="65" y="692" width="650" height="277" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="65" y="692" width="650" height="48" fill="#163453"/>
+<text x="83" y="725" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">order_items</text>
+<text data-column="id" x="81" y="770" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="505" y="770" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="order_id" x="81" y="801" font-family="Consolas,monospace" font-size="20" fill="#08775d">order_id [FK]</text><text x="505" y="801" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="ticket_type_id" x="81" y="832" font-family="Consolas,monospace" font-size="20" fill="#08775d">ticket_type_id</text><text x="505" y="832" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="ticket_type_name" x="81" y="863" font-family="Consolas,monospace" font-size="20" fill="#172b4d">ticket_type_name</text><text x="505" y="863" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(100)</text>
+<text data-column="quantity" x="81" y="894" font-family="Consolas,monospace" font-size="20" fill="#172b4d">quantity</text><text x="505" y="894" font-family="Consolas,monospace" font-size="20" fill="#172b4d">INT</text>
+<text data-column="unit_price" x="81" y="925" font-family="Consolas,monospace" font-size="20" fill="#172b4d">unit_price</text><text x="505" y="925" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DECIMAL(14,2)</text>
+<text data-column="line_total" x="81" y="956" font-family="Consolas,monospace" font-size="20" fill="#172b4d">line_total</text><text x="505" y="956" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DECIMAL(14,2)</text>
+</g>
+<g data-table="order_holders"><rect x="65" y="1203" width="650" height="215" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="65" y="1203" width="650" height="48" fill="#163453"/>
+<text x="83" y="1236" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">order_holders</text>
+<text data-column="id" x="81" y="1281" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="505" y="1281" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="order_item_id" x="81" y="1312" font-family="Consolas,monospace" font-size="20" fill="#08775d">order_item_id [FK]</text><text x="505" y="1312" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="holder_name" x="81" y="1343" font-family="Consolas,monospace" font-size="20" fill="#172b4d">holder_name</text><text x="505" y="1343" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(100)</text>
+<text data-column="holder_email" x="81" y="1374" font-family="Consolas,monospace" font-size="20" fill="#172b4d">holder_email</text><text x="505" y="1374" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(255)</text>
+<text data-column="holder_phone" x="81" y="1405" font-family="Consolas,monospace" font-size="20" fill="#172b4d">holder_phone</text><text x="505" y="1405" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(20)</text>
+</g>
+<g data-table="payments"><rect x="815" y="692" width="650" height="370" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="815" y="692" width="650" height="48" fill="#163453"/>
+<text x="833" y="725" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">payments</text>
+<text data-column="id" x="831" y="770" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="1255" y="770" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="order_id" x="831" y="801" font-family="Consolas,monospace" font-size="20" fill="#08775d">order_id [FK]</text><text x="1255" y="801" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="provider" x="831" y="832" font-family="Consolas,monospace" font-size="20" fill="#172b4d">provider</text><text x="1255" y="832" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(50)</text>
+<text data-column="provider_transaction_id" x="831" y="863" font-family="Consolas,monospace" font-size="20" fill="#172b4d">provider_transaction_id</text><text x="1255" y="863" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(100)</text>
+<text data-column="amount" x="831" y="894" font-family="Consolas,monospace" font-size="20" fill="#172b4d">amount</text><text x="1255" y="894" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DECIMAL(14,2)</text>
+<text data-column="status" x="831" y="925" font-family="Consolas,monospace" font-size="20" fill="#172b4d">status</text><text x="1255" y="925" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(20)</text>
+<text data-column="payment_url" x="831" y="956" font-family="Consolas,monospace" font-size="20" fill="#172b4d">payment_url</text><text x="1255" y="956" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TEXT</text>
+<text data-column="idempotency_key" x="831" y="987" font-family="Consolas,monospace" font-size="20" fill="#172b4d">idempotency_key</text><text x="1255" y="987" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(100)</text>
+<text data-column="created_at" x="831" y="1018" font-family="Consolas,monospace" font-size="20" fill="#172b4d">created_at</text><text x="1255" y="1018" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="updated_at" x="831" y="1049" font-family="Consolas,monospace" font-size="20" fill="#172b4d">updated_at</text><text x="1255" y="1049" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+</g>
+<g data-table="refund_requests"><rect x="1565" y="692" width="650" height="401" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="1565" y="692" width="650" height="48" fill="#163453"/>
+<text x="1583" y="725" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">refund_requests</text>
+<text data-column="id" x="1581" y="770" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="2005" y="770" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="order_id" x="1581" y="801" font-family="Consolas,monospace" font-size="20" fill="#08775d">order_id [FK]</text><text x="2005" y="801" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="requested_by" x="1581" y="832" font-family="Consolas,monospace" font-size="20" fill="#08775d">requested_by</text><text x="2005" y="832" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="amount" x="1581" y="863" font-family="Consolas,monospace" font-size="20" fill="#172b4d">amount</text><text x="2005" y="863" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DECIMAL(14,2)</text>
+<text data-column="reason" x="1581" y="894" font-family="Consolas,monospace" font-size="20" fill="#172b4d">reason</text><text x="2005" y="894" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TEXT</text>
+<text data-column="status" x="1581" y="925" font-family="Consolas,monospace" font-size="20" fill="#172b4d">status</text><text x="2005" y="925" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(20)</text>
+<text data-column="approved_by" x="1581" y="956" font-family="Consolas,monospace" font-size="20" fill="#08775d">approved_by</text><text x="2005" y="956" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="review_reason" x="1581" y="987" font-family="Consolas,monospace" font-size="20" fill="#172b4d">review_reason</text><text x="2005" y="987" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TEXT</text>
+<text data-column="requested_at" x="1581" y="1018" font-family="Consolas,monospace" font-size="20" fill="#172b4d">requested_at</text><text x="2005" y="1018" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="reviewed_at" x="1581" y="1049" font-family="Consolas,monospace" font-size="20" fill="#172b4d">reviewed_at</text><text x="2005" y="1049" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="refunded_at" x="1581" y="1080" font-family="Consolas,monospace" font-size="20" fill="#172b4d">refunded_at</text><text x="2005" y="1080" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+</g>
+<g data-table="payment_webhooks"><rect x="815" y="1203" width="650" height="308" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="815" y="1203" width="650" height="48" fill="#163453"/>
+<text x="833" y="1236" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">payment_webhooks</text>
+<text data-column="id" x="831" y="1281" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="1255" y="1281" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="provider" x="831" y="1312" font-family="Consolas,monospace" font-size="20" fill="#172b4d">provider</text><text x="1255" y="1312" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(50)</text>
+<text data-column="provider_event_id" x="831" y="1343" font-family="Consolas,monospace" font-size="20" fill="#172b4d">provider_event_id</text><text x="1255" y="1343" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(100)</text>
+<text data-column="order_id" x="831" y="1374" font-family="Consolas,monospace" font-size="20" fill="#08775d">order_id [FK]</text><text x="1255" y="1374" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="payload_hash" x="831" y="1405" font-family="Consolas,monospace" font-size="20" fill="#172b4d">payload_hash</text><text x="1255" y="1405" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(255)</text>
+<text data-column="received_at" x="831" y="1436" font-family="Consolas,monospace" font-size="20" fill="#172b4d">received_at</text><text x="1255" y="1436" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="processed_at" x="831" y="1467" font-family="Consolas,monospace" font-size="20" fill="#172b4d">processed_at</text><text x="1255" y="1467" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="status" x="831" y="1498" font-family="Consolas,monospace" font-size="20" fill="#172b4d">status</text><text x="1255" y="1498" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(20)</text>
+</g>
+<g data-table="outbox_events"><rect x="1565" y="1203" width="650" height="277" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="1565" y="1203" width="650" height="48" fill="#163453"/>
+<text x="1583" y="1236" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">outbox_events</text>
+<text data-column="id" x="1581" y="1281" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="2005" y="1281" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="aggregate_id" x="1581" y="1312" font-family="Consolas,monospace" font-size="20" fill="#08775d">aggregate_id</text><text x="2005" y="1312" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="event_type" x="1581" y="1343" font-family="Consolas,monospace" font-size="20" fill="#172b4d">event_type</text><text x="2005" y="1343" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(100)</text>
+<text data-column="payload" x="1581" y="1374" font-family="Consolas,monospace" font-size="20" fill="#172b4d">payload</text><text x="2005" y="1374" font-family="Consolas,monospace" font-size="20" fill="#172b4d">JSON</text>
+<text data-column="status" x="1581" y="1405" font-family="Consolas,monospace" font-size="20" fill="#172b4d">status</text><text x="2005" y="1405" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(16)</text>
+<text data-column="created_at" x="1581" y="1436" font-family="Consolas,monospace" font-size="20" fill="#172b4d">created_at</text><text x="2005" y="1436" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="published_at" x="1581" y="1467" font-family="Consolas,monospace" font-size="20" fill="#172b4d">published_at</text><text x="2005" y="1467" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+</g>
+<text x="65" y="1576" font-family="Segoe UI,Arial,sans-serif" font-size="21" fill="#52657d">Mũi tên: cha → con, chỉ FK nội bộ. DDL SHA-256: 0da04befceb6e27c</text>
+</svg>

@@ -2,6 +2,21 @@
 
 Nguồn: BC_32_V2 §2.3 kết hợp xác nhận UUID/Keycloak của chủ dự án. [Đối chiếu nguồn](../architecture/source-decisions.md), [câu hỏi còn mở](../project-clarifications.md). Tất cả DDL trong docs là tài liệu tham chiếu; Notification/Analytics phải chạy migration Flyway trong module, không chạy thêm init.sql thủ công.
 
+## ERD đồng bộ với DDL
+
+| Service | Ảnh SVG và mô tả đầy đủ cột |
+|---|---|
+| Auth | [Sơ đồ dữ liệu/Keycloak](auth-service/erd.md), chưa tạo bảng local không có yêu cầu |
+| Event | [ERD](event-service/erd.md) |
+| Ticket | [ERD](ticket-service/erd.md) |
+| Order | [ERD](order-service/erd.md) |
+| Notification | [ERD V1](notification-service/erd.md) |
+| Analytics | [ERD V1](analytics-service/erd.md) |
+
+Chạy `node docs/database/render-erd.mjs` từ root để sinh SVG/Mermaid từ DDL; `node docs/database/render-erd.mjs --check` phát hiện lệch nguồn và từ chối ID không dùng CHAR(36). Chạy `docs/database/render-erd.ps1` trên Windows để sinh lại cả SVG/Mermaid và JPEG Order/Ticket từ cùng model. SVG chứa tên cột/kiểu dưới dạng text, đọc được bằng mã, không chỉ là ảnh chụp. Đã kiểm tra parser đọc cả nhiều cột trên cùng một dòng của V1.
+
+Phần bảng/cột bổ sung còn đề xuất trong [plan](../plans/README.md) chưa nằm trong ERD nền; chỉ thêm sau khi có DDL/migration tương ứng. Không dùng plan để suy rằng DB đã có sẵn pending_operations, notification_batches hoặc attendance_state.
+
 ## Quyền sở hữu và quan hệ
 
 | Nguồn dữ liệu | Bảng chính | ID sang service khác |
@@ -57,6 +72,12 @@ Migration Analytics V1 là nền, **chưa đủ chống đảo thứ tự check-
 
 ## Triển khai và seed
 
+Analytics/Notification đã có đủ bảy entity ánh xạ V1 và enums; metadata đã được đối chiếu với migration. File test đã được xóa theo yêu cầu chủ dự án. Chủ dự án chọn giữ schema hiện tại và bỏ qua BaseEntity: không thêm create_at/update_at/created_by/updated_by/deleted, không thêm migration audit. ProcessedEvent.id phải được gán bằng messageId; các entity nghiệp vụ còn lại dùng UUID generator. Timestamps nghiệp vụ của Analytics được service/projection gán, không thay bằng clock audit.
+
 Notification/Analytics đã dùng Flyway + validate. Auth/Event/Ticket/Order/Gateway còn Hibernate update của scaffold; tài liệu mục tiêu không tự tạo bảng cho các module này. Không chạy init.sql vào DB có dữ liệu, không sửa V1 đã áp dụng. Đổi schema dùng migration mới, backup và kiểm tra dữ liệu trước khi áp dụng. [Seed](../../infrastructure/mysql/seed/README.md).
 
-Ảnh 1.jpeg/1.JPEG trong hai thư mục cũ là lịch sử của bản trước, không được dùng làm thiết kế hiện hành. Dùng erd.md và init.sql đã đối chiếu; không có migration chuyển dữ liệu cũ sang UUID trong thay đổi tài liệu này.
+Ảnh [Order](order-service/1.JPEG) và [Ticket](ticket-service/1.jpeg) đã được tạo lại từ cùng model với SVG hiện hành: PK và ID tham chiếu đều là UUID `CHAR(36)`. Có thể tạo lại bằng [render-erd.ps1](render-erd.ps1) trên Windows; `init.sql` và `erd.md` mô tả đầy đủ constraint/quan hệ. SVG là bản đọc bằng mã để đối chiếu tên/kiểu cột, JPEG là bản tương thích để xem.
+
+Model Order hiện có đã đổi `BaseEntity.id`, `Order.userId`, `OrderItem.ticketTypeId` sang Java `UUID`, sinh bằng `GenerationType.UUID` và ánh xạ `CHAR(36)`. Các FK `order_id` kế thừa kiểu cột khóa chính UUID. Mapping PK/FK đã được kiểm tra; không giữ file test theo yêu cầu chủ dự án. Các field/trạng thái khác của model Order chưa được coi là đã triển khai đầy đủ hợp đồng V2.
+
+Thay đổi mapping/DDL không tự chuyển dữ liệu số của DB đã tạo trước đây thành UUID hợp lệ. Nếu có dữ liệu cũ, cần migration giữ mapping UUID giữa các bảng/service; chỉ ép số sang chuỗi không tạo UUID 36 ký tự. Không reset/xóa DB để đổi kiểu ID.

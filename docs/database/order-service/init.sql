@@ -1,26 +1,7 @@
-<<<<<<< HEAD
--- Khởi tạo Database cho Order Service
-CREATE DATABASE IF NOT EXISTS eventhub_order
-    CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
-
-USE eventhub_order;
-
--- Xóa bảng cũ nếu cần chạy lại từ đầu (theo thứ tự bảng con trước, bảng cha sau)
-DROP TABLE IF EXISTS refunds;
-DROP TABLE IF EXISTS payments;
-DROP TABLE IF EXISTS order_items;
-DROP TABLE IF EXISTS orders;
-
--- ==========================================
--- 1. Bảng: orders
--- ==========================================
-=======
 -- SCHEMA THAM CHIEU BC_32_V2 + quyet dinh UUID; KHONG PHAI migration trien khai.
 -- Chon dung database eventhub_order truoc khi chay tren schema rong.
 -- Khong DROP, khong tao database dich vu khac; FK chi trong database nay.
 
->>>>>>> 8771266 ( convert docs)
 CREATE TABLE orders (
   id CHAR(36) PRIMARY KEY,
   customer_id CHAR(36) NOT NULL,

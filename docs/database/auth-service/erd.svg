@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="450" viewBox="0 0 1400 450" role="img" aria-labelledby="title desc">
+<title id="title">Auth Service — facade Keycloak, không có schema identity local</title>
+<desc id="desc">Auth giữ UI/API riêng và gọi Keycloak. User ID ứng dụng là UUID CHAR(36), mapping sub cần cấu hình. Không tạo bảng mật khẩu hoặc refresh token ứng dụng; DB profile chưa được yêu cầu.</desc>
+<rect width="1400" height="450" fill="white"/><g font-family="Segoe UI,Arial,sans-serif" fill="#163453"><text x="50" y="60" font-size="32" font-weight="700">AUTH SERVICE | ID ứng dụng: UUID CHAR(36)</text>
+<rect x="50" y="115" width="560" height="210" fill="#f1f6fb" stroke="#617891"/><text x="75" y="155" font-size="25" font-weight="700">Auth facade — UI/API riêng</text><text x="75" y="205" font-size="21">Không lưu credentials/refresh token local</text><text x="75" y="245" font-size="21">Profile DB: chỉ thêm khi có yêu cầu riêng</text><text x="75" y="285" font-size="21">userId UUID; subject mapper còn cấu hình</text>
+<path d="M 610 215 L 790 215 L 775 205 M 790 215 L 775 225" fill="none" stroke="#617891" stroke-width="3"/>
+<rect x="800" y="115" width="550" height="210" fill="#f1f6fb" stroke="#617891"/><text x="825" y="155" font-size="25" font-weight="700">Keycloak — API/OIDC</text><text x="825" y="205" font-size="21">Quản lý identity, role, session, token</text><text x="825" y="245" font-size="21">Schema nội bộ do Keycloak quản lý</text><text x="825" y="285" font-size="21">EventHub không đọc SQL hoặc tạo FK vào DB này</text>
+<text x="50" y="395" font-size="21">Sơ đồ ranh giới dữ liệu; không phải ERD giả định cho các bảng ứng dụng chưa tồn tại.</text></g></svg>

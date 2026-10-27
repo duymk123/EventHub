@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1530" height="976" viewBox="0 0 1530 976" role="img" aria-labelledby="title desc">
+<title id="title">analytics-service — UUID CHAR(36)</title>
+<desc id="desc">Reference ERD generated from init.sql, SHA-256 9d71ab4247dfe3af8edcb33fd4875610b67ece3497fe0d2e06be13b34b9003d4. Every application primary key and ID reference is UUID CHAR(36); only local physical foreign keys are connected.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#617891"/></marker></defs>
+<rect width="100%" height="100%" fill="white"/>
+<text x="65" y="65" font-family="Segoe UI,Arial,sans-serif" font-size="36" font-weight="700" fill="#163453">ANALYTICS SERVICE | UUID CHAR(36)</text>
+<text x="65" y="108" font-family="Segoe UI,Arial,sans-serif" font-size="22" fill="#52657d">Nguồn: init.sql. PK và ID tham chiếu đều là UUID 36 ký tự.</text>
+<g data-table="sales_metrics"><rect x="65" y="150" width="650" height="370" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="65" y="150" width="650" height="48" fill="#163453"/>
+<text x="83" y="183" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">sales_metrics</text>
+<text data-column="id" x="81" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="505" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="event_id" x="81" y="259" font-family="Consolas,monospace" font-size="20" fill="#08775d">event_id</text><text x="505" y="259" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="ticket_type_id" x="81" y="290" font-family="Consolas,monospace" font-size="20" fill="#08775d">ticket_type_id</text><text x="505" y="290" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="ticket_type_name" x="81" y="321" font-family="Consolas,monospace" font-size="20" fill="#172b4d">ticket_type_name</text><text x="505" y="321" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(100)</text>
+<text data-column="metric_date" x="81" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">metric_date</text><text x="505" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DATE</text>
+<text data-column="revenue" x="81" y="383" font-family="Consolas,monospace" font-size="20" fill="#172b4d">revenue</text><text x="505" y="383" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DECIMAL(14,2)</text>
+<text data-column="tickets_sold" x="81" y="414" font-family="Consolas,monospace" font-size="20" fill="#172b4d">tickets_sold</text><text x="505" y="414" font-family="Consolas,monospace" font-size="20" fill="#172b4d">INT</text>
+<text data-column="refunded_amount" x="81" y="445" font-family="Consolas,monospace" font-size="20" fill="#172b4d">refunded_amount</text><text x="505" y="445" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DECIMAL(14,2)</text>
+<text data-column="tickets_refunded" x="81" y="476" font-family="Consolas,monospace" font-size="20" fill="#172b4d">tickets_refunded</text><text x="505" y="476" font-family="Consolas,monospace" font-size="20" fill="#172b4d">INT</text>
+<text data-column="updated_at" x="81" y="507" font-family="Consolas,monospace" font-size="20" fill="#172b4d">updated_at</text><text x="505" y="507" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+</g>
+<g data-table="dashboard_snapshot"><rect x="815" y="150" width="650" height="277" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="815" y="150" width="650" height="48" fill="#163453"/>
+<text x="833" y="183" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">dashboard_snapshot</text>
+<text data-column="id" x="831" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="1255" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="event_id" x="831" y="259" font-family="Consolas,monospace" font-size="20" fill="#08775d">event_id</text><text x="1255" y="259" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="total_revenue" x="831" y="290" font-family="Consolas,monospace" font-size="20" fill="#172b4d">total_revenue</text><text x="1255" y="290" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DECIMAL(14,2)</text>
+<text data-column="total_tickets_sold" x="831" y="321" font-family="Consolas,monospace" font-size="20" fill="#172b4d">total_tickets_sold</text><text x="1255" y="321" font-family="Consolas,monospace" font-size="20" fill="#172b4d">INT</text>
+<text data-column="current_attendance" x="831" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">current_attendance</text><text x="1255" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">INT</text>
+<text data-column="total_checked_in" x="831" y="383" font-family="Consolas,monospace" font-size="20" fill="#172b4d">total_checked_in</text><text x="1255" y="383" font-family="Consolas,monospace" font-size="20" fill="#172b4d">INT</text>
+<text data-column="last_updated" x="831" y="414" font-family="Consolas,monospace" font-size="20" fill="#172b4d">last_updated</text><text x="1255" y="414" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+</g>
+<g data-table="attendance_logs"><rect x="65" y="630" width="650" height="246" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="65" y="630" width="650" height="48" fill="#163453"/>
+<text x="83" y="663" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">attendance_logs</text>
+<text data-column="id" x="81" y="708" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="505" y="708" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="ticket_id" x="81" y="739" font-family="Consolas,monospace" font-size="20" fill="#08775d">ticket_id</text><text x="505" y="739" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="event_id" x="81" y="770" font-family="Consolas,monospace" font-size="20" fill="#08775d">event_id</text><text x="505" y="770" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="gate_id" x="81" y="801" font-family="Consolas,monospace" font-size="20" fill="#08775d">gate_id</text><text x="505" y="801" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="action" x="81" y="832" font-family="Consolas,monospace" font-size="20" fill="#172b4d">action</text><text x="505" y="832" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(10)</text>
+<text data-column="occurred_at" x="81" y="863" font-family="Consolas,monospace" font-size="20" fill="#172b4d">occurred_at</text><text x="505" y="863" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+</g>
+<g data-table="processed_events"><rect x="815" y="630" width="650" height="122" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="815" y="630" width="650" height="48" fill="#163453"/>
+<text x="833" y="663" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">processed_events</text>
+<text data-column="id" x="831" y="708" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="1255" y="708" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="processed_at" x="831" y="739" font-family="Consolas,monospace" font-size="20" fill="#172b4d">processed_at</text><text x="1255" y="739" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+</g>
+<text x="65" y="941" font-family="Segoe UI,Arial,sans-serif" font-size="21" fill="#52657d">Mũi tên: cha → con, chỉ FK nội bộ. DDL SHA-256: 9d71ab4247dfe3af</text>
+</svg>

@@ -70,6 +70,8 @@ paths:
         schema:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
       requestBody:
         required: true
         content:
@@ -113,6 +115,8 @@ paths:
         schema:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
       responses:
         '200':
           description: Danh sách Ticket Type của Event
@@ -157,6 +161,8 @@ paths:
         schema:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
       responses:
         '200':
           description: Giá trị QR
@@ -400,6 +406,8 @@ paths:
         schema:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
       responses:
         '200':
           description: Kết quả hủy
@@ -468,6 +476,8 @@ components:
       schema:
         type: string
         format: uuid
+        minLength: 36
+        maxLength: 36
   responses:
     ValidationError:
       description: VALIDATION_ERROR
@@ -547,6 +557,8 @@ components:
         eventId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
           example: 10000000-0000-4000-8000-000000000001
         ticketTypes:
           type: array
@@ -571,9 +583,13 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         eventId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         name:
           $ref: '#/components/schemas/TicketTypeName'
         price:
@@ -597,6 +613,8 @@ components:
         ticketTypeId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         quantity:
           type: integer
           minimum: 1
@@ -610,6 +628,8 @@ components:
         orderId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         expiresAt:
           type: string
           format: date-time
@@ -622,12 +642,16 @@ components:
         eventId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
     ReservedItem:
       type: object
       properties:
         ticketTypeId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         name:
           $ref: '#/components/schemas/TicketTypeName'
         quantity:
@@ -640,9 +664,13 @@ components:
         reservationId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         orderId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         status:
           $ref: '#/components/schemas/ReservationStatus'
         expiresAt:
@@ -658,6 +686,8 @@ components:
         reservationId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         status:
           $ref: '#/components/schemas/ReservationStatus'
     Holder:
@@ -670,6 +700,8 @@ components:
         ticketTypeId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         holderName:
           type: string
         holderEmail:
@@ -680,6 +712,8 @@ components:
         ownerUserId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
           description: Bắt buộc theo Bảng 2.9; buyer hay holder còn C02, phải lấy từ nguồn tin cậy của Order.
     ConfirmRequest:
       type: object
@@ -698,15 +732,23 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         orderId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         eventId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         ticketTypeId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         ticketTypeName:
           $ref: '#/components/schemas/TicketTypeName'
         holderName:
@@ -722,6 +764,8 @@ components:
         reservationId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         status:
           $ref: '#/components/schemas/ReservationStatus'
         tickets:
@@ -734,6 +778,8 @@ components:
         ticketId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         qrCodeValue:
           type: string
           description: Token ngẫu nhiên / opaque
@@ -749,15 +795,21 @@ components:
         eventId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         gateId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
     GateScanResponse:
       type: object
       properties:
         ticketId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         status:
           $ref: '#/components/schemas/TicketStatus'
         scanType:
@@ -774,6 +826,8 @@ components:
         orderId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         cancelledTickets:
           type: integer
         status:

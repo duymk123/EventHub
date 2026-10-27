@@ -339,6 +339,8 @@ components:
       schema:
         type: string
         format: uuid
+        minLength: 36
+        maxLength: 36
     RefundId:
       name: id
       in: path
@@ -346,6 +348,8 @@ components:
       schema:
         type: string
         format: uuid
+        minLength: 36
+        maxLength: 36
   responses:
     ValidationError:
       description: VALIDATION_ERROR
@@ -427,6 +431,8 @@ components:
         ticketTypeId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         quantity:
           type: integer
           minimum: 1
@@ -445,6 +451,8 @@ components:
         eventId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         items:
           type: array
           minItems: 1
@@ -457,6 +465,8 @@ components:
         ticketTypeId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         ticketTypeName:
           type: string
           example: VIP
@@ -476,15 +486,23 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         customerId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         eventId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         reservationId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         status:
           $ref: '#/components/schemas/OrderStatus'
         items:
@@ -536,9 +554,13 @@ components:
         paymentId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         orderId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         status:
           $ref: '#/components/schemas/PaymentStatus'
         paymentUrl:
@@ -563,6 +585,8 @@ components:
         orderId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         amount:
           type: number
         status:
@@ -589,9 +613,13 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         orderId:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         status:
           $ref: '#/components/schemas/RefundStatus'
         amount:
@@ -601,9 +629,13 @@ components:
         requestedBy:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         approvedBy:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
           nullable: true
         requestedAt:
           type: string
@@ -645,6 +677,8 @@ components:
         id:
           type: string
           format: uuid
+          minLength: 36
+          maxLength: 36
         holderName:
           type: string
         holderEmail:

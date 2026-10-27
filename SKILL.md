@@ -7,6 +7,8 @@ description: Quy ước kiến trúc và code EventHub; đọc quyết định B
 
 Đọc [quyết định nguồn](docs/architecture/source-decisions.md), [điểm cần chốt](docs/project-clarifications.md) và [services.md](services.md). Xác nhận trực tiếp của chủ dự án cao hơn báo cáo; báo cáo cao hơn tài liệu phiên bản trước. File này không tự giải quyết câu hỏi đang mở.
 
+Khi triển khai một service, đọc [plan tương ứng trong docs/plans](docs/plans/README.md): service/repository methods, API mapping, transaction, worker và test. [ERD](docs/database/README.md) phải đọc từ DDL/SVG/Mermaid hiện hành; kiểm tra đồng bộ bằng `node docs/database/render-erd.mjs --check`. Không suy ra kiểu ID hoặc thêm bảng từ ảnh cũ hay cột đề xuất chưa có migration.
+
 ## 1. Phạm vi
 
 Hệ thống bán vé sự kiện gồm CUSTOMER, ORGANIZER, ADMIN. Keycloak quản lý đăng nhập/cấp token theo xác nhận mới nhất. Mỗi tài khoản có một vai trò nghiệp vụ trong phạm vi V2; Keycloak có thể chứa role kỹ thuật khác, không tự chuyển các role đó thành quyền EventHub. Chưa có code nghiệp vụ trong scaffold.
@@ -67,7 +69,9 @@ Ghi outbox/delivery log cùng transaction nghiệp vụ, publish có retry và �
 
 ## 7. Hoàn thành một thay đổi
 
-Đọc source-decisions/câu hỏi → migration/entity → repository/CAS → DTO/mapper → service → controller/client/messaging → test cần thiết. Kiểm tra role+sở hữu, invariant, retry, crash và cạnh tranh với luồng tiền/vé. Không viết hàng loạt test phản chiếu implementation cho sửa tài liệu. Context test scaffold chưa kiểm tra DB, Kafka, email hoặc Keycloak.
+Theo yêu cầu chủ dự án ngày 2026-10-28, không giữ hoặc tạo thêm file test, profile test hay dependency chỉ dùng cho test, trừ khi được yêu cầu lại. Kiểm chứng bằng build, kiểm tra tĩnh và chạy thử phù hợp với thay đổi. Những tình huống test trong plan cũ là tiêu chí tham khảo để kiểm tra thủ công, không là yêu cầu sinh test tự động.
+
+Đọc source-decisions/câu hỏi → migration/entity → repository/CAS → DTO/mapper → service → controller/client/messaging → kiểm tra phù hợp. Kiểm tra role+sở hữu, invariant, retry, crash và cạnh tranh với luồng tiền/vé khi chạy thử. Build thành công không thay thế kiểm tra nghiệp vụ/DB/Kafka/Keycloak.
 
 ## 8. Workflow
 

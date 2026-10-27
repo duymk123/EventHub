@@ -1,5 +1,7 @@
 # Kế hoạch Notification và Analytics sau BC_32_V2
 
+Bản tổng quan này được chi tiết hóa ngày 2026-10-28 tại [plan Notification](plans/notification-service.md), [plan Analytics](plans/analytics-service.md) và [phối hợp sáu service](plans/00-cross-service-contracts.md). Khi code dùng các plan đó cho danh sách hàm/repository/transaction; không coi phần tổng quan là đủ schema delivery/attendance.
+
 Bản cập nhật thay thế đề xuất trước khi đọc báo cáo. Đã chốt UUID, ba hạng VIP/PREMIUM/STANDARD, messageId, UI/API tài khoản riêng qua Auth facade gọi Keycloak, Flyway/validate và path trong ErrorResponse. Lượt tài liệu sửa trực tiếp main theo yêu cầu; không tự tạo PR hoặc push. [Quyết định nguồn](architecture/source-decisions.md), [câu hỏi C01–C09](project-clarifications.md).
 
 ## 1. Tài liệu và hạ tầng
