@@ -1,3 +1,24 @@
+<<<<<<< HEAD
+# Regenerate the two checked-in JPEG diagrams from the reference DDL on Windows.
+# Run from any directory: powershell -File docs/database/render-erd.ps1
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Drawing
+
+function Write-ReferenceDiagram([string]$Service, [string]$ImageName, [hashtable]$Layout) {
+    $serviceDirectory = Join-Path $PSScriptRoot ($Service + '-service')
+    $sql = Get-Content -LiteralPath (Join-Path $serviceDirectory 'init.sql') -Raw -Encoding UTF8
+    $tables = @{}
+    $edges = [System.Collections.Generic.List[object]]::new()
+    foreach ($tableMatch in [regex]::Matches($sql, '(?ms)CREATE TABLE (\w+) \((.*?)^\)')) {
+        $name = $tableMatch.Groups[1].Value
+        $body = $tableMatch.Groups[2].Value
+        $columns = @([regex]::Matches($body, '(?m)^  ([a-z_]+) ([A-Z]+(?:\([^)]*\))?)([^\r\n]*)') | ForEach-Object {
+            [pscustomobject]@{ Name=$_.Groups[1].Value; Type=$_.Groups[2].Value; IsPrimary=$_.Groups[3].Value.Contains('PRIMARY KEY') }
+        })
+        $tables[$name] = [pscustomobject]@{ Name=$name; Columns=$columns; Height=(60 + $columns.Count * 31); X=0; Y=0 }
+        foreach ($foreignKey in [regex]::Matches($body, 'FOREIGN KEY \((\w+)\) REFERENCES (\w+)')) {
+            $edges.Add([pscustomobject]@{ Parent=$foreignKey.Groups[2].Value; Child=$name })
+=======
 # Generate canonical SVG/Mermaid for six services, then legacy Order/Ticket JPEGs.
 # Run from any directory: powershell -File docs/database/render-erd.ps1
 $ErrorActionPreference = 'Stop'
@@ -19,6 +40,7 @@ function Write-ReferenceDiagram([string]$Service, [string]$ImageName, [hashtable
         $tables[$name] = [pscustomobject]@{ Name=$name; Columns=$columns; Height=(60 + $columns.Count * 31); X=0; Y=0 }
         foreach ($foreignKey in $sourceTable.foreignKeys) {
             $edges.Add([pscustomobject]@{ Parent=$foreignKey.parent; Child=$name })
+>>>>>>> 2d5e52cfa09fc1574dc9cd7ae930bf9373836f62
         }
     }
     $rowHeights = @(0, 0, 0)
@@ -53,7 +75,11 @@ function Write-ReferenceDiagram([string]$Service, [string]$ImageName, [hashtable
     try {
         $graphics.Clear([System.Drawing.Color]::White)
         $graphics.DrawString(($Service.ToUpperInvariant() + ' SERVICE | UUID CHAR(36)'), $titleFont, $ink, 65, 22)
+<<<<<<< HEAD
+        $graphics.DrawString('Schema tham chiếu từ init.sql — cập nhật 2026-10-27. PK và ID tham chiếu đều là UUID 36 ký tự.', $noteFont, $muted, 65, 85)
+=======
         $graphics.DrawString('Schema tham chiếu từ init.sql — UUID 36 ký tự. DDL SHA-256: ' + $diagramModel.services.$Service.sha.Substring(0,16), $noteFont, $muted, 65, 85)
+>>>>>>> 2d5e52cfa09fc1574dc9cd7ae930bf9373836f62
         $edgeNumber = 0
         foreach ($edge in $edges) {
             $parent = $tables[$edge.Parent]; $child = $tables[$edge.Child]
@@ -94,7 +120,10 @@ function Write-ReferenceDiagram([string]$Service, [string]$ImageName, [hashtable
                 if ($column.Type -eq 'CHAR(36)') { $brush = $uuidBrush }
                 $label = $column.Name
                 if ($column.IsPrimary) { $label += ' [PK]' }
+<<<<<<< HEAD
+=======
                 elseif ($column.IsForeign) { $label += ' [FK]' }
+>>>>>>> 2d5e52cfa09fc1574dc9cd7ae930bf9373836f62
                 $graphics.DrawString($label, $bodyFont, $brush, ($table.X + 16), ($table.Y + 55 + $line * 31))
                 $graphics.DrawString($column.Type, $bodyFont, $brush, ($table.X + 440), ($table.Y + 55 + $line * 31))
                 $line++

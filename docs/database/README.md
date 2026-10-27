@@ -74,7 +74,11 @@ Migration Analytics V1 là nền, **chưa đủ chống đảo thứ tự check-
 
 Notification/Analytics đã dùng Flyway + validate. Auth/Event/Ticket/Order/Gateway còn Hibernate update của scaffold; tài liệu mục tiêu không tự tạo bảng cho các module này. Không chạy init.sql vào DB có dữ liệu, không sửa V1 đã áp dụng. Đổi schema dùng migration mới, backup và kiểm tra dữ liệu trước khi áp dụng. [Seed](../../infrastructure/mysql/seed/README.md).
 
+<<<<<<< HEAD
+Ảnh [Order](order-service/1.JPEG) và [Ticket](ticket-service/1.jpeg) đã được tạo lại từ DDL hiện hành: PK và ID tham chiếu đều là UUID `CHAR(36)`. Có thể tạo lại bằng [render-erd.ps1](render-erd.ps1) trên Windows; `init.sql` và `erd.md` vẫn mô tả đầy đủ constraint/quan hệ.
+=======
 Ảnh [Order](order-service/1.JPEG) và [Ticket](ticket-service/1.jpeg) đã được tạo lại từ cùng model với SVG hiện hành: PK và ID tham chiếu đều là UUID `CHAR(36)`. Có thể tạo lại bằng [render-erd.ps1](render-erd.ps1) trên Windows; `init.sql` và `erd.md` mô tả đầy đủ constraint/quan hệ. SVG là bản đọc bằng mã để đối chiếu tên/kiểu cột, JPEG là bản tương thích để xem.
+>>>>>>> 2d5e52cfa09fc1574dc9cd7ae930bf9373836f62
 
 Model Order hiện có đã đổi `BaseEntity.id`, `Order.userId`, `OrderItem.ticketTypeId` sang Java `UUID`, sinh bằng `GenerationType.UUID` và ánh xạ `CHAR(36)`. Các FK `order_id` kế thừa kiểu cột khóa chính UUID. Test Hibernate kiểm tra kiểu cột MySQL của toàn bộ PK/FK hiện có. Các field/trạng thái khác của model Order chưa được coi là đã triển khai đầy đủ hợp đồng V2.
 
