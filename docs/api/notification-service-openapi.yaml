@@ -1,21 +1,12 @@
 openapi: 3.0.3
 info:
   title: EventHub - Notification Service API
-  version: 1.0.0
+  version: 2.0.0-draft
   description: |-
-    API contract của notification-service. Service này chủ yếu là **Kafka consumer**, chỉ có ít REST API cho client và admin.
-    Endpoint lấy từ spec Notion; request/response được suy ra từ bảng `notifications` và `notification_templates`.
-
-    **Kafka (consumer):**
-    - `ticket.issued`: gửi email chứa QR cho từng holder (QR sinh bằng ZXing từ `qr_code_value`), tạo thêm in-app notification nếu vé có chủ sở hữu.
-    - `order.failed`, `order.refunded`: gửi email thông báo, ghi log vào bảng `notifications`.
-    - Idempotent theo `eventId` (bảng `processed_events`). Gửi lỗi thì retry (Spring Retry), vượt số lần thì đẩy sang topic `notification.dlq`.
-    - Gửi event reminder; push qua Firebase Cloud Messaging là tuỳ chọn.
-
-    Trạng thái gửi: `PENDING`, `SENT`, `FAILED`.
-
-
-    Đã đối chiếu với BC_32_V2: bảng `notifications` chỉ có id (UUID), recipient_email, status, read_at, created_at; `notification_templates` chỉ có code, subject, body_template. Vì vậy response không còn channel, templateCode, payload. Nếu in-app cần hiển thị nội dung thông báo thì bảng cần thêm cột (V2 chưa có).
+    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Mã nguồn hiện là scaffold, chưa có endpoint nghiệp vụ.
+    UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
+    Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
+    EMAIL và IN_APP theo Hình 2.73–2.77; reminder/PUSH chưa có luồng triển khai. Pagination, unread-count, PUT template là chuẩn hóa kỹ thuật đề xuất, khác API bản cũ; chưa có client nghiệp vụ trong repo.
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
@@ -34,28 +25,39 @@ paths:
       parameters:
       - name: unreadOnly
         in: query
-        description: Chỉ lấy thông báo chưa đọc
         schema:
           type: boolean
           default: false
+      - name: page
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: size
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
       responses:
         '200':
-          description: Danh sách thông báo
+          description: Thành công
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/NotificationResponse'
+                $ref: '#/components/schemas/NotificationPage'
         '401':
           $ref: '#/components/responses/Unauthorized'
+      description: Chỉ IN_APP của Principal hiện tại; unreadOnly=true lọc read_at IS NULL. Nội dung render lưu snapshot, không đổi theo template mới. Phân trang là bổ sung kỹ thuật.
   /notifications/{id}/read:
     put:
       tags:
       - Notification
       operationId: markAsRead
       summary: Đánh dấu đã đọc
-      description: Cập nhật `readAt`. Chỉ thao tác được thông báo của chính mình.
+      description: 'Idempotent: chỉ set readAt khi đang NULL; chỉ IN_APP của user hiện tại. Không tồn tại hoặc thuộc người khác đều 404 (chuẩn hóa kỹ thuật tránh lộ thông báo).'
       security:
       - bearerAuth: []
       parameters:
@@ -66,16 +68,10 @@ paths:
           type: string
           format: uuid
       responses:
-        '200':
-          description: Thông báo sau khi cập nhật
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NotificationResponse'
+        '204':
+          description: Đã đánh dấu đọc, hoặc đã đọc trước đó
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
         '404':
           description: NOTIFICATION_NOT_FOUND
           content:
@@ -83,14 +79,74 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
   /admin/notification-templates:
-    post:
+    get:
+      tags:
+      - Admin - Template
+      operationId: listTemplates
+      summary: Danh sách template, chỉ ADMIN
+      security:
+      - bearerAuth: []
+      x-contract-status: technical-proposal
+      responses:
+        '200':
+          description: Danh sách
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TemplateResponse'
+        '401':
+          description: UNAUTHORIZED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: FORBIDDEN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /notifications/me/unread-count:
+    get:
+      tags:
+      - Notification
+      operationId: getUnreadCount
+      summary: Số thông báo IN_APP chưa đọc
+      security:
+      - bearerAuth: []
+      x-contract-status: technical-proposal
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadCount'
+        '401':
+          description: UNAUTHORIZED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/notification-templates/{code}:
+    put:
       tags:
       - Admin - Template
       operationId: upsertTemplate
-      summary: Tạo hoặc chỉnh sửa template
-      description: Role ADMIN. Nếu `code` đã tồn tại thì cập nhật (code là khóa chính).
+      summary: Upsert theo code và channel, chỉ ADMIN
       security:
       - bearerAuth: []
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Z_]+$
+          maxLength: 50
+      x-contract-status: technical-proposal
       requestBody:
         required: true
         content:
@@ -99,7 +155,7 @@ paths:
               $ref: '#/components/schemas/TemplateRequest'
       responses:
         '200':
-          description: Template sau khi lưu
+          description: Thành công
           content:
             application/json:
               schema:
@@ -111,15 +167,70 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
-          $ref: '#/components/responses/Unauthorized'
+          description: UNAUTHORIZED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          description: FORBIDDEN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+      - Admin - Template
+      operationId: getTemplate
+      summary: Chi tiết template, chỉ ADMIN
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Z_]+$
+          maxLength: 50
+      - name: channel
+        in: query
+        schema:
+          $ref: '#/components/schemas/Channel'
+        required: true
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+        '401':
+          description: UNAUTHORIZED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: FORBIDDEN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: TEMPLATE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-contract-status: technical-proposal
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: Access token do Keycloak cấp, Auth facade phục vụ UI/API riêng; mapping sub UUID/business role theo cấu hình realm còn chờ hoàn thiện. Không dùng ID token để gọi API.
   responses:
     Unauthorized:
       description: Thiếu hoặc sai JWT
@@ -138,7 +249,6 @@ components:
       type: string
       enum:
       - EMAIL
-      - PUSH
       - IN_APP
     NotificationStatus:
       type: string
@@ -148,13 +258,29 @@ components:
       - FAILED
     NotificationResponse:
       type: object
+      required:
+      - id
+      - channel
+      - templateCode
+      - title
+      - content
+      - status
+      - readAt
+      - createdAt
       properties:
         id:
           type: string
           format: uuid
-        recipientEmail:
+        channel:
           type: string
-          format: email
+          enum:
+          - IN_APP
+        templateCode:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
         status:
           $ref: '#/components/schemas/NotificationStatus'
         readAt:
@@ -167,28 +293,42 @@ components:
     TemplateRequest:
       type: object
       required:
-      - code
+      - channel
       - subject
       - bodyTemplate
       properties:
-        code:
-          type: string
-          example: ORDER_FAILED
+        channel:
+          $ref: '#/components/schemas/Channel'
         subject:
           type: string
+          maxLength: 255
         bodyTemplate:
           type: string
+          minLength: 1
     TemplateResponse:
       type: object
       properties:
+        id:
+          type: string
+          format: uuid
         code:
           type: string
+        channel:
+          $ref: '#/components/schemas/Channel'
         subject:
           type: string
         bodyTemplate:
           type: string
+        updatedAt:
+          type: string
+          format: date-time
     ErrorResponse:
       type: object
+      required:
+      - code
+      - message
+      - timestamp
+      - path
       properties:
         code:
           type: string
@@ -198,3 +338,43 @@ components:
         timestamp:
           type: string
           format: date-time
+        path:
+          type: string
+          description: Đường dẫn HTTP của request gây lỗi
+    NotificationPage:
+      type: object
+      required:
+      - items
+      - page
+      - size
+      - totalElements
+      - totalPages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationResponse'
+        page:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 0
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    UnreadCount:
+      type: object
+      required:
+      - count
+      properties:
+        count:
+          type: integer
+          minimum: 0
+x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
+x-implementation-status: scaffold-only
+x-open-decisions: ../project-clarifications.md

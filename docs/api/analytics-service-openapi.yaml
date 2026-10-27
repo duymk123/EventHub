@@ -1,24 +1,12 @@
 openapi: 3.0.3
 info:
   title: EventHub - Analytics Service API
-  version: 1.0.0
+  version: 2.0.0-draft
   description: |-
-    API contract của analytics-service. Endpoint lấy từ spec Notion; request/response được suy ra từ bảng `sales_metrics` và `dashboard_snapshot`.
-
-    Service dùng CQRS đơn giản: log chi tiết (`attendance_logs`) là write-model, `dashboard_snapshot` là read-model.
-
-    **Kafka (consumer):**
-    - `order.paid`: UPSERT `sales_metrics` theo (event, ngày), cập nhật `dashboard_snapshot`, push WebSocket.
-    - `ticket.issued`: cộng số vé đã phát hành.
-    - `ticket.checked-in` / `ticket.checked-out`: ghi `attendance_logs`, tăng hoặc giảm `current_attendance`, push WebSocket.
-    - Idempotent theo `eventId` (bảng `processed_events`).
-
-    **WebSocket (OpenAPI không mô tả được, ghi ở đây):**
-    - Endpoint: `/ws/dashboard`.
-    - Client subscribe `/topic/event/{id}/dashboard` để nhận JSON cập nhật realtime, cùng dạng với `DashboardSnapshot` bên dưới.
-
-
-    Đã đối chiếu với BC_32_V2: `sales_metrics` không có ticket_type_id và `dashboard_snapshot` không có total_revenue (chỉ total_tickets, current_attendance, updated_at). Phần chữ của báo cáo lại nói thống kê 'theo hạng vé', nên hai chỗ này cần bạn chốt.
+    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Mã nguồn hiện là scaffold, chưa có endpoint nghiệp vụ.
+    UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
+    Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
+    ADMIN hoặc ORGANIZER sở hữu sự kiện; kiểm tra Event Service trước khi trả dữ liệu, kể cả trường hợp chưa có projection. snapshot/API chỉ số gộp/thuần và ngày refund còn C09 (đề xuất bên dưới), không coi đã chốt nghiệp vụ. Không cộng ticket.issued lần hai.
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
@@ -31,7 +19,7 @@ paths:
       - Analytics
       operationId: getSalesReport
       summary: Báo cáo doanh số theo khoảng thời gian
-      description: Role ORGANIZER. Đọc từ bảng `sales_metrics`.
+      description: ADMIN hoặc ORGANIZER owner, xác minh sự kiện qua /internal/events/{id}. Sự kiện tồn tại chưa có projection trả 0; sự kiện không tồn tại 404, Event Service lỗi 503. from > to trả 400. Quy tắc ngày, refund và giá trị gộp/thuần là đề xuất C09 trong SalesReport.
       security:
       - bearerAuth: []
       parameters:
@@ -65,13 +53,25 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          description: EVENT_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: EVENT_SERVICE_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /analytics/events/{id}/attendance:
     get:
       tags:
       - Analytics
       operationId: getAttendance
       summary: Số người đang có mặt
-      description: Role ORGANIZER. Đọc nhanh `current_attendance` từ `dashboard_snapshot`.
+      description: ADMIN hoặc ORGANIZER owner, xác minh sự kiện qua /internal/events/{id}. Sự kiện tồn tại chưa có projection trả 0; sự kiện không tồn tại 404, Event Service lỗi 503.
       security:
       - bearerAuth: []
       parameters:
@@ -87,20 +87,80 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          description: EVENT_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: EVENT_SERVICE_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analytics/events/{id}/dashboard:
+    get:
+      tags:
+      - Analytics
+      operationId: getDashboard
+      summary: Snapshot ban đầu trước khi subscribe WS
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      description: Đề xuất kỹ thuật để tải trạng thái ban đầu; cùng quyền/DTO với WS. Không có dữ liệu trả 0, updatedAt=null sau khi xác minh sự kiện tồn tại.
+      responses:
+        '200':
+          description: Thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSnapshot'
+        '401':
+          description: UNAUTHORIZED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: FORBIDDEN_NOT_OWNER
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: EVENT_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: EVENT_SERVICE_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: Access token do Keycloak cấp, Auth facade phục vụ UI/API riêng; mapping sub UUID/business role theo cấu hình realm còn chờ hoàn thiện. Không dùng ID token để gọi API.
   parameters:
     EventId:
       name: id
       in: path
       required: true
       schema:
-        type: integer
-        format: int64
+        type: string
+        format: uuid
   responses:
     Unauthorized:
       description: Thiếu hoặc sai JWT
@@ -123,55 +183,103 @@ components:
           format: date
         revenue:
           type: number
+          multipleOf: 0.01
+        refundedAmount:
+          type: number
+          multipleOf: 0.01
+        netRevenue:
+          type: number
+          multipleOf: 0.01
         ticketsSold:
           type: integer
+          minimum: 0
+        ticketsRefunded:
+          type: integer
+          minimum: 0
     SalesReport:
       type: object
       properties:
         eventId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         from:
           type: string
           format: date
+          nullable: true
         to:
           type: string
           format: date
+          nullable: true
         totalRevenue:
           type: number
+          multipleOf: 0.01
+        totalRefunded:
+          type: number
+          multipleOf: 0.01
+        netRevenue:
+          type: number
+          multipleOf: 0.01
         totalTicketsSold:
           type: integer
+          minimum: 0
+        totalTicketsRefunded:
+          type: integer
+          minimum: 0
         daily:
           type: array
           items:
             $ref: '#/components/schemas/DailySales'
+        byTicketType:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketTypeSales'
+      description: 'Đề xuất C09: revenue/ticketsSold gộp, refund ghi ngày refundedAt, netRevenue = revenue - refundedAmount, ngày Asia/Ho_Chi_Minh. Thiếu from/to thì không giới hạn đầu tương ứng; trả nullable from/to phản ánh request.'
     Attendance:
       type: object
       properties:
         eventId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         currentAttendance:
           type: integer
         updatedAt:
           type: string
           format: date-time
+          nullable: true
+        totalCheckedIn:
+          type: integer
+          minimum: 0
+      description: 'Theo luồng V2 không tái nhập: tổng số vé từng check-in thành công, không đếm retry. currentAttendance đếm vé đã vào chưa ra; projection phải chịu đảo thứ tự Kafka.'
     DashboardSnapshot:
       type: object
-      description: Payload đẩy qua WebSocket tại `/topic/event/{id}/dashboard`
+      description: 'Payload WS và GET ban đầu. Đề xuất C09: totalRevenue/totalTicketsSold là thuần sau refund (khác báo cáo sales gộp). Chưa chốt C09 nên chưa triển khai công thức snapshot. Khi chưa có dữ liệu trả 0 và updatedAt=null.'
       properties:
         eventId:
+          type: string
+          format: uuid
+        totalRevenue:
+          type: number
+          multipleOf: 0.01
+        totalTicketsSold:
           type: integer
-          format: int64
-        totalTickets:
-          type: integer
+          description: Ý nghĩa thuần/gộp còn C09. Nếu thiết kế cộng/trừ chịu đảo topic, không clamp mất điều chỉnh; trạng thái tạm thời chưa đủ message cần xử lý nhất quán khi triển khai.
         currentAttendance:
           type: integer
+          minimum: 0
+        totalCheckedIn:
+          type: integer
+          minimum: 0
         updatedAt:
           type: string
           format: date-time
+          nullable: true
     ErrorResponse:
       type: object
+      required:
+      - code
+      - message
+      - timestamp
+      - path
       properties:
         code:
           type: string
@@ -181,3 +289,43 @@ components:
         timestamp:
           type: string
           format: date-time
+        path:
+          type: string
+          description: Đường dẫn HTTP của request gây lỗi
+    TicketTypeSales:
+      type: object
+      properties:
+        ticketTypeId:
+          type: string
+          format: uuid
+        ticketTypeName:
+          type: string
+          enum:
+          - VIP
+          - PREMIUM
+          - STANDARD
+        revenue:
+          type: number
+          multipleOf: 0.01
+        refundedAmount:
+          type: number
+          multipleOf: 0.01
+        netRevenue:
+          type: number
+          multipleOf: 0.01
+        ticketsSold:
+          type: integer
+          minimum: 0
+        ticketsRefunded:
+          type: integer
+          minimum: 0
+x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
+x-implementation-status: scaffold-only
+x-open-decisions: ../project-clarifications.md
+x-websocket:
+  endpoint: /ws/dashboard
+  gatewayRoute: ws://analytics-service:8080
+  destination: /topic/event/{eventId}/dashboard
+  protocol: STOMP
+  authentication: JWT Keycloak trong CONNECT; kiểm tra expiry khi thao tác và giới hạn tuổi session; role/owner khi SUBSCRIBE; cấm client SEND tới topic server
+  status: technical-contract-proposed; issuer/roles pending; endpoint theo Hình 2.81

@@ -1,30 +1,22 @@
 openapi: 3.0.3
 info:
   title: EventHub - Auth Service API
-  version: 1.0.0
-  description: |
-    API contract của auth-service. Endpoint lấy từ spec Notion; request/response được suy ra từ use case và sequence diagram.
-
-    - Role: `CUSTOMER` (mặc định khi đăng ký), `ORGANIZER`, `ADMIN`. Chỉ ADMIN được gán role.
-    - Trạng thái user: `ACTIVE`, `LOCKED`. Tài khoản LOCKED không login và không refresh được.
-    - Access token (JWT: sub, roles, iat, exp): 5 phút. Refresh token: 7 ngày.
-    - Refresh token rotation + reuse detection: token cũ đã revoked mà bị dùng lại thì thu hồi cả token family.
-    - `refresh` và `logout` không cần access token, nhưng phải có refresh token hợp lệ trong body.
+  version: 2.0.0-draft
+  description: 'Hợp đồng mục tiêu BC_32_V2 + xác nhận 2026-10-27: giữ giao diện/API tài khoản riêng, Auth gọi Keycloak. Keycloak quản lý credentials, đăng nhập, cấp token và session; Auth không tự ký JWT hoặc lưu password_hash/refresh_tokens. Các endpoint dưới là facade EventHub, không phải endpoint tự cấp token. Repo hiện là scaffold, chưa triển khai. Realm/client, grant flow, issuer/audience/JWK, role mapper, admin/service-account permissions và S2S còn chờ cấu hình; không mặc định password grant hoặc TTL. Mapping userId=sub UUID là đề xuất kỹ thuật cần khớp realm; DB profile nếu cần sẽ thiết kế riêng.'
 servers:
-  - url: http://localhost:8080/api/v1
-    description: API Gateway (local)
-
+- url: http://localhost:8080/api/v1
+  description: API Gateway (local)
 tags:
-  - name: Auth
-  - name: Admin - User
-
+- name: Auth
+- name: Admin - User
 paths:
   /auth/register:
     post:
-      tags: [Auth]
+      tags:
+      - Auth
       operationId: register
       summary: AUTH-UC01 Đăng ký
-      description: Role mặc định CUSTOMER, status ACTIVE. Client không được gửi `role`.
+      description: Facade EventHub → Keycloak. Tạo tài khoản qua API Keycloak được cấp quyền, gán CUSTOMER; không lưu password hash local. Chính sách email verification cần cấu hình.
       requestBody:
         required: true
         content:
@@ -46,10 +38,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-
+      x-contract-status: target-facade-keycloak-integration-pending
   /auth/login:
     post:
-      tags: [Auth]
+      tags:
+      - Auth
       operationId: login
       summary: AUTH-UC02 Đăng nhập
       requestBody:
@@ -79,13 +72,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-
+      x-contract-status: target-facade-keycloak-integration-pending
+      description: Facade EventHub → Keycloak. Xác thực tại Keycloak và trả token do Keycloak cấp, không ký token ứng dụng mới. UI riêng đã chốt; cách trao đổi credentials/code với Keycloak còn cấu hình, request draft không tự cho phép password grant.
   /auth/refresh:
     post:
-      tags: [Auth]
+      tags:
+      - Auth
       operationId: refreshToken
       summary: AUTH-UC03 Refresh token (rotation)
-      description: Thu hồi refresh token cũ, cấp cặp token mới.
+      description: Facade EventHub → Keycloak. Ủy quyền refresh cho Keycloak, không đọc/ghi bảng refresh_tokens riêng. Chính sách rotation/reuse thuộc cấu hình Keycloak.
       requestBody:
         required: true
         content:
@@ -113,13 +108,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-
+      x-contract-status: target-facade-keycloak-integration-pending
   /auth/logout:
     post:
-      tags: [Auth]
+      tags:
+      - Auth
       operationId: logout
       summary: AUTH-UC04 Đăng xuất
-      description: Thu hồi refresh token. Phiên bản này không blacklist access token.
+      description: Facade EventHub → Keycloak. Kết thúc/revoke session qua Keycloak theo client integration; không chỉ xóa refresh token local. Hiệu lực của access token đang tồn tại còn cấu hình thu hồi/quyền.
       requestBody:
         required: true
         content:
@@ -135,14 +131,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-
+      x-contract-status: target-facade-keycloak-integration-pending
   /auth/me:
     get:
-      tags: [Auth]
+      tags:
+      - Auth
       operationId: getMe
       summary: AUTH-UC05 Thông tin tài khoản hiện tại
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       responses:
         '200':
           description: Thông tin user
@@ -152,15 +149,17 @@ paths:
                 $ref: '#/components/schemas/UserResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-
+      x-contract-status: target-facade-keycloak-integration-pending
+      description: Facade EventHub → Keycloak. Đọc identity/profile đã xác minh từ Keycloak/adapter; không giả định claim roles phẳng hoặc có DB users local.
   /auth/change-password:
     post:
-      tags: [Auth]
+      tags:
+      - Auth
       operationId: changePassword
       summary: AUTH-UC06 Đổi mật khẩu
-      description: Sau khi đổi, toàn bộ refresh token của user bị thu hồi.
+      description: Facade EventHub → Keycloak. Đổi mật khẩu qua API/flow Keycloak được cấp quyền, không tự so hash local; kiểm tra current password theo flow được cấu hình.
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -178,17 +177,18 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-
+      x-contract-status: target-facade-keycloak-integration-pending
   /admin/users/{userId}/lock:
     patch:
-      tags: [Admin - User]
+      tags:
+      - Admin - User
       operationId: lockUser
       summary: AUTH-UC08 Khóa tài khoản
-      description: Role ADMIN. Chuyển status sang LOCKED và thu hồi toàn bộ refresh token của user.
+      description: Facade EventHub → Keycloak. ADMIN yêu cầu Keycloak disable user/thu hồi session theo chính sách. Không hứa mọi JWT đã phát mất hiệu lực tức thì nếu resource server chỉ verify offline.
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/UserId'
+      - $ref: '#/components/parameters/UserId'
       responses:
         '204':
           description: Đã khóa
@@ -204,17 +204,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-
+      x-contract-status: target-facade-keycloak-integration-pending
   /admin/users/{userId}/unlock:
     patch:
-      tags: [Admin - User]
+      tags:
+      - Admin - User
       operationId: unlockUser
       summary: AUTH-UC09 Mở khóa tài khoản
-      description: Role ADMIN. Chuyển status sang ACTIVE.
+      description: Facade EventHub → Keycloak. ADMIN yêu cầu Keycloak enable user.
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/UserId'
+      - $ref: '#/components/parameters/UserId'
       responses:
         '204':
           description: Đã mở khóa
@@ -230,17 +231,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-
+      x-contract-status: target-facade-keycloak-integration-pending
   /admin/users/{userId}/role:
     patch:
-      tags: [Admin - User]
+      tags:
+      - Admin - User
       operationId: assignRole
       summary: AUTH-UC07 Gán / chuyển role
-      description: Role ADMIN.
+      description: Facade EventHub → Keycloak. ADMIN chuyển vai trò nghiệp vụ CUSTOMER/ORGANIZER/ADMIN qua Keycloak role mapping, không users_roles local.
       security:
-        - bearerAuth: []
+      - bearerAuth: []
       parameters:
-        - $ref: '#/components/parameters/UserId'
+      - $ref: '#/components/parameters/UserId'
       requestBody:
         required: true
         content:
@@ -258,23 +260,22 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/UserNotFound'
-
+      x-contract-status: target-facade-keycloak-integration-pending
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-
+      description: Access token do Keycloak cấp, Auth facade phục vụ UI/API riêng; mapping sub UUID/business role theo cấu hình realm còn chờ hoàn thiện. Không dùng ID token để gọi API.
   parameters:
     UserId:
       name: userId
       in: path
       required: true
       schema:
-        type: integer
-        format: int64
-
+        type: string
+        format: uuid
   responses:
     ValidationError:
       description: VALIDATION_ERROR
@@ -300,19 +301,24 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-
   schemas:
     Role:
       type: string
-      enum: [CUSTOMER, ORGANIZER, ADMIN]
-
+      enum:
+      - CUSTOMER
+      - ORGANIZER
+      - ADMIN
     UserStatus:
       type: string
-      enum: [ACTIVE, LOCKED]
-
+      enum:
+      - ACTIVE
+      - LOCKED
     RegisterRequest:
       type: object
-      required: [email, password, fullName]
+      required:
+      - email
+      - password
+      - fullName
       properties:
         email:
           type: string
@@ -325,10 +331,11 @@ components:
         fullName:
           type: string
           example: Nguyễn Văn A
-
     LoginRequest:
       type: object
-      required: [email, password]
+      required:
+      - email
+      - password
       properties:
         email:
           type: string
@@ -336,17 +343,19 @@ components:
         password:
           type: string
           format: password
-
+      description: Request facade draft cho UI riêng. Nếu chọn code exchange thay vì gửi password thì phải cập nhật schema; chưa tự bật Direct Access Grants. Keycloak là nơi xác thực.
     RefreshRequest:
       type: object
-      required: [refreshToken]
+      required:
+      - refreshToken
       properties:
         refreshToken:
           type: string
-
     ChangePasswordRequest:
       type: object
-      required: [currentPassword, newPassword]
+      required:
+      - currentPassword
+      - newPassword
       properties:
         currentPassword:
           type: string
@@ -355,20 +364,19 @@ components:
           type: string
           format: password
           minLength: 8
-
     AssignRoleRequest:
       type: object
-      required: [role]
+      required:
+      - role
       properties:
         role:
           $ref: '#/components/schemas/Role'
-
     TokenResponse:
       type: object
       properties:
         accessToken:
           type: string
-          description: 'JWT: sub=userId, roles, iat, exp'
+          description: Access token do Keycloak cấp; sub/role/issuer/audience theo mapping được cấu hình, Auth không tự ký.
         refreshToken:
           type: string
         tokenType:
@@ -376,15 +384,13 @@ components:
           example: Bearer
         expiresIn:
           type: integer
-          description: Thời gian sống của access token (giây)
-          example: 300
-
+          description: TTL thực tế từ Keycloak, giây; không hardcode 5/15 phút.
     UserResponse:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         email:
           type: string
           format: email
@@ -397,9 +403,14 @@ components:
         createdAt:
           type: string
           format: date-time
-
+      description: DTO facade; id UUID nghiệp vụ đề xuất map Keycloak sub. role/status là mapping của Keycloak, không là bảng users local.
     ErrorResponse:
       type: object
+      required:
+      - code
+      - message
+      - timestamp
+      - path
       properties:
         code:
           type: string
@@ -409,3 +420,12 @@ components:
         timestamp:
           type: string
           format: date-time
+        path:
+          type: string
+          description: Đường dẫn HTTP của request gây lỗi
+x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
+x-implementation-status: scaffold-only
+x-open-decisions: ../project-clarifications.md
+x-oidc-discovery: '{keycloak-base-url}/realms/{realm}/.well-known/openid-configuration'
+x-integration-proposal: Không dùng đồng thời flow tự cấp JWT cũ. Cơ chế trao đổi credentials/code với Keycloak phải chọn khi cấu hình realm/client; không tự bật Direct Access Grants.
+x-integration-decision: UI/API tài khoản EventHub riêng, Auth gọi Keycloak; chủ dự án đã chọn.
