@@ -1,33 +1,17 @@
-# Dữ liệu khởi tạo
+# Dữ liệu mẫu EventHub
 
-Đặt các câu lệnh `INSERT` cho từng service trong file riêng tại đây, ví dụ:
+Thư mục hiện chỉ có hướng dẫn, **chưa có file seed SQL**. Dữ liệu mẫu đi sau migration, không tự tạo bảng bằng seed và không dựa vào scaffold Hibernate tự sinh schema khi chưa có entity.
 
-- `auth-service.sql` → database `eventhub_auth`
-- `event-service.sql` → database `eventhub_event`
-- `ticket-service.sql` → database `eventhub_ticket`
-- `order-service.sql` → database `eventhub_order`
-- `notification-service.sql` → database `eventhub_notification`
-- `analytics-service.sql` → database `eventhub_analytics`
-- `api-gateway.sql` → database `eventhub_gateway`
+Notification/Analytics: Flyway chạy migration trước Hibernate validate. Event/Ticket/Order chưa có migration nghiệp vụ; hoàn thành schema/mapping trước khi nạp dữ liệu. [Schema tham chiếu](../../../docs/database/README.md) không phải script nâng cấp DB có sẵn.
 
-Chạy `docker compose up --build -d` trước và chờ service tương ứng khởi động để Hibernate tạo bảng. Sau đó nạp file vào database container tương ứng, ví dụ trong PowerShell:
+Không seed users/password_hash/refresh_tokens vào eventhub_auth: identity thuộc Keycloak theo quyết định mới. User/role mẫu phải tạo/import qua Keycloak sau khi realm/client/mapping được chốt. Auth facade đã chốt giữ UI/API riêng; profile DB chỉ thêm khi có nhu cầu dữ liệu ngoài Keycloak. Không seed DB nghiệp vụ Gateway.
 
-```powershell
-Get-Content -Raw .\infrastructure\mysql\seed\auth-service.sql | docker compose exec -T auth-db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" eventhub_auth'
-```
+Khi thêm seed thật, dùng file riêng mỗi service và UUID cố định, không ID số. Tham chiếu mềm user/event/type/order phải nhất quán; loại vé VIP/PREMIUM/STANDARD. Dòng order_holders tương ứng từng vé, không gộp holder vào order_items. Không dùng QR/token/mật khẩu thật trong fixture. Template có id UUID và UNIQUE(code,channel).
 
-Với service khác, đổi `auth-service.sql`, `auth-db` và `eventhub_auth` theo bảng sau:
+Chỉ nạp INSERT sau khi migration tương ứng sẵn sàng. Ví dụ **sau khi đã tạo file seed event-service.sql**:
 
-| File SQL | Container DB | Database |
-| --- | --- | --- |
-| `auth-service.sql` | `auth-db` | `eventhub_auth` |
-| `event-service.sql` | `event-db` | `eventhub_event` |
-| `ticket-service.sql` | `ticket-db` | `eventhub_ticket` |
-| `order-service.sql` | `order-db` | `eventhub_order` |
-| `notification-service.sql` | `notification-db` | `eventhub_notification` |
-| `analytics-service.sql` | `analytics-db` | `eventhub_analytics` |
-| `api-gateway.sql` | `api-gateway-db` | `eventhub_gateway` |
+~~~powershell
+Get-Content -Raw .\infrastructure\mysql\seed\event-service.sql | docker compose exec -T event-db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" eventhub_event'
+~~~
 
-Lệnh này chỉ chạy file SQL một lần; dữ liệu đã nạp sẽ lưu trong volume riêng của DB đó và vẫn còn sau `docker compose down`. Khi volume mới được tạo, mỗi thành viên cần nạp lại dữ liệu mẫu. Viết lệnh `INSERT` theo cách chạy lặp lại an toàn nếu có thể, ví dụ dùng khóa duy nhất kết hợp `INSERT IGNORE` hoặc `ON DUPLICATE KEY UPDATE`.
-
-MySQL tạo database rỗng lúc khởi tạo container; Hibernate tạo bảng khi service khởi động. Vì vậy nạp các câu lệnh `INSERT` sau khi service đã khởi động.
+Chạy trong root repo. Lệnh không tự tạo schema; dùng tài khoản và database đúng service. Không in biến mật khẩu ra log. Thiết kế seed chạy lại có kiểm soát với khóa cố định; tránh INSERT IGNORE làm che lỗi FK/constraint. Không đổi migration V1 đã áp dụng hoặc bật baseline tự động để vượt lỗi schema. Backup/đối chiếu trước khi migrate dữ liệu có sẵn.

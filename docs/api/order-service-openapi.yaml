@@ -1,26 +1,12 @@
 openapi: 3.0.3
 info:
   title: EventHub - Order Service API
-  version: 1.0.0
+  version: 2.0.0-draft
   description: |-
-    API contract của order-service. Endpoint lấy từ spec Notion; request/response được suy ra từ luồng xử lý.
-
-    Luồng: `Tạo Order -> Reserve vé 3 phút (ticket-service) -> Thanh toán -> Confirm và phát hành vé`.
-    Quá 3 phút chưa thanh toán thành công thì Order `EXPIRED`, Reservation được release.
-
-    - Giá lấy từ ticket-service, client không được gửi giá hoặc tổng tiền.
-    - Kết quả thanh toán chính thức lấy từ webhook hoặc API verify của gateway, không tin redirect từ client.
-    - Webhook idempotent theo `providerEventId`: lặp lại vẫn trả 2xx nhưng không xử lý lần hai.
-    - Refund chỉ tạo khi Order PAID, vé chưa check-in và còn >= 48 giờ trước sự kiện. Chỉ hủy vé sau khi gateway hoàn tiền thành công.
-
-    **Kafka (producer):** `order.paid` (chỉ phát sau khi vé đã phát hành), `order.failed` (kèm `reason`: PAYMENT_FAILED / EXPIRED), `order.refunded`.
-
-    Trạng thái: Order `PENDING_PAYMENT -> PAID -> REFUNDED`, hoặc `PENDING_PAYMENT -> FAILED | EXPIRED`;
-    Payment `CREATED -> PENDING -> SUCCEEDED | FAILED`;
-    Refund `REQUESTED -> APPROVED -> PROCESSING -> REFUNDED`, hoặc `REQUESTED -> REJECTED`, `APPROVED | PROCESSING -> FAILED`.
-
-
-    Đã đối chiếu với BC_32_V2: id của orders, reservations, payments, refund_requests là UUID (VARCHAR(36)).
+    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Mã nguồn hiện là scaffold, chưa có endpoint nghiệp vụ.
+    UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
+    Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
+    Bảng V2 bổ sung order_holders và payment_webhooks. Order sinh ID, reserve trước rồi lưu; reservationId NOT NULL. Tiền provider chưa chốt C06, hoàn tiền C04/C05, email C02.
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
@@ -36,7 +22,7 @@ paths:
       - Order
       operationId: createOrder
       summary: Tạo Order và reserve vé
-      description: Lấy giá chính thức từ ticket-service, reserve vé 3 phút, trả Order PENDING_PAYMENT cùng `expiresAt`.
+      description: 'Hình 2.57: sinh orderId UUID → Ticket reserve → dùng giá/hạn chính thức → lưu orders/items/holders trong transaction. Nếu lưu lỗi sau reserve thì release bù trừ. Không nhận giá/tổng tiền/customerId từ client.'
       security:
       - bearerAuth: []
       requestBody:
@@ -130,9 +116,10 @@ paths:
       - $ref: '#/components/parameters/OrderId'
       - name: Idempotency-Key
         in: header
-        required: false
+        required: true
         schema:
           type: string
+        description: 'Đề xuất kỹ thuật: key ổn định cho retry cùng yêu cầu; tái sử dụng khác payload trả 409.'
       requestBody:
         required: false
         content:
@@ -164,10 +151,7 @@ paths:
       - Payment
       operationId: paymentWebhook
       summary: Payment webhook (gateway gọi)
-      description: |
-        Xác thực signature, map tới Payment/Order. SUCCEEDED + Order còn PENDING_PAYMENT thì atomic chuyển PAID rồi Confirm Reservation.
-        SUCCEEDED nhưng Order đã EXPIRED thì không phát hành vé, ghi nhận để hoàn tiền hoặc đối soát.
-        Webhook lặp hoặc gây transition không hợp lệ vẫn trả 2xx. Payload cụ thể phụ thuộc provider; schema dưới là dạng chuẩn hóa.
+      description: Nhận wire format đúng provider (C06), xác minh chữ ký trên request gốc, đối chiếu order/transaction/amount/currency trước xử lý. Dedup UNIQUE(provider,providerEventId), cùng key khác payload phải đối soát. CAS PENDING_PAYMENT → PAID rồi confirm Ticket; ACK không thay thế job retry confirm. Thành công tới sau EXPIRED không phát vé; cách hoàn/đối soát chờ C06.
       parameters:
       - name: provider
         in: path
@@ -180,11 +164,18 @@ paths:
         schema:
           type: string
       requestBody:
+        description: Wire format/chữ ký chờ chọn provider C06; không áp JSON DTO chuẩn hóa cho provider thật.
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/WebhookPayload'
+              type: object
+              additionalProperties: true
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
       responses:
         '200':
           description: Đã tiếp nhận (kể cả webhook lặp)
@@ -194,13 +185,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+      x-contract-status: provider-wire-contract-pending-C06
   /orders/{id}/refunds:
     post:
       tags:
       - Refund
       operationId: requestRefund
       summary: Yêu cầu Refund
-      description: Order phải PAID, chưa có Refund hợp lệ trước đó, vé chưa check-in và còn >= 48 giờ trước sự kiện.
+      description: Owner, Order PAID, vé chưa dùng, >=48 giờ tại thời điểm yêu cầu. Chính sách hoàn toàn bộ/một phần/tỷ lệ/phí chờ C04; request hiện chỉ reason nên chưa hỗ trợ chọn vé hoặc client tự chọn amount.
       security:
       - bearerAuth: []
       parameters:
@@ -242,7 +234,7 @@ paths:
       - Admin - Refund
       operationId: listRefunds
       summary: Danh sách Refund
-      description: Role ADMIN hoặc ORGANIZER. Spec dùng `status=REQUESTED` cho danh sách chờ duyệt.
+      description: Role ADMIN hoặc ORGANIZER. Spec dùng `status=REQUESTED` cho danh sách chờ duyệt. ADMIN/ORGANIZER theo Hình 2.67; phạm vi ORGANIZER chỉ sự kiện sở hữu còn C04, không cho quyền mọi sự kiện theo role đơn thuần.
       security:
       - bearerAuth: []
       parameters:
@@ -269,9 +261,10 @@ paths:
       - Admin - Refund
       operationId: approveRefund
       summary: Duyệt Refund
-      description: |
+      description: |-
         Role ADMIN hoặc ORGANIZER. Chuyển PROCESSING, gọi gateway với idempotency key riêng.
         Chỉ sau khi gateway xác nhận thì Refund và Order chuyển REFUNDED, gọi ticket-service hủy vé và publish `order.refunded`.
+         ADMIN/ORGANIZER theo Hình 2.67; phạm vi ORGANIZER chỉ sự kiện sở hữu còn C04, không cho quyền mọi sự kiện theo role đơn thuần. Kiểm tra lại >=48 giờ/vé chưa dùng trước PROCESSING; provider thành công mới hủy vé, chỉ publish order.refunded sau hủy hoàn tất. Provider lỗi thì Refund FAILED, Order PAID và không hủy vé. Lỗi hủy vĩnh viễn sau hoàn tiền chờ C05.
       security:
       - bearerAuth: []
       parameters:
@@ -301,7 +294,7 @@ paths:
       - Admin - Refund
       operationId: rejectRefund
       summary: Từ chối Refund
-      description: Role ADMIN hoặc ORGANIZER.
+      description: Role ADMIN hoặc ORGANIZER. ADMIN/ORGANIZER theo Hình 2.67; phạm vi ORGANIZER chỉ sự kiện sở hữu còn C04, không cho quyền mọi sự kiện theo role đơn thuần.
       security:
       - bearerAuth: []
       parameters:
@@ -337,6 +330,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: Access token do Keycloak cấp, Auth facade phục vụ UI/API riêng; mapping sub UUID/business role theo cấu hình realm còn chờ hoàn thiện. Không dùng ID token để gọi API.
   parameters:
     OrderId:
       name: id
@@ -412,13 +406,14 @@ components:
       type: object
       required:
       - holderName
-      - holderEmail
       properties:
         holderName:
           type: string
         holderEmail:
           type: string
           format: email
+          nullable: true
+          description: Có thể NULL theo Bảng 2.12; nguồn/fallback gửi vé chờ C02.
         holderPhone:
           type: string
           nullable: true
@@ -430,16 +425,17 @@ components:
       - holders
       properties:
         ticketTypeId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         quantity:
           type: integer
           minimum: 1
         holders:
           type: array
-          description: Thông tin người nhận vé (theo từng vé hoặc nhóm vé)
+          description: Mỗi vé một người nhận; số phần tử phải bằng quantity. Lưu order_holders, không gộp holder vào dòng order_items.
           items:
             $ref: '#/components/schemas/HolderInput'
+          minItems: 1
     CreateOrderRequest:
       type: object
       required:
@@ -447,8 +443,8 @@ components:
       - items
       properties:
         eventId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         items:
           type: array
           minItems: 1
@@ -459,8 +455,8 @@ components:
       description: Snapshot tên và giá tại thời điểm đặt
       properties:
         ticketTypeId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         ticketTypeName:
           type: string
           example: VIP
@@ -470,6 +466,10 @@ components:
           type: number
         lineTotal:
           type: number
+        holders:
+          type: array
+          items:
+            $ref: '#/components/schemas/HolderResponse'
     OrderResponse:
       type: object
       properties:
@@ -477,11 +477,11 @@ components:
           type: string
           format: uuid
         customerId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         eventId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         reservationId:
           type: string
           format: uuid
@@ -529,8 +529,7 @@ components:
       properties:
         provider:
           type: string
-          description: Tên gateway (nếu hỗ trợ nhiều provider)
-          example: VNPAY
+          description: Provider sandbox còn chờ C06; ví dụ không phải lựa chọn được xác nhận.
     PaymentResponse:
       type: object
       properties:
@@ -552,6 +551,8 @@ components:
       required:
       - providerEventId
       - providerTransactionId
+      - orderId
+      - amount
       - status
       properties:
         providerEventId:
@@ -569,6 +570,7 @@ components:
           enum:
           - SUCCEEDED
           - FAILED
+      description: DTO chuẩn hóa nội bộ sau xác minh chữ ký provider, KHÔNG phải wire format webhook công khai. Provider thật có thể gửi query/form/JSON và mã trạng thái khác; C06 chưa chốt.
     RefundRequest:
       type: object
       required:
@@ -597,11 +599,11 @@ components:
         reason:
           type: string
         requestedBy:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         approvedBy:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
           nullable: true
         requestedAt:
           type: string
@@ -614,8 +616,17 @@ components:
           type: string
           format: date-time
           nullable: true
+        reviewReason:
+          type: string
+          nullable: true
+          description: Bổ sung kỹ thuật lưu lý do review vào refund_requests.review_reason; khác reason của người yêu cầu.
     ErrorResponse:
       type: object
+      required:
+      - code
+      - message
+      - timestamp
+      - path
       properties:
         code:
           type: string
@@ -625,3 +636,24 @@ components:
         timestamp:
           type: string
           format: date-time
+        path:
+          type: string
+          description: Đường dẫn HTTP của request gây lỗi
+    HolderResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        holderName:
+          type: string
+        holderEmail:
+          type: string
+          format: email
+          nullable: true
+        holderPhone:
+          type: string
+          nullable: true
+x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
+x-implementation-status: scaffold-only
+x-open-decisions: ../project-clarifications.md

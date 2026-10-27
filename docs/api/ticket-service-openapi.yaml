@@ -1,24 +1,12 @@
 openapi: 3.0.3
 info:
   title: EventHub - Ticket Service API
-  version: 1.0.0
+  version: 2.0.0-draft
   description: |-
-    API contract của ticket-service. Endpoint lấy từ spec Notion; request/response được suy ra từ luồng xử lý.
-
-    **Ticket service sở hữu Ticket Type.** Mỗi Event có đúng 3 loại vé: `VIP` (Main Center), `PREMIUM` (Left/Right Wing), `STANDARD` (Rear),
-    mỗi loại có giá và quota riêng.
-
-    - Reserve giữ vé tối đa 3 phút, idempotent theo `orderId`.
-    - Confirm chỉ gọi sau khi Order đã PAID; Confirm/Release/Expire/Cancel gọi lặp phải idempotent.
-    - Chỉ hủy vé sau Refund thành công, còn ít nhất 48 giờ trước sự kiện và vé chưa check-in.
-    - `/internal/*` chỉ cho service-to-service; `/gate/*` chỉ cho thiết bị quét QR hợp lệ.
-
-    **Kafka (producer):** `ticket.issued`, `ticket.checked-in`, `ticket.checked-out`, `ticket.cancelled`.
-
-    Trạng thái: Reservation `RESERVED -> CONFIRMED | RELEASED | EXPIRED`; Ticket `ISSUED -> CHECKED_IN -> CHECKED_OUT`, hoặc `ISSUED -> CANCELLED`.
-
-
-    Đã đối chiếu với BC_32_V2: id của reservation, ticket, order là UUID (VARCHAR(36)); id của ticket_types là BIGINT. `tickets` chỉ lưu `holder_name`, nên response không còn email và mốc check-in.
+    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Mã nguồn hiện là scaffold, chưa có endpoint nghiệp vụ.
+    UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
+    Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
+    Tồn kho gộp ticket_types; không có ticket_inventory hoặc events cục bộ. Reservation RESERVED/CONFIRMED/RELEASED/EXPIRED. Quét một lần vào, một lần ra; không tái nhập. gateId UUID, owner cổng/xác thực thiết bị còn C07.
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
@@ -80,8 +68,8 @@ paths:
         in: path
         required: true
         schema:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -123,8 +111,8 @@ paths:
         in: path
         required: true
         schema:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
       responses:
         '200':
           description: Danh sách Ticket Type của Event
@@ -192,7 +180,7 @@ paths:
       - Gate
       operationId: checkIn
       summary: Check-in bằng QR
-      description: Chỉ hợp lệ với vé ISSUED. Cùng một QR không được check-in đồng thời ở hai cổng.
+      description: Chỉ ISSUED → CHECKED_IN bằng CAS, ghi ticket_scans và outbox cùng transaction; CHECKED_OUT không được tái nhập. gateId phải thuộc thiết bị/sự kiện được phép (C07).
       security:
       - gateAuth: []
       requestBody:
@@ -228,7 +216,7 @@ paths:
       - Gate
       operationId: checkOut
       summary: Check-out bằng QR
-      description: Chỉ hợp lệ với vé CHECKED_IN.
+      description: Chỉ CHECKED_IN → CHECKED_OUT bằng CAS, ghi log và outbox cùng transaction. Không có nhánh check-in lại theo Hình 2.56.
       security:
       - gateAuth: []
       requestBody:
@@ -281,6 +269,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReservationResponse'
+        '401':
+          description: Service credential thiếu/không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Service không có quyền gọi operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: TICKET_TYPE_NOT_FOUND
           content:
@@ -293,16 +293,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - serviceAuth: []
+    servers:
+    - url: http://localhost:8083
+      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
   /internal/reservations/{id}/confirm:
     post:
       tags:
       - Internal
       operationId: confirmReservation
       summary: Confirm Reservation và phát hành vé
-      description: |
-        Chỉ gọi sau khi Order đã PAID. Atomic `RESERVED -> CONFIRMED`, giảm `reserved`, tăng `sold`, tạo Ticket và QR duy nhất trong cùng transaction.
-        Gọi lặp trả kết quả cũ, không phát hành vé lần hai. Sau commit publish `ticket.issued`.
-        Body `holders` do mình suy ra: Ticket cần holder, mà holder do Order Service giữ.
+      description: 'Hình 2.50: CONFIRMED trả vé cũ; RELEASED/EXPIRED hoặc RESERVED đã hết hạn trả 409. CAS RESERVED → CONFIRMED và cập nhật tồn kho + tạo vé/QR trong một transaction. Không có bước phát vé từ consumer order.paid.'
       parameters:
       - $ref: '#/components/parameters/ReservationId'
       requestBody:
@@ -318,6 +320,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ConfirmResponse'
+        '401':
+          description: Service credential thiếu/không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Service không có quyền gọi operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           $ref: '#/components/responses/ReservationNotFound'
         '409':
@@ -326,15 +340,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - serviceAuth: []
+    servers:
+    - url: http://localhost:8083
+      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
   /internal/reservations/{id}/release:
     post:
       tags:
       - Internal
       operationId: releaseReservation
       summary: Release Reservation
-      description: |
-        Atomic `RESERVED -> RELEASED`, trả quota. Reservation đã CONFIRMED/RELEASED/EXPIRED được xử lý idempotent, không cộng quota lần hai.
-        Ticket Scheduler tự chuyển `RESERVED -> EXPIRED` khi quá `expiresAt`.
+      description: 'Hình 2.53: chỉ RESERVED → RELEASED, trả quota một lần. RELEASED/EXPIRED lặp trả kết quả cũ; CONFIRMED trả 409, phải dùng cancel theo nghiệp vụ hoàn tiền.'
       parameters:
       - $ref: '#/components/parameters/ReservationId'
       responses:
@@ -344,17 +361,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReservationStatusResponse'
+        '401':
+          description: Service credential thiếu/không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Service không có quyền gọi operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           $ref: '#/components/responses/ReservationNotFound'
+        '409':
+          description: RESERVATION_ALREADY_CONFIRMED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - serviceAuth: []
+    servers:
+    - url: http://localhost:8083
+      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
   /internal/tickets/cancel-by-order/{orderId}:
     post:
       tags:
       - Internal
       operationId: cancelTicketsByOrder
       summary: Hủy vé sau Refund thành công
-      description: |
-        Vé phải ISSUED, chưa check-in và `eventStartTime - now >= 48 giờ`. Chuyển `ISSUED -> CANCELLED`,
-        giảm `sold`, tăng `available` trong cùng transaction, publish `ticket.cancelled`. Gọi lặp trả kết quả idempotent.
+      description: 'Hình 2.54: sau provider xác nhận hoàn tiền, chỉ hủy vé ISSUED, kiểm tra >=48 giờ; gọi lặp vé đã CANCELLED không trả quota lần hai. Nếu trạng thái đã dùng hoặc quá hạn trả 409. Khoảng trống đã hoàn tiền nhưng cancel bị từ chối còn C05, không giải quyết bằng retry vô hạn.'
       parameters:
       - name: orderId
         in: path
@@ -369,6 +407,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CancelResponse'
+        '401':
+          description: Service credential thiếu/không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Service không có quyền gọi operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Không có vé nào thuộc Order
           content:
@@ -387,17 +437,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - serviceAuth: []
+    servers:
+    - url: http://localhost:8083
+      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: Access token do Keycloak cấp, Auth facade phục vụ UI/API riêng; mapping sub UUID/business role theo cấu hình realm còn chờ hoàn thiện. Không dùng ID token để gọi API.
     gateAuth:
       type: apiKey
       in: header
       name: X-Gate-Token
-      description: Thiết bị quét QR đã xác thực (cơ chế cụ thể do bạn chốt)
+      description: X-Gate-Token là placeholder đề xuất của API draft, không phải cơ chế thiết bị đã được chốt. gateId UUID; owner/quyền thiết bị còn C07.
+      x-contract-status: pending-C07
+    serviceAuth:
+      type: http
+      scheme: bearer
+      description: 'Placeholder hợp đồng draft: internal bắt buộc xác thực service. Bearer là đề xuất thể hiện yêu cầu, không phải cơ chế S2S đã được chốt; thay khi có cấu hình Keycloak/S2S.'
+      x-contract-status: pending-s2s-mechanism
   parameters:
     ReservationId:
       name: id
@@ -440,10 +502,11 @@ components:
       - STANDARD
     TicketTypeStatus:
       type: string
-      description: Trạng thái bán. BC_32_V2 chỉ ghi mặc định ACTIVE; INACTIVE là giá trị mình giả định.
+      description: ACTIVE là trạng thái nêu rõ trong V2; INACTIVE là đề xuất kỹ thuật tắt bán. SOLD_OUT tính từ quota, không là trạng thái lưu bắt buộc.
       enum:
       - ACTIVE
       - INACTIVE
+      x-contract-status: INACTIVE-proposed
     ReservationStatus:
       type: string
       enum:
@@ -472,8 +535,9 @@ components:
           example: 1500000
         totalQuota:
           type: integer
-          minimum: 1
+          minimum: 0
           example: 200
+          description: Không âm về mặt invariant; yêu cầu quota > 0 và đủ ba hạng còn C08.
     CreateTicketTypesRequest:
       type: object
       required:
@@ -481,15 +545,16 @@ components:
       - ticketTypes
       properties:
         eventId:
-          type: integer
-          format: int64
-          example: 10
+          type: string
+          format: uuid
+          example: 10000000-0000-4000-8000-000000000001
         ticketTypes:
           type: array
-          minItems: 3
+          minItems: 1
           maxItems: 3
           items:
             $ref: '#/components/schemas/TicketTypeInput'
+      description: Chỉ cho các tên VIP/PREMIUM/STANDARD, không lặp tên trong cùng event. Có bắt buộc tạo cả ba cùng lúc chưa chốt C08; hợp đồng draft không áp đặt minItems=3.
     UpdateTicketTypeRequest:
       type: object
       properties:
@@ -504,11 +569,11 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         eventId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         name:
           $ref: '#/components/schemas/TicketTypeName'
         price:
@@ -530,8 +595,8 @@ components:
       - quantity
       properties:
         ticketTypeId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         quantity:
           type: integer
           minimum: 1
@@ -539,7 +604,7 @@ components:
       type: object
       required:
       - orderId
-      - expiresAt
+      - eventId
       - items
       properties:
         orderId:
@@ -548,18 +613,21 @@ components:
         expiresAt:
           type: string
           format: date-time
-          description: now + 3 phút
+          description: Đề xuất hạn phối hợp giữa hai service; Ticket kiểm tra không vượt TTL 3 phút, hoặc tự cấp khi thiếu. Giá trị trả về là hạn dùng của Order, không gia hạn khi retry.
         items:
           type: array
           minItems: 1
           items:
             $ref: '#/components/schemas/ReserveItem'
+        eventId:
+          type: string
+          format: uuid
     ReservedItem:
       type: object
       properties:
         ticketTypeId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         name:
           $ref: '#/components/schemas/TicketTypeName'
         quantity:
@@ -597,21 +665,22 @@ components:
       required:
       - ticketTypeId
       - holderName
-      - holderEmail
+      - ownerUserId
       properties:
         ticketTypeId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         holderName:
           type: string
         holderEmail:
           type: string
           format: email
-          description: Dùng cho payload Kafka ticket.issued (bảng tickets trong V2 không lưu email)
-        ownerUserId:
-          type: integer
-          format: int64
+          description: NULL theo Bảng 2.12; fallback email chờ C02. Giữ trong payload/outbox snapshot để retry không mất dữ liệu dù tickets không có cột email.
           nullable: true
+        ownerUserId:
+          type: string
+          format: uuid
+          description: Bắt buộc theo Bảng 2.9; buyer hay holder còn C02, phải lấy từ nguồn tin cậy của Order.
     ConfirmRequest:
       type: object
       required:
@@ -622,6 +691,7 @@ components:
           minItems: 1
           items:
             $ref: '#/components/schemas/Holder'
+      description: Mỗi vé một holder, số holder theo ticketTypeId đúng số đã reserve; Order lấy từ order_holders. Gọi lại cùng reservation trả bộ vé cũ, không tạo QR mới.
     TicketResponse:
       type: object
       properties:
@@ -632,11 +702,11 @@ components:
           type: string
           format: uuid
         eventId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         ticketTypeId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         ticketTypeName:
           $ref: '#/components/schemas/TicketTypeName'
         holderName:
@@ -677,10 +747,11 @@ components:
         qrCodeValue:
           type: string
         eventId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         gateId:
           type: string
+          format: uuid
     GateScanResponse:
       type: object
       properties:
@@ -710,6 +781,11 @@ components:
           example: CANCELLED
     ErrorResponse:
       type: object
+      required:
+      - code
+      - message
+      - timestamp
+      - path
       properties:
         code:
           type: string
@@ -719,3 +795,9 @@ components:
         timestamp:
           type: string
           format: date-time
+        path:
+          type: string
+          description: Đường dẫn HTTP của request gây lỗi
+x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
+x-implementation-status: scaffold-only
+x-open-decisions: ../project-clarifications.md

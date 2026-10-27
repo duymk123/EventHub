@@ -1,20 +1,12 @@
 openapi: 3.0.3
 info:
   title: EventHub - Event Service API
-  version: 1.0.0
+  version: 2.0.0-draft
   description: |-
-    API contract của event-service (EventHub microservices).
-
-    - Event-service quản lý vòng đời Event và Category.
-    - **Ticket type (VIP / PREMIUM / STANDARD) do ticket-service sở hữu**, không nằm trong service này.
-    - `organizerId` luôn lấy từ JWT, client không gửi.
-
-    Vòng đời Event:
-    `DRAFT -> SUBMITTED -> APPROVED -> PUBLISHED -> CLOSED`, hoặc `SUBMITTED -> REJECTED -> DRAFT` (organizer sửa lại).
-
-
-    Đã đối chiếu với BC_32_V2: bảng `events` không có cột `venue` nên đã bỏ field này.
-    Lưu ý: sơ đồ tuần tự Hình 2.36 (Create Event) trong báo cáo vẫn vẽ theo thiết kế cũ (gửi kèm ticketTypes, load Zone A-D), trái với mục 2.3 (ticket_types nằm ở ticket_service_db). File này theo mục 2.3.
+    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Mã nguồn hiện là scaffold, chưa có endpoint nghiệp vụ.
+    UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
+    Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
+    Event sở hữu events/categories, không sở hữu loại vé/tồn kho/zones A–D. CLOSED là ngừng bán. C03 còn quyết định venue; không tự thêm trường địa điểm bắt buộc.
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
@@ -69,7 +61,7 @@ paths:
       - Event
       operationId: searchEvents
       summary: EVT-07 Tìm kiếm Event (public)
-      description: Chỉ trả Event có trạng thái PUBLISHED. Danh sách không chứa giá vé (giá thuộc ticket-service).
+      description: 'Hình 2.42: keyword/category/startDate/endDate và page/size; chỉ PUBLISHED. startDate/endDate là ngày trong Asia/Ho_Chi_Minh (quy ước kỹ thuật đề xuất), khoảng bao gồm hai đầu; startDate lớn hơn endDate trả 400. Chỉ áp dụng đầu lọc được gửi.'
       parameters:
       - name: keyword
         in: query
@@ -80,16 +72,20 @@ paths:
         in: query
         description: categoryId
         schema:
-          type: integer
-          format: int64
-      - name: date
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Size'
+      - name: startDate
         in: query
-        description: Lọc theo ngày diễn ra (yyyy-MM-dd)
         schema:
           type: string
           format: date
-      - $ref: '#/components/parameters/Page'
-      - $ref: '#/components/parameters/Size'
+      - name: endDate
+        in: query
+        schema:
+          type: string
+          format: date
       responses:
         '200':
           description: Danh sách Event (rỗng nếu không có kết quả)
@@ -97,6 +93,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventSummaryPage'
+        '400':
+          description: INVALID_DATE_RANGE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /events/{id}:
     parameters:
     - $ref: '#/components/parameters/EventId'
@@ -122,9 +124,7 @@ paths:
       - Event
       operationId: updateEvent
       summary: EVT-02 Cập nhật Event
-      description: |
-        Role ORGANIZER (owner). Chỉ sửa được khi DRAFT hoặc REJECTED.
-        Nếu đang REJECTED thì sau khi sửa chuyển về DRAFT và xóa rejectReason.
+      description: Chỉ ORGANIZER sở hữu, trạng thái DRAFT hoặc REJECTED; sửa REJECTED đưa lại DRAFT theo Hình 2.37. startTime < endTime.
       security:
       - bearerAuth: []
       requestBody:
@@ -156,9 +156,7 @@ paths:
       - Event
       operationId: submitEvent
       summary: EVT-03 Nộp duyệt
-      description: |
-        Role ORGANIZER (owner). Event phải đang DRAFT.
-        Đề xuất: kiểm tra ticket-service đã cấu hình đủ 3 loại vé (VIP/PREMIUM/STANDARD) trước khi cho submit.
+      description: DRAFT → SUBMITTED, kiểm tra owner. Điều kiện đủ ba hạng/quota trước submit chưa được V2 chốt (C08); không tự bắt buộc.
       security:
       - bearerAuth: []
       parameters:
@@ -178,19 +176,13 @@ paths:
           $ref: '#/components/responses/EventNotFound'
         '409':
           $ref: '#/components/responses/InvalidEventState'
-        '422':
-          description: TICKET_TYPES_NOT_CONFIGURED - chưa cấu hình đủ 3 loại vé bên ticket-service
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
   /events/{id}/publish:
     post:
       tags:
       - Event
       operationId: publishEvent
       summary: EVT-05 Publish Event
-      description: Role ORGANIZER (owner). Event phải đang APPROVED.
+      description: APPROVED → PUBLISHED, chỉ owner. Quy tắc quota/đủ loại vé trước publish chờ C08.
       security:
       - bearerAuth: []
       parameters:
@@ -216,10 +208,7 @@ paths:
       - Event
       operationId: closeEvent
       summary: EVT-06 Đóng bán vé
-      description: |
-        Role ORGANIZER (owner). Event phải đang PUBLISHED.
-        Ticket-service cần biết để ngừng bán: gọi `/internal/events/{id}` khi reserve,
-        hoặc event-service phát Kafka `event.closed`.
+      description: 'PUBLISHED → CLOSED: ngừng bán theo Hình 2.41; không tự vô hiệu vé đã mua hoặc cấm check-in.'
       security:
       - bearerAuth: []
       parameters:
@@ -362,8 +351,8 @@ paths:
       in: path
       required: true
       schema:
-        type: integer
-        format: int64
+        type: string
+        format: uuid
     put:
       tags:
       - Category
@@ -441,14 +430,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InternalEventResponse'
+        '401':
+          description: Service credential thiếu/không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Service không có quyền gọi operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           $ref: '#/components/responses/EventNotFound'
+      security:
+      - serviceAuth: []
+    servers:
+    - url: http://localhost:8082
+      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: Access token do Keycloak cấp, Auth facade phục vụ UI/API riêng; mapping sub UUID/business role theo cấu hình realm còn chờ hoàn thiện. Không dùng ID token để gọi API.
+    serviceAuth:
+      type: http
+      scheme: bearer
+      description: 'Placeholder hợp đồng draft: internal bắt buộc xác thực service. Bearer là đề xuất thể hiện yêu cầu, không phải cơ chế S2S đã được chốt; thay khi có cấu hình Keycloak/S2S.'
+      x-contract-status: pending-s2s-mechanism
   parameters:
     EventId:
       name: id
@@ -456,8 +468,8 @@ components:
       required: true
       description: Event ID
       schema:
-        type: integer
-        format: int64
+        type: string
+        format: uuid
     Page:
       name: page
       in: query
@@ -547,9 +559,9 @@ components:
           type: string
           nullable: true
         categoryId:
-          type: integer
-          format: int64
-          example: 1
+          type: string
+          format: uuid
+          example: 10000000-0000-4000-8000-000000000001
         startTime:
           type: string
           format: date-time
@@ -564,13 +576,13 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
-          example: 10
+          type: string
+          format: uuid
+          example: 10000000-0000-4000-8000-000000000001
         organizerId:
-          type: integer
-          format: int64
-          example: 5
+          type: string
+          format: uuid
+          example: 10000000-0000-4000-8000-000000000001
         category:
           $ref: '#/components/schemas/CategoryRef'
         title:
@@ -589,7 +601,7 @@ components:
         rejectReason:
           type: string
           nullable: true
-          description: Đề xuất thêm (ERD chưa có cột reject_reason)
+          description: Đề xuất lưu lý do duyệt/từ chối; schema tham chiếu dùng review_reason. Không có cột này trong Bảng 2.3 gốc.
         createdAt:
           type: string
           format: date-time
@@ -601,8 +613,8 @@ components:
       description: Item trong danh sách tìm kiếm public, không có giá vé
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         title:
           type: string
         category:
@@ -617,14 +629,15 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
-          example: 10
+          type: string
+          format: uuid
+          example: 10000000-0000-4000-8000-000000000001
         status:
           $ref: '#/components/schemas/EventStatus'
         rejectReason:
           type: string
           nullable: true
+          description: Mapping events.review_reason, bổ sung kỹ thuật lưu kết quả duyệt.
         updatedAt:
           type: string
           format: date-time
@@ -643,11 +656,11 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         organizerId:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         status:
           $ref: '#/components/schemas/EventStatus'
         startTime:
@@ -656,6 +669,17 @@ components:
         endTime:
           type: string
           format: date-time
+        title:
+          type: string
+          maxLength: 255
+          description: Bổ sung kỹ thuật snapshot email ticket.issued, lấy events.title.
+      required:
+      - id
+      - organizerId
+      - title
+      - status
+      - startTime
+      - endTime
     PageMeta:
       type: object
       properties:
@@ -694,9 +718,9 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
-          example: 1
+          type: string
+          format: uuid
+          example: 10000000-0000-4000-8000-000000000001
         name:
           type: string
           example: Âm nhạc
@@ -717,8 +741,8 @@ components:
       type: object
       properties:
         id:
-          type: integer
-          format: int64
+          type: string
+          format: uuid
         name:
           type: string
         description:
@@ -729,6 +753,11 @@ components:
           format: date-time
     ErrorResponse:
       type: object
+      required:
+      - code
+      - message
+      - timestamp
+      - path
       properties:
         code:
           type: string
@@ -738,3 +767,9 @@ components:
         timestamp:
           type: string
           format: date-time
+        path:
+          type: string
+          description: Đường dẫn HTTP của request gây lỗi
+x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
+x-implementation-status: scaffold-only
+x-open-decisions: ../project-clarifications.md

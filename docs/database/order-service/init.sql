@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 -- Khởi tạo Database cho Order Service
 CREATE DATABASE IF NOT EXISTS eventhub_order
     CHARACTER SET utf8mb4
@@ -14,105 +15,108 @@ DROP TABLE IF EXISTS orders;
 -- ==========================================
 -- 1. Bảng: orders
 -- ==========================================
+=======
+-- SCHEMA THAM CHIEU BC_32_V2 + quyet dinh UUID; KHONG PHAI migration trien khai.
+-- Chon dung database eventhub_order truoc khi chay tren schema rong.
+-- Khong DROP, khong tao database dich vu khac; FK chi trong database nay.
+
+>>>>>>> 8771266 ( convert docs)
 CREATE TABLE orders (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT UNSIGNED NOT NULL,
-    total_amount DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
-    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
-    payment_status VARCHAR(30) NOT NULL DEFAULT 'UNPAID',
-    idempotency_key VARCHAR(100) NOT NULL,
-    expired_at DATETIME NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  id CHAR(36) PRIMARY KEY,
+  customer_id CHAR(36) NOT NULL,
+  event_id CHAR(36) NOT NULL,
+  reservation_id CHAR(36) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'PENDING_PAYMENT',
+  subtotal DECIMAL(14,2) NOT NULL,
+  total_amount DECIMAL(14,2) NOT NULL,
+  currency VARCHAR(3) NOT NULL DEFAULT 'VND',
+  expires_at TIMESTAMP NOT NULL,
+  paid_at TIMESTAMP NULL,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL,
+  CHECK (status IN ('PENDING_PAYMENT','PAID','FAILED','EXPIRED','REFUNDED')),
+  CHECK (subtotal >= 0 AND total_amount >= 0),
+  INDEX idx_order_customer (customer_id, created_at),
+  INDEX idx_order_expiry (status, expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-    -- Chống tạo đơn hàng trùng lặp khi người dùng bấm thanh toán nhiều lần
-    CONSTRAINT uq_orders_idempotency_key UNIQUE (idempotency_key),
-
-    -- Đảm bảo tổng tiền không âm
-    CONSTRAINT chk_orders_total_amount CHECK (total_amount >= 0),
-
-    -- Index tối ưu tra cứu đơn theo người dùng và quét đơn hết hạn thanh toán
-    INDEX idx_orders_user_created (user_id, created_at DESC),
-    INDEX idx_orders_status_expired (status, expired_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-
--- ==========================================
--- 2. Bảng: order_items
--- ==========================================
 CREATE TABLE order_items (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_id BIGINT UNSIGNED NOT NULL,
-    ticket_type_id BIGINT UNSIGNED NOT NULL COMMENT 'ID tham chiếu sang Ticket Service, không tạo FK liên DB',
-    quantity INT UNSIGNED NOT NULL,
-    unit_price DECIMAL(12, 2) NOT NULL,
-    subtotal DECIMAL(12, 2) NOT NULL,
+  id CHAR(36) PRIMARY KEY,
+  order_id CHAR(36) NOT NULL,
+  ticket_type_id CHAR(36) NOT NULL,
+  ticket_type_name VARCHAR(100) NOT NULL,
+  quantity INT NOT NULL,
+  unit_price DECIMAL(14,2) NOT NULL,
+  line_total DECIMAL(14,2) NOT NULL,
+  FOREIGN KEY (order_id) REFERENCES orders(id),
+  UNIQUE KEY uk_order_type (order_id, ticket_type_id),
+  CHECK (quantity > 0 AND unit_price >= 0 AND line_total = quantity * unit_price)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-    -- Khóa ngoại nội bộ nối tới bảng orders
-    CONSTRAINT fk_order_items_order
-        FOREIGN KEY (order_id) REFERENCES orders(id)
-        ON DELETE CASCADE ON UPDATE CASCADE,
+CREATE TABLE order_holders (
+  id CHAR(36) PRIMARY KEY,
+  order_item_id CHAR(36) NOT NULL,
+  holder_name VARCHAR(100) NOT NULL,
+  holder_email VARCHAR(255) NULL,
+  holder_phone VARCHAR(20) NULL,
+  FOREIGN KEY (order_item_id) REFERENCES order_items(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-    -- Mỗi loại vé chỉ nằm trên 1 dòng trong cùng 1 đơn hàng
-    CONSTRAINT uq_order_items_order_ticket UNIQUE (order_id, ticket_type_id),
-
-    -- Đảm bảo số lượng, đơn giá và thành tiền hợp lệ
-    CONSTRAINT chk_order_items_calc CHECK (
-        quantity > 0 AND
-        unit_price >= 0 AND
-        subtotal = quantity * unit_price
-    ),
-
-    -- Index phục vụ thống kê theo loại vé
-    INDEX idx_order_items_ticket_type_id (ticket_type_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-
--- ==========================================
--- 3. Bảng: payments
--- ==========================================
 CREATE TABLE payments (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_id BIGINT UNSIGNED NOT NULL,
-    amount DECIMAL(12, 2) NOT NULL,
-    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
-    transaction_id VARCHAR(150) NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  id CHAR(36) PRIMARY KEY,
+  order_id CHAR(36) NOT NULL,
+  provider VARCHAR(50) NOT NULL,
+  provider_transaction_id VARCHAR(100) NULL,
+  amount DECIMAL(14,2) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'CREATED',
+  payment_url TEXT NULL,
+  idempotency_key VARCHAR(100) NOT NULL UNIQUE,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL,
+  FOREIGN KEY (order_id) REFERENCES orders(id),
+  UNIQUE KEY uk_provider_transaction (provider, provider_transaction_id),
+  CHECK (status IN ('CREATED','PENDING','SUCCEEDED','FAILED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-    -- Khóa ngoại nội bộ nối tới bảng orders
-    CONSTRAINT fk_payments_order
-        FOREIGN KEY (order_id) REFERENCES orders(id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
+CREATE TABLE refund_requests (
+  id CHAR(36) PRIMARY KEY,
+  order_id CHAR(36) NOT NULL,
+  requested_by CHAR(36) NOT NULL,
+  amount DECIMAL(14,2) NOT NULL,
+  reason TEXT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'REQUESTED',
+  approved_by CHAR(36) NULL,
+  review_reason TEXT NULL,
+  requested_at TIMESTAMP NOT NULL,
+  reviewed_at TIMESTAMP NULL,
+  refunded_at TIMESTAMP NULL,
+  FOREIGN KEY (order_id) REFERENCES orders(id),
+  CHECK (status IN ('REQUESTED','APPROVED','REJECTED','PROCESSING','REFUNDED','FAILED')),
+  CHECK (amount > 0),
+  INDEX idx_refund_order (order_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-    -- Mã giao dịch từ cổng thanh toán phải duy nhất (chống trùng lặp khi nhận Webhook/IPN)
-    CONSTRAINT uq_payments_transaction_id UNIQUE (transaction_id),
+CREATE TABLE payment_webhooks (
+  id CHAR(36) PRIMARY KEY,
+  provider VARCHAR(50) NOT NULL,
+  provider_event_id VARCHAR(100) NOT NULL,
+  order_id CHAR(36) NOT NULL,
+  payload_hash VARCHAR(255) NOT NULL,
+  received_at TIMESTAMP NOT NULL,
+  processed_at TIMESTAMP NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'RECEIVED',
+  FOREIGN KEY (order_id) REFERENCES orders(id),
+  UNIQUE KEY uk_provider_event (provider, provider_event_id),
+  CHECK (status IN ('RECEIVED','PROCESSED','FAILED'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-    CONSTRAINT chk_payments_amount CHECK (amount >= 0),
-
-    INDEX idx_payments_order_id (order_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-
--- ==========================================
--- 4. Bảng: refunds
--- ==========================================
-CREATE TABLE refunds (
-    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    order_id BIGINT UNSIGNED NOT NULL,
-    amount DECIMAL(12, 2) NOT NULL,
-    reason VARCHAR(255) NOT NULL,
-    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    -- Khóa ngoại nội bộ nối tới bảng orders
-    CONSTRAINT fk_refunds_order
-        FOREIGN KEY (order_id) REFERENCES orders(id)
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-
-    CONSTRAINT chk_refunds_amount CHECK (amount > 0),
-
-    INDEX idx_refunds_order_id (order_id),
-    INDEX idx_refunds_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE outbox_events (
+  id CHAR(36) PRIMARY KEY,
+  aggregate_id CHAR(36) NOT NULL,
+  event_type VARCHAR(100) NOT NULL,
+  payload JSON NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+  created_at TIMESTAMP NOT NULL,
+  published_at TIMESTAMP NULL,
+  INDEX idx_outbox_pending (status, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

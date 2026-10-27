@@ -1,228 +1,141 @@
-# Danh mục service EventHub
+# Danh mục service EventHub — sau đối chiếu BC_32_V2
 
-Dùng làm tài liệu tra cứu: bảng DB, API, máy trạng thái, Kafka và quy tắc riêng của từng service. Kiểu dữ liệu: `Long`=BIGINT, `String`=VARCHAR, `Instant`=TIMESTAMP, `BigDecimal`=DECIMAL, `Enum`=lưu STRING. "Soft FK" = chỉ lưu id, không FK vật lý.
+Cập nhật 2026-10-27. Đây là thiết kế mục tiêu, mã nguồn hiện là scaffold. [Quyết định nguồn](docs/architecture/source-decisions.md), [database](docs/database/README.md), [câu hỏi còn mở](docs/project-clarifications.md).
 
-Đường dẫn công khai đều có tiền tố `/api/v1`. `/internal/**` chỉ service-to-service.
+Public API có prefix /api/v1 ở server URL OpenAPI; /internal/** là đường trực tiếp service, WS /ws/dashboard là ngoại lệ có route Gateway riêng. UUID cho mọi PK/tham chiếu bảng. Không FK/JOIN xuyên DB.
 
----
+## auth-service
 
-## 1. auth-service  (`auth_service_db`)
+Đã chốt giữ UI/API tài khoản riêng, Auth gọi Keycloak. Identity, credentials, session, token và role thuộc Keycloak; không tự ký JWT hoặc tạo password_hash/refresh_tokens local. eventhub_auth chỉ là datasource scaffold, profile DB chỉ bổ sung nếu có nhu cầu nghiệp vụ riêng.
 
-**Trách nhiệm**: tài khoản, đăng ký/đăng nhập, Access Token (JWT, 5 phút) + Refresh Token (7 ngày) với Rotation + Reuse Detection, đổi mật khẩu, vai trò, khóa/mở khóa.
+Role CUSTOMER/ORGANIZER/ADMIN và ACTIVE/LOCKED trong DTO là mapping ứng dụng. Grant flow, role/sub mapping, quyền gọi Admin API/service account, TTL và S2S cần cấu hình; không tự bật password grant hoặc cho rằng khóa user làm mọi JWT mất hiệu lực ngay.
 
-**Bảng**
-- `users`: id, email (UNIQUE), password_hash, full_name, status (`ACTIVE|LOCKED`), created_at, updated_at
-- `roles`: id, name (UNIQUE: `CUSTOMER|ORGANIZER|ADMIN`), description
-- `users_roles`: user_id (FK), role_id (FK), assigned_at — PK(user_id, role_id)
-- `refresh_tokens`: id, user_id (FK), token (UNIQUE, lưu hash), family_id (INDEX), expires_at, revoked_at (NULL = còn hiệu lực), created_at
+[Auth API](docs/api/auth-service-openapi.yaml), [database identity](docs/database/auth-service/README.md). Các shape login/password là draft tùy cơ chế Keycloak, không phải code đã có.
 
-**API**
-| Method | Endpoint | Quyền | Mô tả |
+| Method | Đường dẫn (chưa gồm /api/v1) | Mục đích | Kiến trúc |
 |---|---|---|---|
-| POST | `/auth/register` | public | Đăng ký, gán `CUSTOMER`, status `ACTIVE` |
-| POST | `/auth/login` | public | Trả Access + Refresh Token |
-| POST | `/auth/refresh` | Refresh Token | Xoay vòng token |
-| POST | `/auth/logout` | Refresh Token | Thu hồi Refresh Token (204) |
-| GET | `/auth/me` | JWT | Thông tin tài khoản hiện tại |
-| POST | `/auth/change-password` | JWT | Đổi mật khẩu, thu hồi mọi Refresh Token (204) |
-| PATCH | `/admin/users/{userId}/lock` | ADMIN | `LOCKED` + thu hồi Refresh Token (204) |
-| PATCH | `/admin/users/{userId}/unlock` | ADMIN | `ACTIVE` (204) |
-| PATCH | `/admin/users/{userId}/role` | ADMIN | Gán/chuyển vai trò (204) |
+| POST | `/auth/register` | AUTH-UC01 Đăng ký | Facade Auth → Keycloak |
+| POST | `/auth/login` | AUTH-UC02 Đăng nhập | Facade Auth → Keycloak |
+| POST | `/auth/refresh` | AUTH-UC03 Refresh token (rotation) | Facade Auth → Keycloak |
+| POST | `/auth/logout` | AUTH-UC04 Đăng xuất | Facade Auth → Keycloak |
+| GET | `/auth/me` | AUTH-UC05 Thông tin tài khoản hiện tại | Facade Auth → Keycloak |
+| POST | `/auth/change-password` | AUTH-UC06 Đổi mật khẩu | Facade Auth → Keycloak |
+| PATCH | `/admin/users/{userId}/lock` | AUTH-UC08 Khóa tài khoản | Facade Auth → Keycloak |
+| PATCH | `/admin/users/{userId}/unlock` | AUTH-UC09 Mở khóa tài khoản | Facade Auth → Keycloak |
+| PATCH | `/admin/users/{userId}/role` | AUTH-UC07 Gán / chuyển role | Facade Auth → Keycloak |
 
-**Quy tắc**
-- Đăng ký không cho client tự chọn vai trò. Chỉ ADMIN gán/chuyển vai trò.
-- Access Token: `sub=userId`, `roles`, `iat`, `exp`. Logout không blacklist Access Token.
-- Refresh: băm token → tìm → nếu đã `revoked` ⇒ **thu hồi cả `family_id`** và trả `REFRESH_TOKEN_REUSED`; hợp lệ ⇒ thu hồi token cũ, cấp token mới cùng `family_id`.
-- Tài khoản `LOCKED`: không login, không refresh.
-- Lỗi: 409 `EMAIL_ALREADY_EXISTS`, 401 `INVALID_CREDENTIALS`, 403 `ACCOUNT_LOCKED`, 401 `INVALID_REFRESH_TOKEN`, 401 `REFRESH_TOKEN_EXPIRED`, 401 `REFRESH_TOKEN_REUSED`.
+## event-service
 
-**Máy trạng thái**: User `ACTIVE ⇄ LOCKED`. Refresh Token `ACTIVE → REVOKED | EXPIRED`.
+Database: eventhub_event. Nguồn: Bảng 2.3–2.4, Hình 2.36–2.43.
 
----
+Chỉ owner ORGANIZER được sửa/submit/publish/close; ADMIN review. Chỉ DRAFT/REJECTED được sửa, sửa REJECTED đưa về DRAFT. Public chỉ PUBLISHED. CLOSED ngừng bán, không tự hủy vé. Loại vé/quota thuộc Ticket, không zones A–D. venue chưa có trong baseline, chờ C03; review_reason là bổ sung kỹ thuật lưu lý do review.
 
-## 2. event-service  (`event_service_db`)
+**Trạng thái:** DRAFT → SUBMITTED → APPROVED → PUBLISHED → CLOSED; SUBMITTED → REJECTED → DRAFT khi sửa.
 
-**Trách nhiệm**: vòng đời sự kiện, danh mục, khu vực (zone), tìm kiếm công khai. Phát event qua `outbox_events`.
+Schema/kiểu/NULL/unique: [DDL](docs/database/event-service/init.sql), [ERD](docs/database/event-service/erd.md). OpenAPI: [event](docs/api/event-service-openapi.yaml).
 
-**Bảng**
-- `events`: id, organizer_id (Soft FK→users), category_id (FK), title, description, venue, status, start_time, end_time, created_at, updated_at
-- `event_categories`: id, name (UNIQUE), description, created_at
-- `event_zones`: id, event_id (FK), name, capacity, created_at — UNIQUE(event_id, name)
-- `outbox_events`: id, aggregate_type, aggregate_id, event_type, payload (JSON), status (`PENDING|PUBLISHED|FAILED`), created_at, published_at
-
-**API**
-| Method | Endpoint | Quyền | Mô tả |
+| Method | Đường dẫn (chưa gồm prefix public) | Mục đích | Trạng thái |
 |---|---|---|---|
-| POST | `/events` | ORGANIZER | Tạo Event `DRAFT` |
-| PUT | `/events/{id}` | ORGANIZER (owner) | Cập nhật (chỉ khi trạng thái cho phép) |
-| POST | `/events/{id}/submit` | ORGANIZER (owner) | `DRAFT→SUBMITTED` |
-| PATCH | `/admin/events/{id}/review` | ADMIN | Duyệt/từ chối (`APPROVED`/`REJECTED`) |
-| POST | `/events/{id}/publish` | ORGANIZER (owner) | `APPROVED→PUBLISHED` |
-| POST | `/events/{id}/close` | ORGANIZER (owner) | `PUBLISHED→CLOSED` |
-| GET | `/events?keyword=&category=&date=` | public | Tìm kiếm Event đã `PUBLISHED` |
-| GET | `/events/{id}` | public | Chi tiết (404 nếu chưa `PUBLISHED`) |
-| GET | `/organizer/events` | ORGANIZER | Event của mình |
-| POST/GET/PUT/DELETE | `/categories[/{id}]` | ADMIN (GET public) | Quản lý danh mục |
-| POST/PUT/DELETE | `/zones[/{id}]` | ADMIN | Quản lý khu vực |
+| POST | `/events` | EVT-01 Tạo Event (DRAFT) | Mục tiêu V2 |
+| GET | `/events` | EVT-07 Tìm kiếm Event (public) | Mục tiêu V2 |
+| GET | `/events/{id}` | EVT-08 Xem chi tiết Event (public) | Mục tiêu V2 |
+| PUT | `/events/{id}` | EVT-02 Cập nhật Event | Mục tiêu V2 |
+| POST | `/events/{id}/submit` | EVT-03 Nộp duyệt | Mục tiêu V2 |
+| POST | `/events/{id}/publish` | EVT-05 Publish Event | Mục tiêu V2 |
+| POST | `/events/{id}/close` | EVT-06 Đóng bán vé | Mục tiêu V2 |
+| PATCH | `/admin/events/{id}/review` | EVT-04 Admin duyệt / từ chối Event | Mục tiêu V2 |
+| GET | `/organizer/events` | EVT-09 Event của tôi | Mục tiêu V2 |
+| GET | `/categories` | CAT-02 Danh sách Category (public) | Mục tiêu V2 |
+| POST | `/categories` | CAT-01 Tạo Category | Mục tiêu V2 |
+| PUT | `/categories/{id}` | CAT-03 Cập nhật Category | Mục tiêu V2 |
+| DELETE | `/categories/{id}` | CAT-04 Xóa Category | Mục tiêu V2 |
+| GET | `/internal/events/{id}` | INT-01 Thông tin Event cho service khác | Mục tiêu V2 |
 
-**Máy trạng thái**: `DRAFT → SUBMITTED → APPROVED → PUBLISHED → CLOSED`; `SUBMITTED → REJECTED → DRAFT` (organizer sửa lại).
+## ticket-service
 
-**Quy tắc**: chỉ owner (`organizer_id = userId`) được sửa/submit/publish/close; `start_time < end_time`; public chỉ thấy `PUBLISHED`. Loại vé **không** thuộc service này (xem Ticket Service).
+Database: eventhub_ticket. Nguồn: Bảng 2.5–2.9, Hình 2.44–2.56.
 
----
+ticket_types gộp quota/counters; ba tên VIP/PREMIUM/STANDARD. Reserve 3 phút trong DB transaction với khóa hàng/UPDATE điều kiện, UNIQUE(order_id), giá snapshot. Confirm CAS và phát vé/QR trong cùng transaction, lặp trả kết quả cũ. Release CONFIRMED trả 409; RELEASED/EXPIRED gọi lại không trả quota hai lần. Check-in/out CAS và ticket_scans cùng transaction. Không tái nhập. gateId UUID nhưng owner/quyền thiết bị chờ C07. Cancel sau refund chỉ vé chưa dùng và >=48 giờ; khoảng trống sau provider refund chờ C05. Redis hỗ trợ khóa/cache, DB là nguồn chính.
 
-## 3. ticket-service  (`ticket_service_db`)
+**Trạng thái:** Reservation RESERVED → CONFIRMED|RELEASED|EXPIRED. Ticket ISSUED → CHECKED_IN → CHECKED_OUT; ISSUED → CANCELLED.
 
-**Trách nhiệm**: loại vé, tồn kho, giữ chỗ tạm 3 phút, phát hành vé + QR, check-in/out, hủy vé. **Sở hữu** dữ liệu vé và reservation.
+Schema/kiểu/NULL/unique: [DDL](docs/database/ticket-service/init.sql), [ERD](docs/database/ticket-service/erd.md). OpenAPI: [ticket](docs/api/ticket-service-openapi.yaml).
 
-**Bảng**
-- `ticket_types`: id, event_id (Soft FK→events), name (Khán đài A|B|C|D), price, status (`ACTIVE|INACTIVE`), created_at, updated_at — UNIQUE(event_id, name)
-- `ticket_inventory`: ticket_type_id (PK, FK 1-1), total_quota, available_quantity, reserved_quantity, sold_quantity, version, updated_at — ràng buộc `available + reserved + sold = total_quota`
-- `reservations`: id, order_id (Soft FK→orders, **UNIQUE**), status (`RESERVED|CONFIRMED|RELEASED|EXPIRED`), expires_at, created_at, confirmed_at, released_at — INDEX(status, expires_at)
-- `reservation_items`: id, reservation_id (FK), ticket_type_id (FK), quantity, unit_price
-- `tickets`: id, reservation_id (FK), order_id (Soft FK), ticket_type_id (FK), owner_user_id (Soft FK→users), holder_name, holder_email, qr_code_value (UNIQUE), status (`ISSUED|CHECKED_IN|CHECKED_OUT|CANCELLED`), issued_at, checked_in_at, checked_out_at, cancelled_at
-- `ticket_check_logs`: id, ticket_id (FK), event_id (Soft FK), gate_id, action (`CHECK_IN|CHECK_OUT`), scanned_at
-
-**API**
-| Method | Endpoint | Tác nhân | Mô tả |
+| Method | Đường dẫn (chưa gồm prefix public) | Mục đích | Trạng thái |
 |---|---|---|---|
-| POST | `/ticket-types` | ORGANIZER | Khởi tạo 4 loại vé A–D cho Event (không cho tên khác) |
-| PUT | `/ticket-types/{id}` | ORGANIZER | Sửa giá/quota/trạng thái; quota không nhỏ hơn đã bán + đang giữ |
-| GET | `/events/{eventId}/ticket-types` | public | Loại vé + số còn lại |
-| POST | `/internal/reservations` | Order Service | Reserve (idempotent theo `orderId`), trả `reservationId`, giá chính thức, `expiresAt` |
-| POST | `/internal/reservations/{id}/confirm` | Order Service | `RESERVED→CONFIRMED`, phát hành vé + QR |
-| POST | `/internal/reservations/{id}/release` | Order Service | `RESERVED→RELEASED`, trả quota |
-| GET | `/tickets/me` | CUSTOMER | Vé của tôi |
-| GET | `/tickets/{id}/qr` | CUSTOMER (owner) | QR của vé |
-| POST | `/gate/check-in` | Máy quét | `ISSUED→CHECKED_IN` |
-| POST | `/gate/check-out` | Máy quét | `CHECKED_IN→CHECKED_OUT` |
-| POST | `/internal/tickets/cancel-by-order/{orderId}` | Order Service | Hủy vé sau Refund thành công |
+| POST | `/ticket-types` | Khởi tạo 3 Ticket Type cho Event | Mục tiêu V2 |
+| PUT | `/ticket-types/{id}` | Cập nhật giá, quota, trạng thái | Mục tiêu V2 |
+| GET | `/events/{eventId}/ticket-types` | Xem Ticket Type, giá và số vé còn lại | Mục tiêu V2 |
+| GET | `/tickets/me` | Danh sách vé của tôi | Mục tiêu V2 |
+| GET | `/tickets/{id}/qr` | Lấy QR của vé | Mục tiêu V2 |
+| POST | `/gate/check-in` | Check-in bằng QR | Mục tiêu V2 |
+| POST | `/gate/check-out` | Check-out bằng QR | Mục tiêu V2 |
+| POST | `/internal/reservations` | Reserve Ticket (Order Service gọi) | Mục tiêu V2 |
+| POST | `/internal/reservations/{id}/confirm` | Confirm Reservation và phát hành vé | Mục tiêu V2 |
+| POST | `/internal/reservations/{id}/release` | Release Reservation | Mục tiêu V2 |
+| POST | `/internal/tickets/cancel-by-order/{orderId}` | Hủy vé sau Refund thành công | Mục tiêu V2 |
 
-**Máy trạng thái**: Reservation `RESERVED → CONFIRMED | RELEASED | EXPIRED`. Ticket `ISSUED → CHECKED_IN → CHECKED_OUT`; `ISSUED → CANCELLED`.
+## order-service
 
-**Quy tắc**
-- Reserve: kiểm tra loại vé A–D đang mở bán, quota đủ; giảm `available`, tăng `reserved`, tạo reservation trong **một transaction**; không đủ vé ⇒ rollback, `INSUFFICIENT_TICKETS`. `expiresAt = now + 3 phút`.
-- Confirm: chỉ sau khi Order `PAID`; giảm `reserved`, tăng `sold`, tạo vé + QR duy nhất cùng transaction; sau commit publish `ticket.issued`. Gọi lặp trả kết quả cũ.
-- Release/Expire: trả quota đúng một lần. **Ticket Scheduler** tìm reservation `RESERVED` có `expires_at < now` để chuyển `EXPIRED` (fail-safe khi Order Service không gọi Release).
-- Confirm vs Release/Expire tranh nhau: dùng compare-and-set, chỉ một thao tác thắng.
-- Cancel: chỉ khi vé `ISSUED`, chưa check-in, `eventStartTime − now ≥ 48 giờ`; giảm `sold`, tăng `available`; publish `ticket.cancelled`.
-- Check-in/out ghi `ticket_check_logs`, publish event tương ứng; cùng một QR không được check-in đồng thời ở hai cổng.
-- Chống bán vượt vé bằng UPDATE có điều kiện / khóa lạc quan (`version`).
+Database: eventhub_order. Nguồn: Bảng 2.10–2.15, Hình 2.57–2.72.
 
----
+Sinh orderId → reserve → lưu Order/items/holders; một holder mỗi vé. Giá/hạn từ Ticket, không từ client. Payment ID provider có thể NULL trước phản hồi. Webhook phải xác minh chữ ký và đối chiếu amount/currency/transaction, dedup theo provider + provider_event_id; payload_hash không thay chữ ký. CAS với scheduler, chỉ một nhánh được hoàn quota. PAID rồi confirm tạm lỗi: job retry bền vững, chỉ order.paid sau phát vé. PAID nhưng reservation EXPIRED cần quy tắc C05/C06, không tự phát vé. Refund kiểm tra điều kiện >=48h lúc yêu cầu và duyệt; provider lỗi không hủy vé. Chính sách amount/từng vé/quyền duyệt C04 chưa chốt.
 
-## 4. order-service  (`order_service_db`)
+**Trạng thái:** Order PENDING_PAYMENT → PAID|FAILED|EXPIRED; PAID → REFUNDED. Payment CREATED → PENDING → SUCCEEDED|FAILED. Refund REQUESTED → APPROVED → PROCESSING → REFUNDED; REQUESTED → REJECTED; APPROVED|PROCESSING → FAILED.
 
-**Trách nhiệm**: điều phối Khách hàng ↔ Ticket Service ↔ Payment Gateway; sở hữu Order, Payment, Refund.
+Schema/kiểu/NULL/unique: [DDL](docs/database/order-service/init.sql), [ERD](docs/database/order-service/erd.md). OpenAPI: [order](docs/api/order-service-openapi.yaml).
 
-**Bảng**
-- `orders` (entity `PurchaseOrder`): id, customer_id (Soft FK), event_id (Soft FK), reservation_id (Soft FK→ticket), status (`PENDING_PAYMENT|PAID|FAILED|EXPIRED|REFUNDED`), subtotal, total_amount, currency (`VND`), expires_at, paid_at, created_at, updated_at — INDEX(status, expires_at)
-- `order_items`: id, order_id (FK), ticket_type_id (Soft FK), ticket_type_name, quantity, unit_price, line_total, holder_name, holder_email, holder_phone (snapshot tên/giá lúc đặt)
-- `payments`: id, order_id (FK), provider, provider_transaction_id (UNIQUE), amount, status (`CREATED|PENDING|SUCCEEDED|FAILED`), payment_url, idempotency_key (UNIQUE), created_at, updated_at
-- `refund_requests`: id, order_id (FK), requested_by (Soft FK), amount, reason, status (`REQUESTED|APPROVED|REJECTED|PROCESSING|REFUNDED|FAILED`), reviewed_by (Soft FK), requested_at, reviewed_at, refunded_at
-
-**API**
-| Method | Endpoint | Tác nhân | Mô tả |
+| Method | Đường dẫn (chưa gồm prefix public) | Mục đích | Trạng thái |
 |---|---|---|---|
-| POST | `/orders` | CUSTOMER | Tạo Order: lấy giá từ Ticket Service, reserve 3 phút, trả `PENDING_PAYMENT` + `expiresAt` |
-| GET | `/orders/me` | CUSTOMER | Lịch sử đơn |
-| GET | `/orders/{id}` | CUSTOMER (owner) | Chi tiết đơn |
-| POST | `/orders/{id}/payment` | CUSTOMER | Khởi tạo thanh toán (chỉ khi còn `PENDING_PAYMENT` và chưa quá hạn) |
-| POST | `/payments/webhook/{provider}` | Payment Gateway | Webhook, xác thực chữ ký, idempotent |
-| POST | `/orders/{id}/refunds` | CUSTOMER | Yêu cầu hoàn tiền |
-| GET | `/admin/refunds?status=REQUESTED` | ADMIN/ORGANIZER | Danh sách chờ duyệt |
-| POST | `/admin/refunds/{id}/approve` | ADMIN/ORGANIZER | Duyệt + hoàn tiền |
-| POST | `/admin/refunds/{id}/reject` | ADMIN/ORGANIZER | Từ chối |
+| POST | `/orders` | Tạo Order và reserve vé | Mục tiêu V2 |
+| GET | `/orders/me` | Lịch sử Order của tôi | Mục tiêu V2 |
+| GET | `/orders/{id}` | Chi tiết Order | Mục tiêu V2 |
+| POST | `/orders/{id}/payment` | Khởi tạo thanh toán | Mục tiêu V2 |
+| POST | `/payments/webhook/{provider}` | Payment webhook (gateway gọi) | Mục tiêu V2 |
+| POST | `/orders/{id}/refunds` | Yêu cầu Refund | Mục tiêu V2 |
+| GET | `/admin/refunds` | Danh sách Refund | Mục tiêu V2 |
+| POST | `/admin/refunds/{id}/approve` | Duyệt Refund | Mục tiêu V2 |
+| POST | `/admin/refunds/{id}/reject` | Từ chối Refund | Mục tiêu V2 |
 
-**Máy trạng thái**: Order `PENDING_PAYMENT → PAID → REFUNDED`; `→ FAILED`; `→ EXPIRED`. Payment `CREATED → PENDING → SUCCEEDED`; `CREATED|PENDING → FAILED`. Refund `REQUESTED → APPROVED → PROCESSING → REFUNDED`; `REQUESTED → REJECTED`; `APPROVED|PROCESSING → FAILED`. **Không** cho `PAID → EXPIRED` hay `REFUNDED → PAID`.
+## notification-service
 
-**Luồng chính**: `Tạo Order → Reserve (3 phút) → Thanh toán → Webhook thành công → PAID → Confirm Reservation → phát hành vé`.
+Database: eventhub_notification. Nguồn: Bảng 2.16–2.18, Hình 2.73–2.77; Flyway V1 bổ sung để thực hiện in-app và retry.
 
-**Quy tắc**
-- Tạo Order: client chỉ gửi loại vé + số lượng + người nhận; giá lấy từ Ticket Service. Nếu lưu Order lỗi sau khi reserve ⇒ gọi Release (bù trừ).
-- Webhook: xác thực chữ ký, `provider_event_id` UNIQUE; `SUCCEEDED` + Order còn `PENDING_PAYMENT` ⇒ CAS sang `PAID` rồi Confirm. Confirm tạm thời lỗi ⇒ giữ `PAID`, retry; **chỉ publish `order.paid` sau khi vé phát hành thành công**. `FAILED` ⇒ Release + publish `order.failed`. Thanh toán thành công đến sau khi Order `EXPIRED` ⇒ không phát vé, đưa vào hoàn tiền/đối soát. Webhook lặp trả 2xx, không xử lý lại.
-- Order Scheduler: tìm `PENDING_PAYMENT` có `expires_at < now`, CAS sang `EXPIRED`; thành công thì Release + publish `order.failed` (`reason=EXPIRED`); nếu đã `PAID` thì bỏ qua.
-- Refund: chỉ khi Order `PAID`, vé chưa check-in, còn ≥ 48 giờ trước sự kiện, chưa có refund hợp lệ. Approve ⇒ `PROCESSING` + gọi Gateway (idempotency key riêng); chỉ khi Gateway xác nhận ⇒ Order/Refund `REFUNDED`, gọi Ticket Service hủy vé, publish `order.refunded`. Gateway lỗi ⇒ Refund `FAILED`, không hủy vé.
+Consume ticket.issued, order.failed, order.refunded. EMAIL và IN_APP; PUSH/reminder để giai đoạn sau. Render title/content và lưu snapshot; QR PNG nhúng cid. Không lộ email/QR/payload ra GET notifications. Dedup từng messageId:channel:recipient, transaction ngắn, SMTP ngoài transaction. Chỉ processed khi mọi target thành công. SMTP có thể gửi trùng nếu crash giữa send và markSent. Nguồn customerEmail/holder fallback C02, venue C03. API page/unread-count/PUT template là bổ sung kỹ thuật có nhãn trong OpenAPI.
 
----
+**Trạng thái:** Delivery PENDING → SENT|FAILED; FAILED có thể retry → SENT. Đọc IN_APP chỉ set read_at lần đầu. Template UUID PK, UNIQUE(code,channel).
 
-## 5. notification-service  (`notification_service_db`)
+Schema/kiểu/NULL/unique: [DDL](docs/database/notification-service/init.sql), [ERD](docs/database/notification-service/erd.md). OpenAPI: [notification](docs/api/notification-service-openapi.yaml).
 
-**Trách nhiệm**: Kafka Consumer gửi email/thông báo; quản lý thông báo in-app.
-
-**Bảng**
-- `notifications`: id (UUID CHAR(36)), recipient_user_id (nullable, Soft FK), recipient_email, channel (`EMAIL|IN_APP|PUSH`), template_code (FK), payload (JSON), status (`PENDING|SENT|FAILED`), sent_at, read_at, created_at
-- `processed_events`: event_id (PK), processed_at
-- `notification_templates`: code (PK: `TICKET_ISSUED|ORDER_FAILED|ORDER_REFUNDED|…`), channel, subject, body_template
-
-**API**
-| Method | Endpoint | Quyền | Mô tả |
+| Method | Đường dẫn (chưa gồm prefix public) | Mục đích | Trạng thái |
 |---|---|---|---|
-| GET | `/notifications/me?unreadOnly=` | CUSTOMER | Thông báo in-app |
-| PUT | `/notifications/{id}/read` | CUSTOMER | Đánh dấu đã đọc (`read_at`) |
-| POST | `/admin/notification-templates` | ADMIN | Tạo/sửa mẫu |
+| GET | `/notifications/me` | Danh sách thông báo in-app của tôi | Mục tiêu V2 |
+| PUT | `/notifications/{id}/read` | Đánh dấu đã đọc | Mục tiêu V2 |
+| GET | `/admin/notification-templates` | Danh sách template, chỉ ADMIN | Mục tiêu V2 |
+| GET | `/notifications/me/unread-count` | Số thông báo IN_APP chưa đọc | Mục tiêu V2 |
+| PUT | `/admin/notification-templates/{code}` | Upsert theo code và channel, chỉ ADMIN | Mục tiêu V2 |
+| GET | `/admin/notification-templates/{code}` | Chi tiết template, chỉ ADMIN | Mục tiêu V2 |
 
-**Kafka consume**
-- `ticket.issued` → render `TICKET_ISSUED`, sinh QR bằng ZXing từ `qr_code_value`, gửi email (SMTP/SES), ghi `notifications`; nếu có chủ vé thì thêm bản ghi `IN_APP`.
-- `order.failed`, `order.refunded` → render `ORDER_FAILED`/`ORDER_REFUNDED`, gửi email, ghi log.
+## analytics-service
 
-**Quy tắc**: kiểm tra `processed_events` trước khi xử lý; gửi lỗi thì Spring Retry (backoff), quá số lần ⇒ đẩy `notification.dlq`; không để một message lỗi chặn cả consumer group.
+Database: eventhub_analytics. Nguồn: Bảng 2.19–2.21, Hình 2.78–2.81; Flyway V1 là nền, chưa là projection hoàn chỉnh.
 
----
+Chỉ order.paid cộng sales, order.refunded ghi refund; không cộng ticket.issued hoặc trừ ticket.cancelled lần hai. Phân hạng vé cần ticketTypeId/name và tiền hoàn từng hạng. Claim messageId + UPSERT + log/snapshot cùng transaction. Attendance phải chịu check-out đến trước check-in, không giảm/clamp đơn thuần. GET dashboard tải ban đầu, WS /ws/dashboard có Gateway route riêng. CONNECT xác minh JWT, SUBSCRIBE kiểm tra owner/Admin, chặn client SEND vào topic server; session cần hết hạn theo token. Gọi Event Service để phân quyền và xác minh tồn tại; cache ownership chỉ ngắn hạn có invalidation. Quy tắc ngày báo cáo/thuần-gộp còn C09.
 
-## 6. analytics-service  (`analytics_service_db`)
+**Trạng thái:** Read model một snapshot/event, log nghiệp vụ bất biến. Chưa có dữ liệu trả 0 và updatedAt=null sau kiểm tra sự kiện; provider nội bộ lỗi trả 503, không giả số 0.
 
-**Trách nhiệm**: tổng hợp thống kê (CQRS đơn giản: write-model log + read-model snapshot) và đẩy dữ liệu realtime cho Organizer.
+Schema/kiểu/NULL/unique: [DDL](docs/database/analytics-service/init.sql), [ERD](docs/database/analytics-service/erd.md). OpenAPI: [analytics](docs/api/analytics-service-openapi.yaml).
 
-**Bảng**
-- `sales_metrics`: id, event_id, ticket_type_id, date, revenue, tickets_sold — UNIQUE(event_id, ticket_type_id, date), cập nhật bằng UPSERT
-- `dashboard_snapshot` (read-model): event_id (PK), total_revenue, total_tickets_sold, current_attendance, last_updated
-- `attendance_logs` (write-model): id, ticket_id, event_id, gate_id, action (`CHECK_IN|CHECK_OUT`), occurred_at — INDEX(event_id, occurred_at)
-
-**API**
-| Giao thức | Endpoint | Mô tả |
-|---|---|---|
-| GET | `/analytics/events/{id}/sales?from=&to=` | Doanh số theo khoảng thời gian (từ `sales_metrics`) |
-| GET | `/analytics/events/{id}/attendance` | Số người hiện có mặt (từ `dashboard_snapshot`) |
-| WebSocket | `/ws/dashboard` | Subscribe `/topic/event/{id}/dashboard` nhận JSON realtime |
-
-**Kafka consume**
-- `order.paid` → UPSERT `sales_metrics` theo từng loại vé/ngày, cập nhật `dashboard_snapshot`, push WebSocket.
-- `ticket.issued` → cộng số vé đã phát hành thực tế.
-- `ticket.checked-in` / `ticket.checked-out` → ghi `attendance_logs`, `current_attendance ±1`, push WebSocket.
-- `order.refunded`, `ticket.cancelled` → điều chỉnh báo cáo nếu cần.
-
-**Quy tắc**: idempotent theo `eventId` (tránh cộng dồn hai lần); endpoint chỉ cho ORGANIZER của sự kiện đó.
-
----
-
-## 7. Bảng sự kiện Kafka
-
-| Topic | Producer | Consumer | Khi phát |
+| Method | Đường dẫn (chưa gồm prefix public) | Mục đích | Trạng thái |
 |---|---|---|---|
-| `ticket.issued` | ticket | notification, analytics | Phát hành vé thành công |
-| `ticket.checked-in` | ticket | analytics | Check-in thành công |
-| `ticket.checked-out` | ticket | analytics | Check-out thành công |
-| `ticket.cancelled` | ticket | notification, analytics | Vé bị hủy hợp lệ |
-| `order.paid` | order | analytics | Order `PAID` **và** vé đã phát hành |
-| `order.failed` | order | notification | Thanh toán thất bại hoặc Order hết hạn (`reason`: `PAYMENT_FAILED`/`EXPIRED`) |
-| `order.refunded` | order | notification, analytics | Hoàn tiền thành công |
-| `notification.dlq` | notification | vận hành | Gửi thất bại quá số lần retry |
+| GET | `/analytics/events/{id}/sales` | Báo cáo doanh số theo khoảng thời gian | Mục tiêu V2 |
+| GET | `/analytics/events/{id}/attendance` | Số người đang có mặt | Mục tiêu V2 |
+| GET | `/analytics/events/{id}/dashboard` | Snapshot ban đầu trước khi subscribe WS | Mục tiêu V2 |
 
-Event Service có bảng `outbox_events`; tên topic của event sự kiện (nếu phát) team sẽ bổ sung theo cùng quy ước `domain.action`.
+## Kafka và luồng phối hợp
 
-## 8. Luồng mua vé end-to-end
+Hợp đồng đầy đủ tại [docs/kafka/events.md](docs/kafka/events.md). Topic order.paid → Analytics; order.failed → Notification; order.refunded → Notification + Analytics; ticket.issued → Notification; ticket.checked-in/out → Analytics; ticket.cancelled chưa có consumer giai đoạn này. Có notification.dlq và analytics.dlq.
 
-```
-Customer → POST /orders
-  Order → Ticket: POST /internal/reservations        (giữ vé 3 phút, trả giá)
-  Order lưu PENDING_PAYMENT
-Customer → POST /orders/{id}/payment → Payment Gateway
-Payment Gateway → POST /payments/webhook/{provider}
-  SUCCEEDED: Order PAID → Ticket: POST /internal/reservations/{id}/confirm → phát vé + QR
-             publish ticket.issued  → Notification gửi email QR, Analytics cập nhật
-             publish order.paid     → Analytics cộng doanh số
-  FAILED / hết 3 phút: Order FAILED|EXPIRED → Ticket: release → publish order.failed → Notification
-Tại cổng: máy quét → POST /gate/check-in → publish ticket.checked-in → Analytics
-Hoàn tiền: Customer yêu cầu → Admin duyệt → Gateway hoàn tiền → Ticket hủy vé → publish order.refunded
-```
+Order reserve → thanh toán → webhook đã xác minh → CAS PAID → REST Ticket confirm → Ticket commit vé/QR và outbox ticket.issued → Order ghi outbox order.paid. Không phát vé qua hai đường. Consumer idempotent; lỗi đồng bộ phải có retry task bền vững và đối soát.
+
+Sự kiện hủy/hoàn qua các topic có thể đến khác thứ tự; cùng key không bảo đảm thứ tự xuyên topic. Các điểm late payment/refund sau cancel conflict chưa được lấp bằng mặc định: xem C04–C06.

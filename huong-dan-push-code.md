@@ -1,167 +1,32 @@
-# Hướng dẫn làm việc bằng Git và Pull Request
+# Hướng dẫn Git và gửi thay đổi
 
-Mỗi người dùng **một nhánh cá nhân lâu dài**, ví dụ `dev/duy`, `dev/an`. Mọi thay đổi được gửi vào `main` qua Pull Request (PR).
+Nguồn quy trình chung là [WORKFLOW.md](WORKFLOW.md). Lượt đồng bộ tài liệu theo BC_32_V2 sửa trực tiếp trên main theo yêu cầu chủ dự án. Không còn hướng dẫn bắt buộc dùng dev/duy hoặc bắt buộc tạo nhánh riêng cho lượt này.
 
-Cần cài Git và GitHub CLI (`gh`). Đăng nhập một lần bằng `gh auth login`.
+## Kiểm tra thay đổi local
 
-## 1. Tạo nhánh cá nhân lần đầu
+~~~powershell
+git branch --show-current
+git status --short
+git diff --stat
+git diff --check
+git diff
+~~~
 
-Thay `dev/duy` bằng tên nhánh riêng của bạn. Chạy một lần:
+Chưa commit/push khi chỉ được yêu cầu sửa file. Khi có yêu cầu commit, chọn đúng file thay vì thêm toàn bộ workspace; không thêm .env, target hay secret.
 
-```powershell
-git switch main
-git pull origin main
-git switch -c dev/duy
-git push -u origin dev/duy
-```
+~~~powershell
+git add duong-dan-file
+git commit -m "docs: align contracts with BC_32_V2"
+~~~
 
-Những lần sau dùng lại nhánh đó, không tạo nhánh mới:
+## Nếu cần Pull Request
 
-```powershell
-git switch dev/duy
-```
+Nếu main được bảo vệ hoặc nhóm yêu cầu review, tạo nhánh chứa thay đổi đã kiểm tra rồi push và mở PR theo quyền được cấp. Đừng thay branch protection để vượt kiểm tra. Chính sách nhánh lâu dài cần nhóm xác nhận riêng.
 
-## 2. Trước khi code
+~~~powershell
+git switch -c docs/ten-thay-doi
+git push -u origin docs/ten-thay-doi
+gh pr create --base main --head docs/ten-thay-doi --title "docs: ten thay doi" --body-file pr-body.md
+~~~
 
-Lấy thay đổi mới nhất từ `main` vào nhánh cá nhân:
-
-```powershell
-git switch dev/duy
-git status
-git fetch origin
-git merge origin/main
-```
-
-Nếu Git mở Vim để xác nhận merge message: nhấn `Esc`, gõ `:wq`, rồi nhấn `Enter`.
-
-**Lệnh trên chỉ cập nhật nhánh đang đứng (`dev/duy`); nó không đưa code vào `main`.**
-
-## 3. Commit và push code
-
-Sau khi sửa code:
-
-```powershell
-git status
-git add .
-git commit -m "feat(auth): implement authentication endpoint"
-git push
-```
-
-Không commit file `.env`, mật khẩu hoặc thông tin bí mật.
-
-## 4. Tạo Pull Request
-
-Tạo PR từ nhánh cá nhân vào `main`:
-
-```powershell
-gh pr create --base main --head dev/duy --title "feat(auth): implement authentication endpoint" --body "Mô tả thay đổi và cách kiểm tra."
-```
-
-Nếu PR đang mở, các lần `git push` tiếp theo tự cập nhật PR đó; không tạo PR mới. Xem số PR bằng:
-
-```powershell
-gh pr list --base main
-```
-Các lệnh xem Pull Request bằng GitHub CLI
-1. Xem danh sách Pull Request
-
-Hiển thị danh sách các Pull Request trong repository hiện tại.
-
-powershell
-gh pr list
-
-2. Xem tất cả Pull Request
-
-Hiển thị tất cả PR, bao gồm PR đang mở, đã đóng và đã merge.
-
-powershell
-gh pr list --state all
-
-3. Chỉ xem Pull Request đang mở
-
-Hiển thị các PR có trạng thái open.
-
-powershell
-gh pr list --state open
-
-4. Xem chi tiết một Pull Request
-
-Hiển thị thông tin chi tiết của PR theo số thứ tự.
-
-powershell
-gh pr view 123
-
-
-Thay 123 bằng số PR cần xem.
-## 5. Review và merge
-
-Một thành viên khác có quyền ghi vào repo review PR. Tác giả không thể tự approve PR của mình.
-
-Reviewer thay `3` bằng số PR:
-
-```powershell
-gh pr review 3 --approve --body "Đã xem, đồng ý."
-```
-
-Nếu cần sửa, reviewer có thể yêu cầu thay đổi:
-
-```powershell
-gh pr review 3 --request-changes --body "Vui lòng sửa ..."
-```
-
-Sau khi được approve và các kiểm tra đạt, người có quyền merge chạy:
-
-```powershell
-gh pr merge 3 --merge
-```
-
-Lệnh này merge PR trên GitHub vào `main`; không cần checkout sang `main`. **Đây là bước đưa code vào `main`.**
-
-## 6. Đồng bộ nhánh cá nhân sau khi PR được merge
-
-Trước lượt code tiếp theo:
-
-```powershell
-git switch dev/duy
-git fetch origin
-git merge origin/main
-git push
-```
-
-Việc merge `origin/main` khi đang ở `dev/duy` chỉ đồng bộ nhánh cá nhân. Sau đó, tạo PR mới khi có thay đổi mới.
-
-Nhánh cá nhân được giữ lại nếu repo tắt **Settings → General → Pull Requests → Automatically delete head branches**. Trong repo EventHub, tùy chọn này hiện đang bỏ chọn.
-
-## 7. Kéo code mới nhất từ `main` vào nhánh riêng
-
-Dùng `git merge` để cập nhật nhánh cá nhân từ `main`.
-
-### Bước 1: Chuyển sang nhánh của bạn
-
-```powershell
-git switch dev/duy
-```
-
-Kiểm tra nhánh hiện tại:
-
-```powershell
-git branch
-```
-
-Dấu `*` cho biết nhánh đang hoạt động.
-
-### Bước 2: Lấy thông tin mới nhất từ remote
-
-```powershell
-git fetch origin
-```
-
-Lệnh này cập nhật thông tin các nhánh trên remote. Nó không thay đổi code trong nhánh hiện tại.
-
-### Bước 3: Merge `main` vào nhánh riêng
-
-```powershell
-git merge origin/main
-```
-
-Lệnh này đưa các thay đổi mới nhất từ `origin/main` vào nhánh `dev/duy`.
+Tác giả sửa tiếp trên cùng nhánh khi có góp ý; người có quyền review/merge thực hiện theo quy tắc repository. Không chạy lệnh commit/push/merge từ hướng dẫn này nếu chưa có yêu cầu thực hiện.
