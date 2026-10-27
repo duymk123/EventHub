@@ -1,9 +1,9 @@
 -- Khởi tạo Database cho Order Service
-CREATE DATABASE IF NOT EXISTS order_service
+CREATE DATABASE IF NOT EXISTS eventhub_order
     CHARACTER SET utf8mb4
     COLLATE utf8mb4_unicode_ci;
 
-USE order_service;
+USE eventhub_order;
 
 -- Xóa bảng cũ nếu cần chạy lại từ đầu (theo thứ tự bảng con trước, bảng cha sau)
 DROP TABLE IF EXISTS refunds;
