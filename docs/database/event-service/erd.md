@@ -1,29 +1,33 @@
-# ERD event-service — BC_32_V2 đã đối chiếu
+# ERD event-service
 
-Nguồn vật lý: [init.sql](init.sql). Đây là schema tham chiếu mục tiêu, chưa có migration nghiệp vụ trong module. [Quyết định nguồn](../../architecture/source-decisions.md) và [điểm cần chốt](../../project-clarifications.md).
+Nguồn: [init.sql](init.sql), schema tham chiếu hiện hành; không tự triển khai thêm migration/field đang được đề xuất.
+
+![ERD UUID CHAR(36)](erd.svg)
+
+Ảnh SVG và Mermaid được tạo từ cùng DDL, gồm đầy đủ cột. Mọi PK/tham chiếu bảng EventHub dùng UUID CHAR(36); không FK/JOIN xuyên service.
 
 ```mermaid
 erDiagram
   categories ||--o{ events : category_id
   categories {
-    char id PK
-    varchar name
-    text description
-    timestamp created_at
+    CHAR(36) id PK
+    VARCHAR(100) name
+    TEXT description
+    TIMESTAMP created_at
   }
   events {
-    char id PK
-    char organizer_id
-    char category_id
-    varchar title
-    text description
-    varchar status
-    timestamp start_time
-    timestamp end_time
-    timestamp created_at
-    timestamp updated_at
-    text review_reason
+    CHAR(36) id PK
+    CHAR(36) organizer_id
+    CHAR(36) category_id FK
+    VARCHAR(255) title
+    TEXT description
+    VARCHAR(20) status
+    TIMESTAMP start_time
+    TIMESTAMP end_time
+    TIMESTAMP created_at
+    TIMESTAMP updated_at
+    TEXT review_reason
   }
 ```
 
-Chỉ các đường nối trên là FK nội bộ. ID tham chiếu service khác chỉ là UUID mềm; không truy cập DB khác. Ảnh JPEG cũ trong thư mục là lịch sử, không phải ERD hiện hành. Cột outbox (nếu có) là bổ sung kỹ thuật chống mất message sau commit. Xem mapping/giới hạn ở [database README](../README.md).
+Tạo lại bằng [render-erd.mjs](../render-erd.mjs); kiểm tra lệch nguồn với node docs/database/render-erd.mjs --check từ root. JPEG Order/Ticket tạo lại bằng [render-erd.ps1](../render-erd.ps1). Không đọc ảnh cũ để suy ra kiểu ID. Các bảng/cột kỹ thuật còn đề xuất trong [plans](../../plans/README.md) chỉ được thêm vào ERD sau khi có DDL/migration tương ứng. [Mapping và giới hạn](../README.md).

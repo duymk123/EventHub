@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2280" height="806" viewBox="0 0 2280 806" role="img" aria-labelledby="title desc">
+<title id="title">notification-service — UUID CHAR(36)</title>
+<desc id="desc">Reference ERD generated from init.sql, SHA-256 7810dc09c0fd9693341577e62cc3beee4675eff3dfe059a6f0b73dc63409cd03. Every application primary key and ID reference is UUID CHAR(36); only local physical foreign keys are connected.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#617891"/></marker></defs>
+<rect width="100%" height="100%" fill="white"/>
+<text x="65" y="65" font-family="Segoe UI,Arial,sans-serif" font-size="36" font-weight="700" fill="#163453">NOTIFICATION SERVICE | UUID CHAR(36)</text>
+<text x="65" y="108" font-family="Segoe UI,Arial,sans-serif" font-size="22" fill="#52657d">Nguồn: init.sql. PK và ID tham chiếu đều là UUID 36 ký tự.</text>
+<g data-table="notification_templates"><rect x="65" y="150" width="650" height="246" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="65" y="150" width="650" height="48" fill="#163453"/>
+<text x="83" y="183" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">notification_templates</text>
+<text data-column="id" x="81" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="505" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="code" x="81" y="259" font-family="Consolas,monospace" font-size="20" fill="#172b4d">code</text><text x="505" y="259" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(50)</text>
+<text data-column="channel" x="81" y="290" font-family="Consolas,monospace" font-size="20" fill="#172b4d">channel</text><text x="505" y="290" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(10)</text>
+<text data-column="subject" x="81" y="321" font-family="Consolas,monospace" font-size="20" fill="#172b4d">subject</text><text x="505" y="321" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(255)</text>
+<text data-column="body_template" x="81" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">body_template</text><text x="505" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TEXT</text>
+<text data-column="updated_at" x="81" y="383" font-family="Consolas,monospace" font-size="20" fill="#172b4d">updated_at</text><text x="505" y="383" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+</g>
+<g data-table="notifications"><rect x="815" y="150" width="650" height="556" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="815" y="150" width="650" height="48" fill="#163453"/>
+<text x="833" y="183" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">notifications</text>
+<text data-column="id" x="831" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="1255" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="dedup_key" x="831" y="259" font-family="Consolas,monospace" font-size="20" fill="#172b4d">dedup_key</text><text x="1255" y="259" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(400)</text>
+<text data-column="source_message_id" x="831" y="290" font-family="Consolas,monospace" font-size="20" fill="#08775d">source_message_id</text><text x="1255" y="290" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="recipient_user_id" x="831" y="321" font-family="Consolas,monospace" font-size="20" fill="#08775d">recipient_user_id</text><text x="1255" y="321" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="recipient_email" x="831" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">recipient_email</text><text x="1255" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(255)</text>
+<text data-column="channel" x="831" y="383" font-family="Consolas,monospace" font-size="20" fill="#172b4d">channel</text><text x="1255" y="383" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(10)</text>
+<text data-column="template_code" x="831" y="414" font-family="Consolas,monospace" font-size="20" fill="#172b4d">template_code</text><text x="1255" y="414" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(50)</text>
+<text data-column="title" x="831" y="445" font-family="Consolas,monospace" font-size="20" fill="#172b4d">title</text><text x="1255" y="445" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(255)</text>
+<text data-column="content" x="831" y="476" font-family="Consolas,monospace" font-size="20" fill="#172b4d">content</text><text x="1255" y="476" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TEXT</text>
+<text data-column="payload" x="831" y="507" font-family="Consolas,monospace" font-size="20" fill="#172b4d">payload</text><text x="1255" y="507" font-family="Consolas,monospace" font-size="20" fill="#172b4d">JSON</text>
+<text data-column="status" x="831" y="538" font-family="Consolas,monospace" font-size="20" fill="#172b4d">status</text><text x="1255" y="538" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(10)</text>
+<text data-column="attempts" x="831" y="569" font-family="Consolas,monospace" font-size="20" fill="#172b4d">attempts</text><text x="1255" y="569" font-family="Consolas,monospace" font-size="20" fill="#172b4d">INT</text>
+<text data-column="last_error" x="831" y="600" font-family="Consolas,monospace" font-size="20" fill="#172b4d">last_error</text><text x="1255" y="600" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(500)</text>
+<text data-column="sent_at" x="831" y="631" font-family="Consolas,monospace" font-size="20" fill="#172b4d">sent_at</text><text x="1255" y="631" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="read_at" x="831" y="662" font-family="Consolas,monospace" font-size="20" fill="#172b4d">read_at</text><text x="1255" y="662" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="created_at" x="831" y="693" font-family="Consolas,monospace" font-size="20" fill="#172b4d">created_at</text><text x="1255" y="693" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+</g>
+<g data-table="processed_events"><rect x="1565" y="150" width="650" height="122" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<rect x="1565" y="150" width="650" height="48" fill="#163453"/>
+<text x="1583" y="183" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">processed_events</text>
+<text data-column="id" x="1581" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="2005" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
+<text data-column="processed_at" x="1581" y="259" font-family="Consolas,monospace" font-size="20" fill="#172b4d">processed_at</text><text x="2005" y="259" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+</g>
+<text x="65" y="771" font-family="Segoe UI,Arial,sans-serif" font-size="21" fill="#52657d">Mũi tên: cha → con, chỉ FK nội bộ. DDL SHA-256: 7810dc09c0fd9693</text>
+</svg>
