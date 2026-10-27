@@ -11,6 +11,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -23,7 +24,10 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "order_items")
+@Table(name = "order_items",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_order_type",
+                columnNames = {"order_id", "ticket_type_id"}))
 @Getter
 @Setter
 @NoArgsConstructor
