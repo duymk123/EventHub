@@ -3,62 +3,82 @@ package com.eventhub.order.entity;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "orders")
+@Table(name = "orders", indexes = {
+        @Index(name = "idx_order_customer", columnList = "customer_id, created_at"),
+        @Index(name = "idx_order_expiry", columnList = "status, expires_at")
+})
 @Getter
 @Setter
 @NoArgsConstructor
 public class Order extends BaseEntity {
 
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     @JdbcTypeCode(SqlTypes.CHAR)
-    @Column(name = "user_id", nullable = false, length = 36)
-    private UUID userId;
+    @Column(nullable = false, updatable = false, length = 36)
+    private UUID id;
 
-    @Column(name = "total_amount", nullable = false, precision = 12, scale = 2)
-    private BigDecimal totalAmount = BigDecimal.ZERO;
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "customer_id", nullable = false, length = 36)
+    private UUID customerId;
 
-    @Column(nullable = false, length = 30)
-    private String status = "PENDING";
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "event_id", nullable = false, length = 36)
+    private UUID eventId;
 
-    @Column(name = "payment_status", nullable = false, length = 30)
-    private String paymentStatus = "UNPAID";
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "reservation_id", nullable = false, length = 36)
+    private UUID reservationId;
 
-    @Column(name = "idempotency_key", nullable = false, unique = true, length = 100)
-    private String idempotencyKey;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private OrderStatus status = OrderStatus.PENDING_PAYMENT;
 
-    @Column(name = "expired_at", nullable = false)
-    private LocalDateTime expiredAt;
+    @Column(nullable = false, precision = 14, scale = 2)
+    private BigDecimal subtotal;
 
-    @CreationTimestamp
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    @Column(name = "total_amount", nullable = false, precision = 14, scale = 2)
+    private BigDecimal totalAmount;
 
-    @UpdateTimestamp
-    @Column(name = "updated_at", nullable = false)
-    private LocalDateTime updatedAt;
+    @Column(nullable = false, length = 3)
+    private String currency = "VND";
+
+    @Column(name = "expires_at", nullable = false)
+    private Instant expiresAt;
+
+    @Column(name = "paid_at")
+    private Instant paidAt;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderItem> items = new ArrayList<>();
 
-    @OneToMany(mappedBy = "order")
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Payment> payments = new ArrayList<>();
 
-    @OneToMany(mappedBy = "order")
-    private List<Refund> refunds = new ArrayList<>();
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<RefundRequest> refundRequests = new ArrayList<>();
+
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<PaymentWebhook> paymentWebhooks = new ArrayList<>();
 }
