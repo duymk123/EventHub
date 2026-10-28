@@ -2,17 +2,17 @@ spring:
   application:
     name: analytics-service
   datasource:
-    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_analytics}?serverTimezone=UTC}"
-    username: "${DB_USERNAME:eventhub}"
-    password: "${DB_PASSWORD}"
+    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_analytics}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
+    username: "${DB_USERNAME:root}"
+    password: "${DB_PASSWORD:root}"
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
     open-in-view: false
     properties:
       hibernate.type.preferred_uuid_jdbc_type: CHAR
   flyway:
-    enabled: true
+    enabled: false
     locations: classpath:db/migration
     baseline-on-migrate: false
   kafka:

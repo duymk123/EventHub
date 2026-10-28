@@ -121,6 +121,8 @@ Chi tiết cấu hình và xử lý schema đã có dữ liệu: [Docker.md](Doc
 
 ### 4. Build backend locally
 
+Để chạy service bằng IntelliJ, dùng MySQL trên máy và chỉ chạy Kafka/Redis bằng Docker, xem [hướng dẫn phát triển local](docs/local-development.md).
+
 PowerShell, chạy tại root repository:
 
 ```powershell
