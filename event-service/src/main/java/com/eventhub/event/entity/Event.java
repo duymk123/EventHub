@@ -5,8 +5,12 @@ import java.util.UUID;
 
 import org.hibernate.annotations.UuidGenerator;
 
+import com.eventhub.event.entity.enums.EventStatus;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -32,11 +36,11 @@ public class Event extends BaseEntity {
     @Column (name = "id", length = 36, nullable = false, updatable = false)
     private UUID id;
 
-   // Khóa ngoại mềm trỏ sang Auth DB: users.id (Keycloak UUID)[cite: 3]
+   // Khóa ngoại mềm trỏ sang Auth DB: users.id (Keycloak UUID)
     @Column(name = "organizer_id", nullable = false, length = 36)
     private String organizerId;
 
-    // Khóa ngoại vật lý nội bộ trỏ đến bảng categories[cite: 3]
+    // Khóa ngoại vật lý nội bộ trỏ đến bảng categories
     @ManyToOne (fetch = FetchType.LAZY, optional = false)
     @JoinColumn (name = "category_id", nullable = false)
     private Category category;
@@ -47,8 +51,10 @@ public class Event extends BaseEntity {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
+    // Khóa ngoại vật lý nội bộ trỏ đến bảng locations
+    @Enumerated (EnumType.STRING)
     @Column(name = "status", nullable = false, length = 50)
-    private String status = "DRAFT"; // DRAFT, SUBMITTED, APPROVED, REJECTED, PUBLISHED, CLOSED[cite: 3]
+    private EventStatus status =  EventStatus.DRAFT;
 
     @Column(name = "start_time", nullable = false)
     private LocalDateTime startTime;
