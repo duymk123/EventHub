@@ -1,5 +1,7 @@
 package com.eventhub.order.entity;
 
+import com.eventhub.order.common.RefundStatus;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

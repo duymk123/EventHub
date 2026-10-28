@@ -4,7 +4,7 @@ Ngày 2026-10-28. Nguồn: [quy ước chung](00-cross-service-contracts.md), [O
 
 ## 1. Entity, DTO và package
 
-Tạo `entity/Category, Event`, enum `EventStatus`; `EventRepository, CategoryRepository`; `EventService, CategoryService` cùng `impl`; controller Event/OrganizerEvent/AdminEvent/Category/InternalEvent; mapper, exception, security và config.
+Tạo `entity/Category, Event`, enum `common/EventStatus`; `EventRepository, CategoryRepository`; `EventService, CategoryService` cùng `impl`; controller Event/OrganizerEvent/AdminEvent/Category/InternalEvent; mapper, exception, security và config. Entity chỉ chứa entity/mapped superclass, không chứa enum.
 
 ID/organizerId/categoryId đều UUID, local Category association ánh xạ FK `events.category_id`; organizerId là ID mềm Keycloak/Auth. Event có title/description/status/startTime/endTime/createdAt/updatedAt/reviewReason theo DDL; không tự thêm venue trước C03. reviewReason là bổ sung kỹ thuật đã có reference DDL, map API rejectReason cho kết quả từ chối phù hợp.
 

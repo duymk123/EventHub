@@ -1,6 +1,6 @@
 package com.eventhub.analytics.entity;
 
-import com.eventhub.analytics.entity.enums.AttendanceAction;
+import com.eventhub.analytics.common.AttendanceAction;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

@@ -6,7 +6,7 @@ Ngày 2026-10-28. Đọc [quy ước chung](00-cross-service-contracts.md), [Ope
 
 V1 có SalesMetric(id/eventId/ticketTypeId UUID, ticketTypeName, metricDate, revenue/ticketsSold/refundedAmount/ticketsRefunded/updatedAt), DashboardSnapshot(id UUID, eventId UNIQUE UUID, totalRevenue/totalTicketsSold/currentAttendance/totalCheckedIn/lastUpdated), AttendanceLog(id/ticketId/eventId/gateId UUID, action, occurredAt), ProcessedEvent(id=messageId UUID).
 
-Đã code bốn entity tại [entity](../../analytics-service/src/main/java/com/eventhub/analytics/entity), cùng enum AttendanceAction. Theo xác nhận mới nhất, giữ V1 và bỏ qua BaseEntity/audit columns. UUID lưu CHAR(36), action VARCHAR(10), tiền DECIMAL(14,2). SalesMetric.updatedAt, DashboardSnapshot.lastUpdated và AttendanceLog.occurredAt được projection gán rõ ràng, không dùng audit callback để ghi đè thời điểm nghiệp vụ; ProcessedEvent.processedAt được Hibernate gán khi insert.
+Đã code bốn entity tại [entity](../../analytics-service/src/main/java/com/eventhub/analytics/entity), cùng enum AttendanceAction đặt trực tiếp trong common của service. Theo xác nhận mới nhất, giữ V1 và bỏ qua BaseEntity/audit columns. UUID lưu CHAR(36), action VARCHAR(10), tiền DECIMAL(14,2). SalesMetric.updatedAt, DashboardSnapshot.lastUpdated và AttendanceLog.occurredAt được projection gán rõ ràng, không dùng audit callback để ghi đè thời điểm nghiệp vụ; ProcessedEvent.processedAt được Hibernate gán khi insert.
 
 V2 đề xuất `attendance_state(id UUID, ticket_id UUID UNIQUE, event_id UUID, checked_in_at/checked_out_at TIMESTAMP NULL)` và index cần query; không sửa V1 đã áp dụng. AttendanceLog có thể dùng id=messageId để audit/replay ổn định, không dùng ticketId làm PK log vì mỗi vé có hai action.
 

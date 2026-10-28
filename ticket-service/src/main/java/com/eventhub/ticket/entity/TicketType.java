@@ -1,5 +1,8 @@
 package com.eventhub.ticket.entity;
 
+import com.eventhub.ticket.common.TicketTypeName;
+import com.eventhub.ticket.common.TicketTypeStatus;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

@@ -1,5 +1,7 @@
 package com.eventhub.ticket.entity;
 
+import com.eventhub.ticket.common.ReservationStatus;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

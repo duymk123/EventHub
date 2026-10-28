@@ -38,7 +38,9 @@ userId lấy từ Principal đã xác minh; không tin userId, giá hoặc kết
 
 ## 4. Package và migration
 
-Package gốc com.eventhub.<service>: controller, service/impl, repository, entity/enums, dto/request, dto/response, mapper, exception, client/dto, messaging/event|producer|consumer, config, scheduler nếu có nhu cầu.
+Package gốc com.eventhub.<service>: controller, service/impl, repository, entity, common, dto/request, dto/response, mapper, exception, client/dto, messaging/event|producer|consumer, config, scheduler nếu có nhu cầu.
+
+Theo yêu cầu chủ dự án, `entity` chỉ chứa entity và mapped superclass như BaseEntity. Enum đặt trực tiếp trong `com.eventhub.<service>.common`, không để trong entity hoặc entity/enums. Mỗi service giữ enum riêng trong common của mình; entity import enum từ package này.
 
 Migration Flyway ở src/main/resources/db/migration/V<n>__description.sql. Notification/Analytics đã có V1 và ddl-auto: validate. Service khác còn update trong scaffold; chuyển sang migration trước khi dùng môi trường chung. Không sửa migration đã áp dụng; dùng version tiếp theo. docs/database/*/init.sql là schema tham chiếu, không là migration triển khai.
 

@@ -5,7 +5,7 @@ import java.util.UUID;
 
 import org.hibernate.annotations.UuidGenerator;
 
-import com.eventhub.event.entity.enums.EventStatus;
+import com.eventhub.event.common.EventStatus;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

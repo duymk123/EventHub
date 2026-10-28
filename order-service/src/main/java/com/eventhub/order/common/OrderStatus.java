@@ -1,4 +1,4 @@
-package com.eventhub.order.entity;
+package com.eventhub.order.common;
 
 public enum OrderStatus {
     PENDING_PAYMENT,

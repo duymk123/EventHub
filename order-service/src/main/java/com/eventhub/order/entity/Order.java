@@ -1,5 +1,7 @@
 package com.eventhub.order.entity;
 
+import com.eventhub.order.common.OrderStatus;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
