@@ -1,4 +1,4 @@
-package com.eventhub.analytics.entity.enums;
+package com.eventhub.analytics.common;
 
 public enum AttendanceAction {
     CHECK_IN,

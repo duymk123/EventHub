@@ -16,6 +16,8 @@ Cập nhật 2026-10-28, viết trực tiếp trên `main` theo yêu cầu chủ
 
 Mỗi plan chỉ rõ interface/service methods, repository methods, kiểu dữ liệu và DTO, API → service, transaction/lock, migration còn thiếu, lỗi và test. Tên hàm là thiết kế đề xuất để bắt đầu code; khi đổi phải sửa API/plan/DDL liên quan cùng thay đổi.
 
+Quy ước package: `entity` chỉ chứa entity/mapped superclass, enum nằm trực tiếp ở `com.eventhub.<service>.common` của từng service. Không để enum ở entity hoặc entity/enums.
+
 **Cập nhật theo yêu cầu chủ dự án ngày 2026-10-28:** đã bỏ toàn bộ file/profile/dependency test. Không tạo lại test khi triển khai các plan này. Các mục test bên dưới và trong sáu plan là danh sách tình huống tham khảo để chạy thử/kiểm tra thủ công; không tự thêm JUnit/Mockito/Testcontainers/GreenMail.
 
 ## Các nguồn không được bỏ qua
@@ -32,7 +34,7 @@ UUID là quyết định đã chốt: Java `UUID`, MySQL `CHAR(36)`, JSON `strin
 | Event | Application | Toàn bộ nghiệp vụ, entity/repository/Flyway |
 | Ticket | Application | Toàn bộ nghiệp vụ, entity/repository/Flyway/outbox |
 | Order | BaseEntity UUID, Order/OrderItem/Payment/Refund | Refactor model còn lệch hợp đồng; các tầng nghiệp vụ/worker/migration |
-| Notification | Application, Kafka/mail, Flyway V1, ba entity/enums | Repository/API/template/consumer/delivery |
+| Notification | Application, Kafka/mail, Flyway V1, ba entity và enum trong common | Repository/API/template/consumer/delivery |
 | Analytics | Application, Kafka, Flyway V1, bốn entity/enum | Repository/projection/API/EventClient/WS |
 
 API Gateway là phần phụ thuộc chung, không tính thành service nghiệp vụ thứ bảy trong bộ plan này. Nó vẫn cần route REST, route WS riêng, xác thực và chặn public `/internal/**`. Compose có Kafka/UI/Mailpit, chưa có Keycloak/Redis.

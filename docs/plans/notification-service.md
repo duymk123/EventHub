@@ -6,7 +6,7 @@ Ngày 2026-10-28. Đọc [plan chung](00-cross-service-contracts.md), [OpenAPI](
 
 V1: NotificationTemplate(id UUID, code, channel, subject, bodyTemplate, updatedAt), Notification(id UUID, dedupKey UNIQUE, sourceMessageId UUID, recipientUserId UUID nullable, recipientEmail nullable, channel/templateCode/title/content/payload/status/attempts/error/time), ProcessedEvent(id=messageId UUID, processedAt).
 
-Đã code ba entity tại [entity](../../notification-service/src/main/java/com/eventhub/notification/entity), cùng NotificationChannel/NotificationStatus. Theo xác nhận mới nhất, giữ schema V1 và bỏ qua BaseEntity/audit columns. UUID lưu CHAR(36), enum ép VARCHAR để khớp V1, payload Map dùng JSON. Hibernate tự gán Notification.createdAt/ProcessedEvent.processedAt khi insert và Template.updatedAt khi insert/update; native SQL không đi qua lifecycle nên phải tự truyền timestamp.
+Đã code ba entity tại [entity](../../notification-service/src/main/java/com/eventhub/notification/entity), cùng NotificationChannel/NotificationStatus đặt trực tiếp trong common của service. Theo xác nhận mới nhất, giữ schema V1 và bỏ qua BaseEntity/audit columns. UUID lưu CHAR(36), enum ép VARCHAR để khớp V1, payload Map dùng JSON. Hibernate tự gán Notification.createdAt/ProcessedEvent.processedAt khi insert và Template.updatedAt khi insert/update; native SQL không đi qua lifecycle nên phải tự truyền timestamp.
 
 Chỉ EMAIL/IN_APP giai đoạn này. Template UNIQUE(code,channel), không dùng code làm PK. IN_APP phải có recipientUserId và title/content đã render; EMAIL phải có recipientEmail được quyết định ở C02. Payload có thể chứa QR/email nên không trả vào REST in-app và không log.
 

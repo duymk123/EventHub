@@ -1,6 +1,6 @@
 package com.eventhub.notification.entity;
 
-import com.eventhub.notification.entity.enums.NotificationChannel;
+import com.eventhub.notification.common.NotificationChannel;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;

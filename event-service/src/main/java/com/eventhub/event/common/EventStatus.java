@@ -1,4 +1,4 @@
-package com.eventhub.event.entity.enums;
+package com.eventhub.event.common;
 
 
 public enum EventStatus {

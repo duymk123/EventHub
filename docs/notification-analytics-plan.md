@@ -12,7 +12,7 @@ Root/module POM là hiện trạng, chưa có đủ dependency security/MapStruc
 
 ## 2. Notification core
 
-Package controller, service/impl, repository, entity/enums, dto/request|response, mapper, exception, config. Entity UUID CHAR mapping theo V1. notifications gồm channel, recipient_user_id/email, title/content snapshot, payload, trạng thái/attempts/error và dedup. Templates UUID PK, UNIQUE(code,channel), chỉ EMAIL/IN_APP giai đoạn này.
+Package controller, service/impl, repository, entity, common, dto/request|response, mapper, exception, config. entity chỉ chứa entity; enum đặt trực tiếp trong common của từng service. Entity UUID CHAR mapping theo V1. notifications gồm channel, recipient_user_id/email, title/content snapshot, payload, trạng thái/attempts/error và dedup. Templates UUID PK, UNIQUE(code,channel), chỉ EMAIL/IN_APP giai đoạn này.
 
 API mục tiêu: GET /notifications/me trả page chỉ IN_APP; GET /me/unread-count; PUT /{id}/read trả 204, lặp không đổi read_at, không phải owner trả 404. ADMIN GET template list/detail và PUT /{code} với channel trong body. Đây là chuẩn hóa kỹ thuật được ghi trong OpenAPI, chưa là API có sẵn.
 

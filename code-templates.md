@@ -6,7 +6,11 @@ Ví dụ minh họa Java 21/Spring Boot 3; import và boilerplate được lư�
 
 ### 1.1. Entity theo schema hiện tại
 
+Entity đặt trong `com.eventhub.<service>.entity`, enum đặt trực tiếp trong `com.eventhub.<service>.common`. Ví dụ Event import `com.eventhub.event.common.EventStatus`; không tạo thư mục enums bên trong entity.
+
 ~~~java
+import com.eventhub.event.common.EventStatus;
+
 @Entity @Table(name = "events")
 @Getter @Setter @NoArgsConstructor
 public class Event {

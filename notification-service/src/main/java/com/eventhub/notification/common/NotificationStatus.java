@@ -1,4 +1,4 @@
-package com.eventhub.notification.entity.enums;
+package com.eventhub.notification.common;
 
 public enum NotificationStatus {
     PENDING,

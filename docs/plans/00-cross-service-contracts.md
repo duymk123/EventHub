@@ -11,6 +11,7 @@ Nguồn chung cho [sáu plan](README.md), cập nhật 2026-10-28. Các phương
 - `PageResponse<T>` thống nhất `items,page,size,totalElements,totalPages`, page từ 0, size 1–100 và sort ổn định thêm id. `findById`/`save` là hàm kế thừa repository; không khai báo lại nếu không thay hành vi.
 - Quy ước page chỉ áp dụng endpoint đã có phân trang. `/tickets/me`, `/admin/refunds`, danh mục, type list và template list hiện trả array; không tự đổi sang page mà bỏ qua OpenAPI/client.
 - Package `com.eventhub.<service>` theo SKILL. Test/Clock injectable để kiểm tra ranh giới TTL/48 giờ; không gọi now rải rác làm lệch deadline giữa hai service.
+- `entity` chỉ chứa entity và mapped superclass; enum nằm trực tiếp ở `com.eventhub.<service>.common`. Không tạo entity/enums hoặc import enum từ service khác.
 
 ## 2. Quyền, transaction và cạnh tranh
 
