@@ -4,6 +4,6 @@
 
 Keycloak quản lý schema identity riêng bằng migration của sản phẩm; EventHub dùng API/OIDC, không đọc SQL/FK sang DB Keycloak. Quy tắc UUID ứng dụng không áp đặt lên schema nội bộ do Keycloak quản lý.
 
-Auth hiện là scaffold có datasource eventhub_auth nhưng chưa có entity. Giữ Auth facade không đồng nghĩa phải có DB profile: chỉ thêm nếu có dữ liệu nghiệp vụ riêng ngoài Keycloak; lúc đó id UUID và Keycloak subject mapping phải được định nghĩa rõ. Đề xuất kỹ thuật dùng thẳng sub UUID làm userId EventHub để tránh mapping thứ hai; cần kiểm tra cấu hình realm/import user khi triển khai.
+Đối chiếu code ngày 2026-10-29: Auth có datasource eventhub_auth và entity User/BaseEntity ánh xạ users cùng các trường audit; chưa có DDL/migration Auth được duyệt. [Giải thích từng trường và khác biệt với tài liệu cũ](fields.md). Giữ Auth facade không tự phê duyệt DB profile hay biến local users thành nguồn mật khẩu/token; phạm vi dữ liệu riêng và mapping với Keycloak cần được xác định rõ. Đề xuất dùng sub UUID làm userId cần kiểm tra cấu hình; @UuidGenerator trong code hiện không tự đồng bộ sub.
 
 CUSTOMER/ORGANIZER/ADMIN và trạng thái tài khoản do Keycloak quản lý; nếu có profile projection thì nó không là nguồn cấp quyền. Không seed credentials local. Realm/client, role mapper, grant flow cho UI riêng, quyền Admin API/service account, TTL và S2S còn chờ cấu hình, như đã thống nhất người phụ trách sẽ báo lại.

@@ -65,7 +65,7 @@ public class SalesMetric {
     @Column(name = "tickets_refunded", nullable = false)
     private int ticketsRefunded;
 
-    // Projection code supplies the business timestamp; do not replace it with an audit clock.
+    // Mã projection cung cấp thời gian nghiệp vụ; không thay thế bằng đồng hồ audit.
     @Column(name = "updated_at", nullable = false, columnDefinition = "TIMESTAMP")
     private Instant updatedAt;
 }

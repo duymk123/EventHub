@@ -8,7 +8,7 @@ Tạo `entity/Category, Event`, enum `common/EventStatus`; `EventRepository, Cat
 
 ID/organizerId/categoryId đều UUID, local Category association ánh xạ FK `events.category_id`; organizerId là ID mềm Keycloak/Auth. Event có title/description/status/startTime/endTime/createdAt/updatedAt/reviewReason theo DDL; không tự thêm venue trước C03. reviewReason là bổ sung kỹ thuật đã có reference DDL, map API rejectReason cho kết quả từ chối phù hợp.
 
-Request: EventRequest, ReviewRequest, CategoryRequest. Response: EventResponse (category object CategoryRef), EventSummary, EventStatusResponse, CategoryResponse, InternalEventResponse, PageResponse. Internal response gồm id/organizerId/title/status/startTime/endTime đúng API. Các command `EventSearch`/`OrganizerEventFilter` chỉ là DTO query, không Entity.
+Request: EventRequest, ReviewRequest, CategoryRequest. Response: EventResponse (category object CategoryRef), EventSummary, EventStatusResponse, CategoryResponse, InternalEventResponse. Phân trang nhận Pageable và trả Page<ResponseDTO> theo quy ước chung, không tạo DTO bọc trang riêng. Internal response gồm id/organizerId/title/status/startTime/endTime đúng API. Các command `EventSearch`/`OrganizerEventFilter` chỉ là DTO query, không Entity.
 
 ## 2. EventService
 
@@ -20,9 +20,9 @@ Request: EventRequest, ReviewRequest, CategoryRequest. Response: EventResponse (
 | `review(Actor admin, UUID eventId, ReviewRequest request): EventStatusResponse` | ADMIN, lock SUBMITTED → APPROVED/REJECTED; reason bắt buộc khi REJECT; lưu review_reason/update time cùng transaction. |
 | `publish(Actor organizer, UUID eventId): EventStatusResponse` | Owner, APPROVED → PUBLISHED. Nếu C08 yêu cầu cấu hình Ticket, gọi client trước transaction và recheck/CAS khi ghi; cần quy tắc chịu thay đổi cấu hình đồng thời. |
 | `close(Actor organizer, UUID eventId): EventStatusResponse` | Owner, PUBLISHED → CLOSED; nghĩa ngừng bán, không cancel vé hay cấm check-in. |
-| `searchPublic(EventSearch filter, Pageable pageable): PageResponse<EventSummary>` | Chỉ PUBLISHED, keyword/category/startDate/endDate, sort ổn định; read-only. Validate date range; normalize keyword, không ghép SQL từ input. |
+| `searchPublic(EventSearch filter, Pageable pageable): Page<EventSummary>` | Chỉ PUBLISHED, keyword/category/startDate/endDate, sort ổn định; read-only. Validate date range; normalize keyword, không ghép SQL từ input. |
 | `getPublic(UUID eventId): EventResponse` | Query id+PUBLISHED, không có trả 404; không tự gom Ticket DB. |
-| `getMine(Actor organizer, OrganizerEventFilter filter, Pageable pageable): PageResponse<EventResponse>` | Query organizerId=Principal, filter status nếu có theo API, read-only. |
+| `getMine(Actor organizer, OrganizerEventFilter filter, Pageable pageable): Page<EventResponse>` | Query organizerId=Principal, filter status nếu có theo API, read-only. |
 | `getInternal(ServiceActor caller, UUID eventId): InternalEventResponse` | Service được cấp quyền, trả mọi status cho kiểm tra owner/giờ/sales; không public, 404 nếu không tồn tại. |
 
 Chọn một cách nhất quán cho máy trạng thái: `findByIdForUpdate` kiểm tra rồi mutate/save cùng transaction, hoặc CAS có điều kiện trạng thái/owner. Không đọc entity ngoài transaction rồi save toàn bộ vì có thể ghi đè review/close của worker khác. Với network ở publish, không giữ khóa Event trong lúc chờ Ticket.

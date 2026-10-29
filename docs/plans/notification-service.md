@@ -16,7 +16,7 @@ Chỉ EMAIL/IN_APP giai đoạn này. Template UNIQUE(code,channel), không dùn
 
 | Interface / signature | Hành vi |
 |---|---|
-| `NotificationService.getMine(Actor actor, boolean unreadOnly, Pageable page): PageResponse<NotificationResponse>` | Chỉ IN_APP của Principal; read-only, sort createdAt/id giảm dần. Không trả delivery EMAIL hoặc payload/QR. |
+| `NotificationService.getMine(Actor actor, boolean unreadOnly, Pageable pageable): Page<NotificationResponse>` | Chỉ IN_APP của Principal; read-only, sort mặc định createdAt/id giảm dần qua @PageableDefault. Truyền Pageable tới repository, map bằng Page.map; JSON content/page theo via-dto. Không trả delivery EMAIL hoặc payload/QR. |
 | `markRead(Actor actor, UUID notificationId): void` | UPDATE id+recipientUserId+IN_APP WHERE read_at IS NULL. Đã đọc vẫn 204, không đổi mốc đầu. Không tồn tại/thuộc người khác/EMAIL đều 404. |
 | `countUnread(Actor actor): UnreadCountResponse` | COUNT theo user+IN_APP+read_at NULL, cùng semantics GET page. |
 | `TemplateService.upsert(Actor admin, String code, TemplateRequest request): TemplateResponse` | ADMIN, code pattern/max length, channel EMAIL/IN_APP; upsert (code,channel), giữ id khi cập nhật, render kiểm tra cú pháp. Transaction ghi ngắn. |

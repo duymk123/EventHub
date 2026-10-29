@@ -181,23 +181,109 @@ CREATE TABLE audited_records (
 
 ## 2. DTO
 
+DTO của API phải chia rõ theo chiều dữ liệu:
+
+- `dto/request`: dữ liệu đầu vào từ client, đặt tên `<Tên>Request`; DTO con của request cũng đặt tại đây.
+- `dto/response`: dữ liệu trả về client, đặt tên `<Tên>Response`; DTO con của response cũng đặt tại đây, kể cả khi tên không có hậu tố Response như `DailySales`, `TicketTypeSales`, `CategoryRef`. Phân trang dùng `Page<ResponseDTO>` của Spring Data.
+- Mỗi public record nằm trong một file Java riêng, khai báo package khớp thư mục. Controller, service interface, ServiceImpl và mapper import đúng package request/response.
+- Chỉ tạo request DTO khi endpoint cần dữ liệu đầu vào dạng DTO. Analytics hiện nhận UUID/ngày qua path/query nên chưa cần tạo request DTO riêng.
+
+Cấu trúc DTO hiện tại:
+
+~~~text
+analytics/dto/
+└── response/
+    ├── AttendanceResponse.java
+    ├── DailySales.java
+    ├── DashboardSnapshotResponse.java
+    ├── SalesReportResponse.java
+    └── TicketTypeSales.java
+
+notification/dto/
+├── request/
+│   └── TemplateRequest.java
+└── response/
+    ├── NotificationResponse.java
+    ├── TemplateResponse.java
+    └── UnreadCountResponse.java
+~~~
+
+Ví dụ request trong `dto/request/CreateEventRequest.java`:
+
 ~~~java
+package com.eventhub.event.dto.request;
+
 public record CreateEventRequest(
     @NotBlank @Size(max = 255) String title,
     String description,
     @NotNull UUID categoryId,
     @NotNull Instant startTime,
     @NotNull Instant endTime) {}
+~~~
+
+DTO con của response trong `dto/response/CategoryRef.java`:
+
+~~~java
+package com.eventhub.event.dto.response;
+
 public record CategoryRef(UUID id, String name) {}
+~~~
+
+Response trong `dto/response/EventResponse.java`:
+
+~~~java
+package com.eventhub.event.dto.response;
+
 public record EventResponse(UUID id, UUID organizerId, CategoryRef category,
     String title, Instant startTime, Instant endTime, EventStatus status) {}
 ~~~
 
 Service kiểm tra startTime < endTime và ownership. Response thực tế map đầy đủ shape OpenAPI (ví dụ description/createdAt), không trả Entity. HolderInput một phần tử/vé, holderEmail nullable theo V2, không tự ép bắt buộc trước C02.
 
+### Phân trang bằng Pageable
+
+API có phân trang dùng `Pageable` xuyên suốt Controller → Service interface → ServiceImpl → Repository và trả `Page<ResponseDTO>`. Dùng `page.map(mapper)` để chuyển Entity sang DTO, giữ metadata phân trang. Không tạo DTO bọc trang riêng như NotificationPage hoặc PageResponse, không nhận riêng int page/size rồi tự dựng PageRequest trong service.
+
+Ví dụ controller nhận phân trang do Spring bind từ query `page`, `size`, `sort`:
+
+~~~java
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+
+@GetMapping("/me")
+public ResponseEntity<Page<NotificationResponse>> getMine(
+        @AuthenticationPrincipal Actor actor,
+        @RequestParam(defaultValue = "false") boolean unreadOnly,
+        @PageableDefault(size = 20, sort = {"createdAt", "id"}, direction = Sort.Direction.DESC)
+        Pageable pageable) {
+    return ResponseEntity.ok(notificationService.getMine(actor, unreadOnly, pageable));
+}
+~~~
+
+Interface khai báo `Page<NotificationResponse> getMine(Actor actor, boolean unreadOnly, Pageable pageable)`. ServiceImpl truyền Pageable vào repository, sau đó `return result.map(this::toResponse)`. Repository nhận `Pageable` và trả `Page<Entity>`; sắp xếp theo Pageable, tránh ORDER BY cố định làm mất tác dụng sort từ client.
+
+Cấu hình trong mỗi service có API phân trang; Notification đã áp dụng, Event/Order dùng khi triển khai:
+
+~~~yaml
+spring:
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        max-page-size: 100
+        serialization-mode: via-dto
+~~~
+
+Page bắt đầu từ 0, size mặc định 20 và tối đa 100. `@PageableDefault` đặt thứ tự mặc định ổn định, thêm id khi cần phân biệt bản ghi cùng thời gian. Client có thể gửi nhiều sort, ví dụ `?page=0&size=20&sort=createdAt,desc&sort=id,desc`. Với `via-dto`, Spring tự serialize Page thành JSON gồm `content` (danh sách DTO) và `page` (size, number, totalElements, totalPages). Cập nhật OpenAPI theo cấu trúc này. Áp dụng cùng quy ước cho service khác khi có phân trang; các endpoint trả danh sách array giữ hợp đồng hiện tại.
+
 ## 3. Mapper
 
 ~~~java
+import com.eventhub.event.dto.response.CategoryRef;
+import com.eventhub.event.dto.response.EventResponse;
+
 @Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.ERROR)
 public interface EventMapper {
     EventResponse toResponse(Event event);
@@ -209,15 +295,98 @@ Map category object đúng CategoryRef của API; không đổi category thành 
 
 ## 4. Service interface và Principal
 
+Service luôn tách thành interface `service/<Tên>Service.java` và lớp triển khai `service/impl/<Tên>ServiceImpl.java`. Interface khai báo các phương thức nghiệp vụ; `ServiceImpl implements Service` chứa xử lý nghiệp vụ, kiểm tra quyền, gọi repository/client và `@Transactional`. Đặt `@Service` trên lớp triển khai, thêm `@Override` cho các phương thức của interface. Controller và service khác inject interface qua constructor.
+
+### 4.1. Interface và Principal
+
+`service/EventService.java`:
+
 ~~~java
+package com.eventhub.event.service;
+
+import com.eventhub.event.dto.request.CreateEventRequest;
+import com.eventhub.event.dto.response.EventResponse;
+
 public interface EventService {
     EventResponse create(UUID userId, CreateEventRequest request);
     EventResponse submit(UUID userId, UUID eventId);
 }
+~~~
+
+Principal đã xác minh đặt trong `common/BusinessPrincipal.java`:
+
+~~~java
 public record BusinessPrincipal(UUID userId, BusinessRole role) {}
 ~~~
 
 BusinessPrincipal là dữ liệu đã xác minh bởi adapter Keycloak; Auth facade UI/API riêng đã chốt; mapping sub/role cụ thể theo cấu hình realm còn cần hoàn thiện. Không lấy userId từ request và không hardcode claim roles phẳng khi chưa có role mapper.
+
+### 4.2. Ví dụ tách AnalyticsQueryService
+
+Cấu trúc áp dụng cho code service hiện tại:
+
+~~~text
+service/
+├── AnalyticsQueryService.java
+├── EventAccessService.java
+└── impl/
+    ├── AnalyticsQueryServiceImpl.java
+    └── EventAccessServiceImpl.java
+~~~
+
+`service/AnalyticsQueryService.java` (rút gọn một phương thức):
+
+~~~java
+package com.eventhub.analytics.service;
+
+import com.eventhub.analytics.common.Actor;
+import com.eventhub.analytics.dto.response.AttendanceResponse;
+import java.util.UUID;
+
+public interface AnalyticsQueryService {
+    AttendanceResponse getAttendance(Actor actor, UUID eventId);
+}
+~~~
+
+`service/impl/AnalyticsQueryServiceImpl.java`:
+
+~~~java
+package com.eventhub.analytics.service.impl;
+
+import com.eventhub.analytics.common.Actor;
+import com.eventhub.analytics.dto.response.AttendanceResponse;
+import com.eventhub.analytics.repository.DashboardSnapshotRepository;
+import com.eventhub.analytics.service.AnalyticsQueryService;
+import com.eventhub.analytics.service.EventAccessService;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.UUID;
+
+@Service
+public class AnalyticsQueryServiceImpl implements AnalyticsQueryService {
+    private final EventAccessService eventAccessService;
+    private final DashboardSnapshotRepository snapshotRepository;
+
+    public AnalyticsQueryServiceImpl(EventAccessService eventAccessService,
+                                     DashboardSnapshotRepository snapshotRepository) {
+        this.eventAccessService = eventAccessService;
+        this.snapshotRepository = snapshotRepository;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AttendanceResponse getAttendance(Actor actor, UUID eventId) {
+        eventAccessService.assertCanView(actor, eventId);
+        return snapshotRepository.findByEventId(eventId)
+            .map(snapshot -> new AttendanceResponse(
+                snapshot.getEventId(), snapshot.getCurrentAttendance(),
+                snapshot.getLastUpdated(), snapshot.getTotalCheckedIn()))
+            .orElseGet(() -> new AttendanceResponse(eventId, 0, null, 0));
+    }
+}
+~~~
+
+Ví dụ giữ transaction boundary của code hiện tại: transaction bắt đầu khi gọi phương thức qua Spring proxy, trước `assertCanView`. Nếu cần gọi Event HTTP hoàn toàn ngoài transaction, dùng một bean đọc DB riêng có transaction và gọi sau kiểm tra quyền; không gọi nội bộ `this` rồi kỳ vọng Spring mở transaction mới.
 
 ## 5. Transaction và CAS
 
@@ -243,11 +412,35 @@ Nhiều hạng vé phải lock theo thứ tự ID ổn định và rollback toà
 
 ## 6. Controller
 
+Mỗi phương thức API phải có Javadoc ghi HTTP method, đường dẫn đầy đủ và dòng `Mục đích:` bằng tiếng Việt, đối chiếu cột Mục đích trong [services.md](services.md). Bổ sung quyền truy cập, ý nghĩa/thông số mặc định của path/query/body và kết quả hoặc lỗi đáng chú ý khi cần để hiểu cách sử dụng API. Chú thích API trong ServiceImpl dùng cùng mục đích và đường dẫn với controller.
+
+Ví dụ chú thích cho API danh sách thông báo:
+
 ~~~java
+/**
+ * GET /api/v1/notifications/me?unreadOnly=&page=&size=&sort=
+ * Mục đích: Danh sách thông báo in-app của tôi, mới nhất trước.
+ * unreadOnly=true chỉ lấy thông báo chưa đọc; mặc định false lấy cả đã đọc và chưa đọc.
+ * page bắt đầu từ 0 (mặc định 0); size là số thông báo mỗi trang (mặc định 20, giới hạn 1–100).
+ * sort mặc định createdAt,desc và id,desc; trả Page gồm content và metadata trong page.
+ */
+~~~
+
+~~~java
+import com.eventhub.event.dto.request.CreateEventRequest;
+import com.eventhub.event.dto.response.EventResponse;
+import com.eventhub.event.service.EventService;
+
 @RestController @RequestMapping("/api/v1/events")
 @RequiredArgsConstructor
 public class EventController {
     private final EventService service;
+
+    /**
+     * POST /api/v1/events
+     * Mục đích: Tạo sự kiện mới ở trạng thái DRAFT cho ORGANIZER đang đăng nhập.
+     * Body là CreateEventRequest; trả 201 kèm EventResponse khi tạo thành công.
+     */
     @PostMapping @PreAuthorize("hasRole('ORGANIZER')")
     public ResponseEntity<EventResponse> create(
             @AuthenticationPrincipal BusinessPrincipal principal,

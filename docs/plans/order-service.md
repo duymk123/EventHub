@@ -20,7 +20,7 @@ Thêm OrderHolder, PaymentWebhook, OutboxEvent và PendingOperation kỹ thuật
 | Signature | Logic / ranh giới |
 |---|---|
 | `OrderService.create(Actor customer, CreateOrderRequest request, IdempotencyContext context): OrderResponse` | Validate type/quantity/holders; lấy customer từ Principal, sinh orderId UUID; Ticket.reserve trước → dùng giá/hạn server → lưu orders/items/holders transaction ngắn. Nếu lưu lỗi thì release bù trừ; fail-safe Ticket expiry khi không lưu được task do DB lỗi. |
-| `OrderQueryService.getMine(Actor customer, Pageable page): PageResponse<OrderResponse>` | CustomerId owner, sort createdAt/id; map items/holders tránh N+1, read-only. |
+| `OrderQueryService.getMine(Actor customer, Pageable pageable): Page<OrderResponse>` | CustomerId owner, sort mặc định createdAt/id qua @PageableDefault; map items/holders tránh N+1, read-only. Trả Page DTO, JSON content/page theo cấu hình via-dto chung. |
 | `getDetail(Actor customer, UUID orderId): OrderResponse` | Order thuộc customer, trả snapshot names/prices/deadline đúng API; không tính lại giá hiện tại từ Ticket. |
 | `OrderExpiryService.expire(UUID orderId, Instant now): boolean` | Lock/CAS PENDING_PAYMENT có expiresAt≤now → EXPIRED; ghi task RELEASE + outbox order.failed reason=EXPIRED cùng transaction. Không chạm PAID/FAILED/REFUNDED. |
 

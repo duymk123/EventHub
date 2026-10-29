@@ -6,6 +6,8 @@ Kế hoạch triển khai chi tiết ngày 2026-10-28: [docs/plans](docs/plans/R
 
 Public API có prefix /api/v1 ở server URL OpenAPI; /internal/** là đường trực tiếp service, WS /ws/dashboard là ngoại lệ có route Gateway riêng. UUID cho mọi PK/tham chiếu bảng. Không FK/JOIN xuyên DB.
 
+API có phân trang dùng `Pageable` (query `page`, `size`, `sort`) và trả `Page<ResponseDTO>`. Page từ 0, size mặc định 20/tối đa 100; JSON gồm `content` và `page` (size, number, totalElements, totalPages) theo cấu hình Spring Data `via-dto`. Notification đã áp dụng; Event/Order dùng cùng quy ước khi triển khai. Các API trả array giữ hợp đồng hiện tại.
+
 ## auth-service
 
 Đã chốt giữ UI/API tài khoản riêng, Auth gọi Keycloak. Identity, credentials, session, token và role thuộc Keycloak; không tự ký JWT hoặc tạo password_hash/refresh_tokens local. eventhub_auth chỉ là datasource scaffold, profile DB chỉ bổ sung nếu có nhu cầu nghiệp vụ riêng.

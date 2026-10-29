@@ -25,7 +25,7 @@ import java.util.UUID;
 @Builder
 public class ProcessedEvent {
 
-    /** Kafka messageId supplied by the consumer; never generate a new ID for deduplication. */
+    /** messageId của Kafka do consumer cung cấp; không bao giờ tạo ID mới để tránh trùng lặp. */
     @Id
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "id", nullable = false, updatable = false, length = 36)

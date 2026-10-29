@@ -70,6 +70,15 @@ paths:
           minimum: 1
           maximum: 100
           default: 20
+      - name: sort
+        in: query
+        description: 'Sắp xếp theo field,direction; có thể truyền lặp lại để sắp xếp nhiều trường. Mặc định createdAt,desc rồi id,desc.'
+        style: form
+        explode: true
+        schema:
+          type: array
+          items:
+            type: string
       responses:
         '200':
           description: Danh sách Order
@@ -528,13 +537,28 @@ components:
           format: date-time
     OrderPage:
       type: object
+      description: Page<OrderResponse> theo Spring Data via-dto.
+      required:
+      - content
+      - page
       properties:
-        items:
+        content:
           type: array
           items:
             $ref: '#/components/schemas/OrderResponse'
         page:
+          $ref: '#/components/schemas/PageMetadata'
+    PageMetadata:
+      type: object
+      required:
+      - size
+      - number
+      - totalElements
+      - totalPages
+      properties:
+        number:
           type: integer
+          minimum: 0
         size:
           type: integer
         totalElements:
