@@ -18,6 +18,8 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import com.eventhub.order.entity.enums.RefundStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
