@@ -30,7 +30,7 @@ public class Event {
 }
 ~~~
 
-Mẫu chỉ liệt kê các field cần minh họa; map đầy đủ cột DDL khi triển khai. Không thêm venue bắt buộc hoặc event_zones trước C03. Entity PurchaseOrder ánh xạ bảng orders để tránh tên ORDER của JPQL. Tất cả UUID FK mềm/nội bộ dùng cùng CHAR mapping, không chỉ @Id.
+Mẫu chỉ liệt kê các field minh họa; map đầy đủ DDL khi triển khai. C03 dùng text địa điểm chung tại Notification, chưa thêm venue bắt buộc hoặc event_zones vào Event. Entity PurchaseOrder ánh xạ orders để tránh tên ORDER của JPQL. UUID FK mềm/nội bộ dùng cùng CHAR mapping, không chỉ @Id.
 
 ### 1.2. BaseEntity có audit và cờ deleted
 
@@ -238,7 +238,7 @@ public record EventResponse(UUID id, UUID organizerId, CategoryRef category,
     String title, Instant startTime, Instant endTime, EventStatus status) {}
 ~~~
 
-Service kiểm tra startTime < endTime và ownership. Response thực tế map đầy đủ shape OpenAPI (ví dụ description/createdAt), không trả Entity. HolderInput một phần tử/vé, holderEmail nullable theo V2, không tự ép bắt buộc trước C02.
+Service kiểm tra startTime < endTime và ownership; response map shape OpenAPI, không Entity. HolderInput một phần tử/vé; C02 holderEmail nullable, có email thì nhận vé, thiếu fallback buyer email đã xác minh và snapshot lúc tạo đơn. Owner luôn là buyer.
 
 ### Phân trang bằng Pageable
 
@@ -475,7 +475,7 @@ public record InternalEventResponse(UUID id, UUID organizerId, String title,
 public interface EventClient { InternalEventResponse get(UUID eventId); }
 ~~~
 
-RestClient timeout rõ ràng, credential S2S chờ cấu hình; không dùng public GET /events/{id} để kiểm tra owner của sự kiện chưa published. 404/503 map rõ, không giả organizer từ client. venue chưa thêm trước C03.
+RestClient timeout rõ ràng, credential S2S chờ cấu hình; không dùng public GET /events/{id} để kiểm tra owner sự kiện chưa published. Map rõ 404/503, không giả organizer. C03 dùng text địa điểm cấu hình chung cho email QR, chưa cần venue trong Event DB.
 
 ## 9. Kafka event và producer
 
@@ -508,4 +508,4 @@ Notification không dùng transaction lớn bọc SMTP; claim/lease từng deliv
 
 ## 11. Kiểm tra trước sử dụng mẫu
 
-Schema/API đồng bộ; migration phù hợp trạng thái DB; dependency/annotation processors thực sự có trong POM; role+ownership đã kiểm tra; idempotency/CAS/rollback và lỗi mạng có hành vi rõ. Những field/công thức còn C01–C09 không tự gắn giá trị mặc định để code có thể chạy.
+Schema/API đồng bộ; migration phù hợp DB; dependency/processors trong POM, role+owner, idempotency/CAS/rollback và lỗi mạng rõ. Áp dụng [quyết định hiện hành](docs/project-clarifications.md): hoàn khách cả đơn 70% giá mua, ADMIN duyệt; hold trước provider, bù lỗi phát vé 100%; quota 0 hợp lệ, publish cần ít nhất một ACTIVE quota > 0. C06/C07 để sau; API/migration thiết kế chưa được coi đã triển khai.

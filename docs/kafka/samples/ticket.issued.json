@@ -1,0 +1,30 @@
+{
+  "messageId": "10000000-0000-4000-8000-000000000004",
+  "eventType": "ticket.issued",
+  "occurredAt": "2026-11-05T17:30:00Z",
+  "eventId": "30000000-0000-4000-8000-000000000001",
+  "orderId": "20000000-0000-4000-8000-000000000001",
+  "ownerUserId": "40000000-0000-4000-8000-000000000001",
+  "customerEmail": "buyer@example.test",
+  "eventTitle": "EventHub sample event",
+  "eventStartTime": "2026-12-01T12:00:00Z",
+  "venue": null,
+  "tickets": [
+    {
+      "ticketId": "60000000-0000-4000-8000-000000000001",
+      "ticketTypeId": "50000000-0000-4000-8000-000000000001",
+      "ticketTypeName": "VIP",
+      "holderName": "Sample Holder",
+      "holderEmail": null,
+      "qrCodeValue": "sample-opaque-qr-token"
+    },
+    {
+      "ticketId": "60000000-0000-4000-8000-000000000002",
+      "ticketTypeId": "50000000-0000-4000-8000-000000000001",
+      "ticketTypeName": "VIP",
+      "holderName": "Sample Holder Two",
+      "holderEmail": null,
+      "qrCodeValue": "sample-opaque-qr-token-two"
+    }
+  ]
+}

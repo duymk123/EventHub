@@ -46,7 +46,7 @@ Một category có thể được nhiều events sử dụng. Không xóa danh m
 
 Luồng chính: DRAFT → SUBMITTED → APPROVED → PUBLISHED → CLOSED. Nhánh sửa: SUBMITTED → REJECTED → DRAFT. Quyền sửa/submit/publish/close còn gắn với organizer_id; một tài khoản có role ORGANIZER không được sửa mọi sự kiện.
 
-Chỉ mục `(status, start_time)` hỗ trợ tìm sự kiện công khai theo thời gian. Chỉ mục `(organizer_id, created_at)` hỗ trợ danh sách sự kiện của tôi. DDL không có venue/location/zone/seat; trường địa điểm còn C03, không suy ra đã có bảng locations từ một comment trong entity.
+Chỉ mục `(status, start_time)` phục vụ tìm public theo thời gian, organizer_id/created_at phục vụ sự kiện của tôi. C03 chốt một địa điểm với text cấu hình chung trong email QR; DDL chưa cần venue/location/zone/seat, không suy có locations từ comment entity. C08 cho quota 0, publish cần một ACTIVE quota > 0 tại Ticket, không đòi mọi hạng dương hoặc JOIN DB Ticket.
 
 ## 3. Trường audit có trong entity hiện tại, khác DDL tham chiếu
 

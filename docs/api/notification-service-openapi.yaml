@@ -3,7 +3,7 @@ info:
   title: EventHub - Notification Service API
   version: 2.0.0-draft
   description: |-
-    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Mã nguồn hiện là scaffold, chưa có endpoint nghiệp vụ.
+    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. REST security, Kafka delivery và email/QR đã triển khai ngày 2026-11-05. Cần nối identity và producer theo hướng dẫn triển khai.
     UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
     Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
     EMAIL và IN_APP theo Hình 2.73–2.77; reminder/PUSH chưa có luồng triển khai. Pagination, unread-count, PUT template là chuẩn hóa kỹ thuật đề xuất, khác API bản cũ; chưa có client nghiệp vụ trong repo.
@@ -400,5 +400,5 @@ components:
           type: integer
           minimum: 0
 x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
-x-implementation-status: scaffold-only
+x-implementation-status: implemented-pending-team-identity-and-producer-integration
 x-open-decisions: ../project-clarifications.md

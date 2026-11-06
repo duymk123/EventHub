@@ -19,10 +19,16 @@ public enum ErrorCode {
         this.code = code;
     }
 
+    /**
+     * HTTP status gắn với lỗi nghiệp vụ này.
+     */
     public int httpStatus() {
         return httpStatus;
     }
 
+    /**
+     * Mã lỗi ổn định để frontend nhận biết và xử lý theo nghiệp vụ.
+     */
     public String code() {
         return code;
     }

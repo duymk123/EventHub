@@ -1,5 +1,7 @@
 # Kế hoạch Notification và Analytics sau BC_32_V2
 
+Tiến độ/code hiện tại ở [hướng dẫn triển khai](notification-analytics-implementation.md): API/security/consumer/delivery/projection/WebSocket, email buyer. C02 mới nhất yêu cầu holderEmail/fallback buyer, C03 text chung; đây là thay đổi target/config cần triển khai thêm. Dashboard gộp cả sự kiện, báo cáo ngày Việt Nam giữ xác nhận C09 trước đó.
+
 Bản tổng quan này được chi tiết hóa ngày 2026-10-28 tại [plan Notification](plans/notification-service.md), [plan Analytics](plans/analytics-service.md) và [phối hợp sáu service](plans/00-cross-service-contracts.md). Khi code dùng các plan đó cho danh sách hàm/repository/transaction; không coi phần tổng quan là đủ schema delivery/attendance.
 
 Bản cập nhật thay thế đề xuất trước khi đọc báo cáo. Đã chốt UUID, ba hạng VIP/PREMIUM/STANDARD, messageId, UI/API tài khoản riêng qua Auth facade gọi Keycloak, Flyway/validate và path trong ErrorResponse. Lượt tài liệu sửa trực tiếp main theo yêu cầu; không tự tạo PR hoặc push. [Quyết định nguồn](architecture/source-decisions.md), [câu hỏi C01–C09](project-clarifications.md).
@@ -20,7 +22,7 @@ TemplateRenderer dùng Mustache escape mặc định, không chạy expression t
 
 ## 3. Notification Kafka/email
 
-Consumer ticket.issued, order.failed, order.refunded; không ticket.cancelled. Chuẩn hóa target theo email/owner đã xác minh; C02 cần chốt nguồn email/fallback/owner, C03 địa điểm. Không dùng quyền Keycloak admin để lookup mỗi email nếu chưa có chính sách/cấp quyền.
+Consumer hiện ticket.issued/order.failed/order.refunded, không ticket.cancelled. C02 chốt snapshot buyer email xác minh, owner=buyer, holderEmail thiếu fallback buyer; gom target theo địa chỉ. C03 text địa điểm chung dự kiến EVENTHUB_VENUE_TEXT cần snapshot vào model. Adapter identity và xử lý nhiều recipient cần triển khai, không tra email mỗi lần gửi bằng quyền admin chưa cấp. payment.compensated là hợp đồng dự kiến của nhánh C05, chưa có consumer.
 
 Luồng: tạo/đọc notification dedup key → nếu SENT bỏ qua → gửi SMTP ngoài transaction → markSent transaction ngắn; lỗi ghi attempts/last_error đã lọc → retry → DLQ. Chỉ processed khi tất cả target hoàn thành. Cạnh tranh hai worker cần claim/lease target; exists+create và bắt duplicate một mình chưa ngăn cả hai worker cùng gửi. Crash sau send vẫn có thể gửi trùng; không ghi test cam kết exactly-once SMTP.
 
@@ -30,7 +32,7 @@ Kiểm tra có ý nghĩa: phân quyền owner/admin, read idempotent, template r
 
 SalesMetric/Repository UPSERT nguyên tử theo event/type/date, BigDecimal và UUID. Chỉ order.paid cộng doanh số, order.refunded cộng số hoàn; cần phân bổ tiền từng hạng (C04/C09). Claim processed_events trong transaction cùng projection, không exists rồi cộng không khóa.
 
-Snapshot V1 có total_revenue/total_tickets_sold/current_attendance/total_checked_in. Ý nghĩa revenue/sold thuần hay gộp còn C09, API có nhãn draft. Đề xuất sales report tách revenue/refund/net, ngày Asia/Ho_Chi_Minh, refund ghi ngày hoàn. Không sửa doanh số ngày cũ hoặc dùng giá hiện tại để tính hoàn.
+Snapshot giữ tổng gộp doanh thu/vé bán cả sự kiện theo C09 đã chốt; sales tách gộp/hoàn/thuần, ngày Asia/Ho_Chi_Minh theo paidAt/refundedAt. C04 khách hoàn cả đơn nhận 70% snapshot giá, quantity là tất cả vé; không dùng giá hiện tại hoặc sửa doanh số ngày cũ. C05 bù lỗi chưa cung cấp vé không đi vào refund sale chưa có.
 
 Attendance theo một lần vào/ra của V2: lưu trạng thái/bằng chứng của từng vé, khóa và tính đóng góp trước/sau cho cả trường hợp checkout đến trước. Không chỉ GREATEST(current-1,0). Bổ sung migration tiếp theo cho dữ liệu trạng thái/unique business event cần thiết; V1 hiện chỉ là nền.
 
@@ -52,6 +54,6 @@ GET /analytics/events/{id}/dashboard cung cấp snapshot ban đầu, cùng DTO v
 | 3 | Email/Kafka/QR/retry | C02/C03 và hợp đồng producer nguồn |
 | 4 | Analytics API/EventClient/projection sales | S2S, C04/C09, outbox từ Order |
 | 5 | Attendance/WS | C07, projection chịu đảo thứ tự, JWT session/role |
-| 6 | Test end-to-end | Provider C06, quy tắc bù trừ C05 và dữ liệu seed nhất quán |
+| 6 | Kiểm tra thủ công xuyên luồng | Provider C06 để sau; triển khai hold/fence/verify/bù theo [C05](architecture/payment-refund-recovery.md), dữ liệu fixture nhất quán |
 
 Luồng tiền/vé dùng Testcontainers MySQL/Kafka, kiểm tra đồng thời, duplicate, đảo thứ tự, rollback/crash và job phục hồi. Không gom tính năng vào một thay đổi chỉ để có scaffold. [Workflow](../WORKFLOW.md) quy định chia sẻ thay đổi; xác nhận sửa main ở lượt tài liệu không tự là quyền push.

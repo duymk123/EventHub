@@ -1,0 +1,11 @@
+{
+  "messageId": "10000000-0000-4000-8000-000000000002",
+  "eventType": "order.failed",
+  "occurredAt": "2026-11-05T17:30:00Z",
+  "eventId": "30000000-0000-4000-8000-000000000001",
+  "orderId": "20000000-0000-4000-8000-000000000001",
+  "customerId": "40000000-0000-4000-8000-000000000001",
+  "customerEmail": "buyer@example.test",
+  "reason": "PAYMENT_FAILED",
+  "totalAmount": 1000000
+}

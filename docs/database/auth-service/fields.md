@@ -36,7 +36,7 @@ BaseEntity là mapped superclass, không phải bảng base_entity. Auditing c�
 | role | Quyền nghiệp vụ cần lấy từ danh tính đã xác minh và role mapper; không tin role do request body gửi lên. |
 | password/refresh token/session | Do Keycloak quản lý; entity users local không có các cột password_hash hoặc refresh_token. |
 | holder_name/holder_email | Thông tin người dùng vé trong Order; người này có thể khác tài khoản mua vé và không bắt buộc có user local riêng. |
-| owner_user_id | ID tài khoản sở hữu vé ở Ticket; không phải tên hiển thị full_name. Quy tắc ai là owner còn C02. |
+| owner_user_id | C02 chốt ID người mua đơn ở Ticket; holder là người sử dụng, khác tên full_name và không tự có quyền owner qua email. |
 
 Ví dụ U đăng nhập và tạo đơn O: Order lưu customer_id=U, Event có thể lưu organizer_id của một tài khoản khác A, còn order_holders lưu tên Lan là người đi sự kiện. Các service giữ các ID mềm, không tạo FK hoặc JOIN sang users/Keycloak của service khác.
 
@@ -44,4 +44,4 @@ Ví dụ U đăng nhập và tạo đơn O: Order lưu customer_id=U, Event có 
 
 [README Auth](README.md) và [ERD ranh giới](erd.md) mô tả kiến trúc Keycloak, có đoạn cũ nói chưa có entity local. File này bổ sung hiện trạng User/BaseEntity đã có trong code; chưa có quyết định mới biến bản local thành hệ thống mật khẩu/token riêng. Chưa có cơ sở để liệt kê những bảng nội bộ Keycloak như bảng ứng dụng EventHub.
 
-Nguồn email, fallback email người nhận và quyền sở hữu vé còn [C02](../../project-clarifications.md). Realm/client, mapping sub/role và cơ chế đồng bộ profile cần hoàn thiện theo [plan Auth](../../plans/auth-service.md). Xem [API Auth](../../api/auth-service-openapi.yaml) để hiểu dữ liệu giao tiếp, không dùng tên field API để suy rằng đã có cột tương ứng trong local DB.
+C02 chốt snapshot buyer email đã xác minh lúc tạo đơn, owner là buyer; holderEmail thiếu thì gửi buyer. Còn triển khai claim/adapter identity và snapshot, không có nghĩa User.email tự là email xác minh. Realm/client, sub/role mapping/profile cần hoàn thiện theo [plan Auth](../../plans/auth-service.md). Xem [quyết định](../../project-clarifications.md) và [API Auth](../../api/auth-service-openapi.yaml); field API không tự là cột DB.

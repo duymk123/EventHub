@@ -13,8 +13,12 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Repository của SalesMetric kết hợp JPA và fragment SalesMetricQueries. Các phương thức upsert cộng số
+ * bán/hoàn theo unique event/type/date trong transaction projection.
+ */
 @Repository
-public interface SalesMetricRepository extends JpaRepository<SalesMetric, UUID> {
+public interface SalesMetricRepository extends JpaRepository<SalesMetric, UUID>, SalesMetricQueries {
 
     /**
      * UPSERT nguyên tử cho doanh số: revenue +=, tickets_sold +=.
@@ -64,73 +68,38 @@ public interface SalesMetricRepository extends JpaRepository<SalesMetric, UUID> 
                      @Param("at") Instant at);
 
     /**
-     * Tổng hợp toàn bộ cho một sự kiện trong khoảng ngày (tùy chọn).
-     * Nếu thiếu cận trên/dưới thì không giới hạn (NULL from/to).
+     * Dữ liệu được gom để truyền qua các bước xử lý.
+     *
+     * @param totalRevenue Tổng doanh thu gộp trong phạm vi DTO, dashboard dùng toàn sự kiện.
+     * @param totalRefunded Tổng tiền hoàn trong khoảng báo cáo.
+     * @param totalTicketsSold Tổng số vé đã bán gộp trong phạm vi DTO.
+     * @param totalTicketsRefunded Tổng số vé hoàn trong khoảng báo cáo.
      */
-    @Query(value = """
-            SELECT
-                COALESCE(SUM(revenue), 0) AS totalRevenue,
-                COALESCE(SUM(refunded_amount), 0) AS totalRefunded,
-                COALESCE(SUM(tickets_sold), 0) AS totalTicketsSold,
-                COALESCE(SUM(tickets_refunded), 0) AS totalTicketsRefunded
-            FROM sales_metrics
-            WHERE event_id = :eventId
-              AND (:from IS NULL OR metric_date >= :from)
-              AND (:to IS NULL OR metric_date <= :to)
-            """, nativeQuery = true)
-    SalesTotals sumTotals(@Param("eventId") UUID eventId,
-                          @Param("from") LocalDate from,
-                          @Param("to") LocalDate to);
-
-    /**
-     * Phân tích theo ngày, sắp xếp theo ngày tăng dần.
-     */
-    @Query(value = """
-            SELECT
-                metric_date AS date,
-                COALESCE(SUM(revenue), 0) AS revenue,
-                COALESCE(SUM(refunded_amount), 0) AS refundedAmount,
-                COALESCE(SUM(tickets_sold), 0) AS ticketsSold,
-                COALESCE(SUM(tickets_refunded), 0) AS ticketsRefunded
-            FROM sales_metrics
-            WHERE event_id = :eventId
-              AND (:from IS NULL OR metric_date >= :from)
-              AND (:to IS NULL OR metric_date <= :to)
-            GROUP BY metric_date
-            ORDER BY metric_date ASC
-            """, nativeQuery = true)
-    List<DailySalesRow> aggregateDaily(@Param("eventId") UUID eventId,
-                                       @Param("from") LocalDate from,
-                                       @Param("to") LocalDate to);
-
-    /**
-     * Phân tích theo loại vé. Nhóm theo ID loại; tên được chọn nhất quán.
-     */
-    @Query(value = """
-            SELECT
-                ticket_type_id AS ticketTypeId,
-                MAX(ticket_type_name) AS ticketTypeName,
-                COALESCE(SUM(revenue), 0) AS revenue,
-                COALESCE(SUM(refunded_amount), 0) AS refundedAmount,
-                COALESCE(SUM(tickets_sold), 0) AS ticketsSold,
-                COALESCE(SUM(tickets_refunded), 0) AS ticketsRefunded
-            FROM sales_metrics
-            WHERE event_id = :eventId
-              AND (:from IS NULL OR metric_date >= :from)
-              AND (:to IS NULL OR metric_date <= :to)
-            GROUP BY ticket_type_id
-            ORDER BY ticket_type_id ASC
-            """, nativeQuery = true)
-    List<TicketTypeSalesRow> aggregateByTicketType(@Param("eventId") UUID eventId,
-                                                   @Param("from") LocalDate from,
-                                                   @Param("to") LocalDate to);
-
     record SalesTotals(BigDecimal totalRevenue, BigDecimal totalRefunded,
                        int totalTicketsSold, int totalTicketsRefunded) {}
 
+    /**
+     * Dữ liệu được gom để truyền qua các bước xử lý.
+     *
+     * @param date Ngày báo cáo Việt Nam theo định dạng yyyy-MM-dd.
+     * @param revenue Doanh thu gộp của dòng báo cáo.
+     * @param refundedAmount Tiền hoàn được phân bổ cho hạng vé hoặc tổng tiền hoàn của dòng báo cáo.
+     * @param ticketsSold Số vé đã bán gộp của dòng.
+     * @param ticketsRefunded Số vé đã hoàn của dòng.
+     */
     record DailySalesRow(LocalDate date, BigDecimal revenue, BigDecimal refundedAmount,
                          int ticketsSold, int ticketsRefunded) {}
 
+    /**
+     * Dữ liệu được gom để truyền qua các bước xử lý.
+     *
+     * @param ticketTypeId UUID hạng vé, là khóa nhóm số liệu theo từng hạng.
+     * @param ticketTypeName Tên hạng vé được snapshot, nhận VIP, PREMIUM hoặc STANDARD.
+     * @param revenue Doanh thu gộp của dòng báo cáo.
+     * @param refundedAmount Tiền hoàn được phân bổ cho hạng vé hoặc tổng tiền hoàn của dòng báo cáo.
+     * @param ticketsSold Số vé đã bán gộp của dòng.
+     * @param ticketsRefunded Số vé đã hoàn của dòng.
+     */
     record TicketTypeSalesRow(UUID ticketTypeId, String ticketTypeName,
                               BigDecimal revenue, BigDecimal refundedAmount,
                               int ticketsSold, int ticketsRefunded) {}

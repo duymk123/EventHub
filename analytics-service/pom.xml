@@ -13,6 +13,16 @@
     <name>analytics-service</name>
     <description>EventHub analytics-service</description>
     <dependencies>
+        <!-- Resource Server xác minh JWT rồi ánh xạ identity sang Actor. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
+        <!-- Hỗ trợ STOMP, endpoint WebSocket và SimpMessagingTemplate. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
@@ -49,6 +59,7 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.kafka</groupId>
+            <!-- Cung cấp consumer Kafka và publisher phục vụ DLQ. -->
             <artifactId>spring-kafka</artifactId>
         </dependency>
     </dependencies>

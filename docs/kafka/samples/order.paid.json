@@ -1,0 +1,20 @@
+{
+  "messageId": "10000000-0000-4000-8000-000000000001",
+  "eventType": "order.paid",
+  "occurredAt": "2026-11-05T17:30:00Z",
+  "eventId": "30000000-0000-4000-8000-000000000001",
+  "orderId": "20000000-0000-4000-8000-000000000001",
+  "customerId": "40000000-0000-4000-8000-000000000001",
+  "currency": "VND",
+  "totalAmount": 1000000,
+  "paidAt": "2026-11-05T17:30:00Z",
+  "items": [
+    {
+      "ticketTypeId": "50000000-0000-4000-8000-000000000001",
+      "ticketTypeName": "VIP",
+      "quantity": 2,
+      "unitPrice": 500000,
+      "lineTotal": 1000000
+    }
+  ]
+}

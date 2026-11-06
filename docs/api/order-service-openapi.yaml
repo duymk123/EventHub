@@ -6,7 +6,7 @@ info:
     Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Mã nguồn hiện là scaffold, chưa có endpoint nghiệp vụ.
     UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
     Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
-    Bảng V2 bổ sung order_holders và payment_webhooks. Order sinh ID, reserve trước rồi lưu; reservationId NOT NULL. Tiền provider chưa chốt C06, hoàn tiền C04/C05, email C02.
+    Order sinh ID, snapshot buyer email đã xác minh theo C02, reserve rồi lưu; reservationId NOT NULL. C04 hoàn khách cả đơn 70% giá mua, giữ 30%, ADMIN duyệt; C05 hold trước provider, bù lỗi cung cấp vé 100%. Provider C06 để sau; storage/API điều phối mới cần triển khai.
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
@@ -160,7 +160,7 @@ paths:
       - Payment
       operationId: paymentWebhook
       summary: Payment webhook (gateway gọi)
-      description: Nhận wire format đúng provider (C06), xác minh chữ ký trên request gốc, đối chiếu order/transaction/amount/currency trước xử lý. Dedup UNIQUE(provider,providerEventId), cùng key khác payload phải đối soát. CAS PENDING_PAYMENT → PAID rồi confirm Ticket; ACK không thay thế job retry confirm. Thành công tới sau EXPIRED không phát vé; cách hoàn/đối soát chờ C06.
+      description: 'Wire format/chữ ký chờ provider C06. Xác minh request gốc, order/transaction/amount/currency, dedup provider/eventId; ghi transition và task trước ACK. C05 success sau EXPIRED không tự phát vé: query/fence Ticket rồi bù 100% thực thu chưa hoàn. Timeout không tạo key tiền mới.'
       parameters:
       - name: provider
         in: path
@@ -201,7 +201,7 @@ paths:
       - Refund
       operationId: requestRefund
       summary: Yêu cầu Refund
-      description: Owner, Order PAID, vé chưa dùng, >=48 giờ tại thời điểm yêu cầu. Chính sách hoàn toàn bộ/một phần/tỷ lệ/phí chờ C04; request hiện chỉ reason nên chưa hỗ trợ chọn vé hoặc client tự chọn amount.
+      description: 'Owner, PAID, toàn bộ vé chưa dùng, >=48 giờ lúc yêu cầu và kiểm tra lại khi duyệt. C04 hoàn cả đơn 70% snapshot giá mua, giữ 30%, không thêm phí; HALF_UP scale 2. Chỉ nhận reason, không chọn ticketIds/amount. ADMIN duyệt; request chưa gọi provider.'
       security:
       - bearerAuth: []
       parameters:
@@ -243,7 +243,7 @@ paths:
       - Admin - Refund
       operationId: listRefunds
       summary: Danh sách Refund
-      description: Role ADMIN hoặc ORGANIZER. Spec dùng `status=REQUESTED` cho danh sách chờ duyệt. ADMIN/ORGANIZER theo Hình 2.67; phạm vi ORGANIZER chỉ sự kiện sở hữu còn C04, không cho quyền mọi sự kiện theo role đơn thuần.
+      description: Chỉ ADMIN theo phương án C04 giai đoạn đầu. status=REQUESTED lọc danh sách chờ duyệt; ORGANIZER không được xem/duyệt danh sách này.
       security:
       - bearerAuth: []
       parameters:
@@ -271,9 +271,9 @@ paths:
       operationId: approveRefund
       summary: Duyệt Refund
       description: |-
-        Role ADMIN hoặc ORGANIZER. Chuyển PROCESSING, gọi gateway với idempotency key riêng.
-        Chỉ sau khi gateway xác nhận thì Refund và Order chuyển REFUNDED, gọi ticket-service hủy vé và publish `order.refunded`.
-         ADMIN/ORGANIZER theo Hình 2.67; phạm vi ORGANIZER chỉ sự kiện sở hữu còn C04, không cho quyền mọi sự kiện theo role đơn thuần. Kiểm tra lại >=48 giờ/vé chưa dùng trước PROCESSING; provider thành công mới hủy vé, chỉ publish order.refunded sau hủy hoàn tất. Provider lỗi thì Refund FAILED, Order PAID và không hủy vé. Lỗi hủy vĩnh viễn sau hoàn tiền chờ C05.
+        Chỉ ADMIN. Kiểm tra lại toàn bộ vé chưa dùng và >=48 giờ, chốt quote 70% cả đơn; lưu task prepare hold tại Ticket trước khi gọi provider.
+        C05 dùng token giữ quyền hủy, chặn scan. Sau provider success mới commit hủy theo token; không từ chối vì qua mốc 48 giờ trong lúc chờ. Chỉ REFUNDED và phát order.refunded khi tiền và hủy đều xong.
+        UNKNOWN phải verify cùng key và giữ hold; chỉ release khi provider xác nhận dứt khoát không hoàn. Approve có thể trả APPROVED/PROCESSING, không có nghĩa workflow đã hoàn tất. Storage/API hold mới cần bổ sung theo docs/architecture/payment-refund-recovery.md trước bật luồng này.
       security:
       - bearerAuth: []
       parameters:
@@ -303,7 +303,7 @@ paths:
       - Admin - Refund
       operationId: rejectRefund
       summary: Từ chối Refund
-      description: Role ADMIN hoặc ORGANIZER. ADMIN/ORGANIZER theo Hình 2.67; phạm vi ORGANIZER chỉ sự kiện sở hữu còn C04, không cho quyền mọi sự kiện theo role đơn thuần.
+      description: Chỉ ADMIN; từ chối khi REQUESTED, lưu lý do/thời điểm review. Không gọi provider, không hủy vé hoặc thay đổi tiền đã mua.
       security:
       - bearerAuth: []
       parameters:
@@ -426,7 +426,7 @@ components:
           type: string
           format: email
           nullable: true
-          description: Có thể NULL theo Bảng 2.12; nguồn/fallback gửi vé chờ C02.
+          description: C02 cho NULL; có email thì gửi QR các vé của holder tới địa chỉ đó, thiếu thì về buyer email đã xác minh và snapshot lúc tạo đơn.
         holderPhone:
           type: string
           nullable: true
@@ -633,6 +633,7 @@ components:
           type: string
     RefundResponse:
       type: object
+      description: Hoàn khách cả đơn 70% giá mua; ADMIN duyệt. APPROVED/PROCESSING còn có bước chờ, chỉ REFUNDED khi tiền và hủy vé đều hoàn tất.
       properties:
         id:
           type: string

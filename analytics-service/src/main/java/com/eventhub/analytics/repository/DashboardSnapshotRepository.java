@@ -12,6 +12,10 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Repository JPA đọc snapshot theo eventId duy nhất. Luồng ghi dùng ProjectionRepository để cập nhật các cột
+ * một cách atomic.
+ */
 @Repository
 public interface DashboardSnapshotRepository extends JpaRepository<DashboardSnapshot, UUID> {
 

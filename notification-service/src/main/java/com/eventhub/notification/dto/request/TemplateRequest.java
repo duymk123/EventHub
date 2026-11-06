@@ -7,6 +7,10 @@ import jakarta.validation.constraints.Size;
 
 /**
  * Body của request cho PUT /admin/notification-templates/{code}.
+ *
+ * @param channel Kênh EMAIL hoặc IN_APP của mẫu hoặc thông báo.
+ * @param subject Mẫu tiêu đề được render khi chuẩn bị notification.
+ * @param bodyTemplate Mẫu Mustache chứa biến của nội dung thông báo.
  */
 public record TemplateRequest(
         @NotNull NotificationChannel channel,

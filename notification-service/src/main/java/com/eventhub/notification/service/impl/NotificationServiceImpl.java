@@ -24,9 +24,11 @@ import java.util.UUID;
 public class NotificationServiceImpl implements NotificationService {
 
     private final NotificationRepository notificationRepository;
+    private final java.time.Clock clock;
 
-    public NotificationServiceImpl(NotificationRepository notificationRepository) {
+    public NotificationServiceImpl(NotificationRepository notificationRepository, java.time.Clock clock) {
         this.notificationRepository = notificationRepository;
+        this.clock = clock;
     }
 
     /**
@@ -69,8 +71,8 @@ public class NotificationServiceImpl implements NotificationService {
             return;
         }
 
-        int updated = notificationRepository.markReadIfUnread(
-                notificationId, actor.userId(), NotificationChannel.IN_APP, Instant.now());
+        notificationRepository.markReadIfUnread(
+                notificationId, actor.userId(), NotificationChannel.IN_APP, clock.instant());
 
         // Nếu 0 dòng được cập nhật và ta biết nó tồn tại, thì đã được đọc bởi thread khác
         // Điều này vẫn là thành công (idempotent)
@@ -88,6 +90,9 @@ public class NotificationServiceImpl implements NotificationService {
         return new UnreadCountResponse((int) count);
     }
 
+    /**
+     * Map các trường được phép hiển thị từ Notification sang DTO trả API, payload delivery được giữ trong DB.
+     */
     private NotificationResponse toResponse(Notification n) {
         return new NotificationResponse(
                 n.getId(),

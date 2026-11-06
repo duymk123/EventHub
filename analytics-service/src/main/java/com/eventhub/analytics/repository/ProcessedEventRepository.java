@@ -6,6 +6,10 @@ import org.springframework.stereotype.Repository;
 
 import java.util.UUID;
 
+/**
+ * Repository JPA truy cập dấu message đã xử lý. ProjectionRepository.claim hiện dùng INSERT trực tiếp để ràng
+ * buộc unique quyết định quyền áp dụng message.
+ */
 @Repository
 public interface ProcessedEventRepository extends JpaRepository<ProcessedEvent, UUID> {
 }

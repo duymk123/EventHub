@@ -28,8 +28,8 @@ Một dòng là một đơn của một khách cho một sự kiện. Một đơ
 | PENDING_PAYMENT | Đơn đang chờ thanh toán trong hạn giữ chỗ. |
 | PAID | Đã xác nhận thu tiền. Cần theo dõi confirm Ticket đến khi phát vé thành công; không coi cột này một mình là bằng chứng đã phát vé. |
 | FAILED | Đơn thất bại theo luồng xử lý thanh toán. |
-| EXPIRED | Đơn quá hạn trước khi hoàn tất theo luồng hiện hành. Thanh toán tới muộn còn C05/C06. |
-| REFUNDED | Đơn đi vào kết quả hoàn tiền theo luồng đã hoàn tất; chính sách hoàn cả đơn/từng vé còn C04. |
+| EXPIRED | Đơn quá hạn; success đến muộn cần xác minh/fence phát vé rồi hoàn bù 100% thực thu chưa hoàn theo C05, provider C06 để sau. |
+| REFUNDED | Hoàn khách cả đơn 70% giá mua và hủy tất cả vé đã hoàn tất theo C04/C05. |
 
 Chỉ mục customer_id/created_at phục vụ lịch sử đơn của tôi; status/expires_at phục vụ tìm đơn quá hạn. DDL kiểm tra số tiền không âm nhưng không tự kiểm tra subtotal bằng tổng dòng con; service phải đảm bảo các số khớp nhau.
 
@@ -58,7 +58,7 @@ Một dòng là thông tin một người nhận/sử dụng một vé. Với it
 | `id` | CHAR(36), PK, bắt buộc | ID thông tin một người sử dụng vé; không phải userId hoặc ticketId. | UUID holder H1 |
 | `order_item_id` | CHAR(36), bắt buộc, FK | Dòng hạng vé người này được phân vào, trỏ order_items.id. | UUID I-VIP |
 | `holder_name` | VARCHAR(100), bắt buộc | Tên người sẽ dùng vé, có thể khác tên tài khoản đã mua. | `Nguyễn Lan` |
-| `holder_email` | VARCHAR(255), được NULL | Email người dùng vé nếu được cung cấp. Không có email thì gửi về ai còn C02; không tự giả định luôn có. | `lan@example.com` hoặc NULL |
+| `holder_email` | VARCHAR(255), được NULL | C02 gửi QR các vé của holder tới email này nếu có; thiếu thì gửi buyer email đã xác minh và snapshot lúc tạo đơn. Không tự cấp quyền owner cho holder. | `lan@example.com` hoặc NULL |
 | `holder_phone` | VARCHAR(20), được NULL | Số điện thoại liên hệ của người dùng vé, nếu có. Lưu chuỗi để giữ dấu + và số 0 đầu. | `0900000000` |
 
 SQL có FK nhưng không tự kiểm tra số holder bằng quantity; đó là kiểm tra nghiệp vụ. Không có order_holders.ticket_id trong DDL này; cần quy tắc ánh xạ ổn định khi confirm/retry, không suy rằng đã có FK từ holder sang vé.
@@ -91,10 +91,10 @@ Tạo yêu cầu hoàn chưa có nghĩa tiền đã được trả lại. Các m
 | `id` | CHAR(36), PK, bắt buộc | ID yêu cầu hoàn tiền; khác orderId và paymentId. | UUID yêu cầu F |
 | `order_id` | CHAR(36), bắt buộc, FK | Đơn được yêu cầu hoàn, trỏ orders.id. | UUID O |
 | `requested_by` | CHAR(36), bắt buộc | Tài khoản gửi yêu cầu, lấy từ danh tính đã xác minh; ID mềm. | UUID khách U |
-| `amount` | DECIMAL(14,2), bắt buộc, > 0 | Số tiền đề nghị/được xử lý theo chính sách hoàn. Tỉ lệ, phí và hoàn từng vé còn C04; không mặc định bằng toàn bộ total_amount. | `200000.00`, chỉ minh họa |
+| `amount` | DECIMAL(14,2), bắt buộc, > 0 | C04 số tiền hoàn khách: 70% tổng line_total đã mua, HALF_UP scale 2; giữ 30%, không thêm phí. Hoàn cả đơn, không chọn từng vé. | Đơn `1000000.00` hoàn `700000.00` |
 | `reason` | TEXT, bắt buộc | Lý do do người yêu cầu cung cấp. Khác phản hồi của người duyệt. | `Tôi không thể tham dự.` |
 | `status` | VARCHAR(20), bắt buộc, DEFAULT REQUESTED | Giai đoạn yêu cầu: REQUESTED, APPROVED, REJECTED, PROCESSING, REFUNDED, FAILED. | `REQUESTED` |
-| `approved_by` | CHAR(36), được NULL | ID tài khoản phê duyệt nếu yêu cầu được duyệt. Không dùng tên cột này để tự suy ra ADMIN hay ORGANIZER được duyệt; quyền cụ thể còn C04. | UUID người duyệt, hoặc NULL khi chưa duyệt |
+| `approved_by` | CHAR(36), được NULL | ID ADMIN duyệt theo phương án C04 giai đoạn đầu; ORGANIZER chưa có quyền duyệt. Khi chưa duyệt/từ chối không tự ghi người phê duyệt. | UUID ADMIN, hoặc NULL |
 | `review_reason` | TEXT, được NULL | Nhận xét/lý do phản hồi khi xem xét, ví dụ lý do từ chối. Là bổ sung kỹ thuật trong DDL tham chiếu. | `Vé đã được sử dụng.` |
 | `requested_at` | TIMESTAMP, bắt buộc | Thời điểm khách tạo yêu cầu hoàn. Dùng kiểm tra điều kiện tại lúc yêu cầu. | `2026-11-10T03:00:00Z` |
 | `reviewed_at` | TIMESTAMP, được NULL | Thời điểm người có quyền xem xét/duyệt/từ chối yêu cầu. Điều kiện hoàn cần được kiểm tra lại khi duyệt. | `2026-11-10T04:00:00Z` |
@@ -109,7 +109,7 @@ Tạo yêu cầu hoàn chưa có nghĩa tiền đã được trả lại. Các m
 | REFUNDED | Kết quả hoàn tiền thành công theo luồng. |
 | FAILED | Thao tác hoàn thất bại; cần xử lý lỗi/đối soát theo thiết kế. |
 
-Nghiệp vụ hiện yêu cầu đơn PAID, vé chưa dùng và còn ít nhất 48 giờ đến sự kiện, kiểm tra lúc yêu cầu và lúc duyệt. DDL không chứa đủ dữ liệu để tự kiểm tra các điều kiện này. C04/C05 còn xử lý phạm vi tiền hoàn và trường hợp đã hoàn tiền nhưng hủy vé không thành công; chưa có bảng refund_items trong DDL.
+Nghiệp vụ yêu cầu PAID, mọi vé chưa dùng và >=48 giờ lúc yêu cầu/duyệt. C05 còn cần storage/API prepare hold tại Ticket trước provider; commit theo hold không kiểm tra lại 48 giờ theo giờ mới, UNKNOWN không tự mở hold. DDL hiện chưa có storage hold/operation/quote-allocation; không coi các cột này đã tồn tại. C04 hoàn cả đơn nên chưa cần refund_items cho chọn vé; vẫn cần lưu phân bổ tiền theo hạng. Xem [thiết kế phục hồi](../../architecture/payment-refund-recovery.md).
 
 ## 6. `payment_webhooks` — Thông báo kết quả từ cổng thanh toán
 
@@ -145,6 +145,8 @@ Entity Order OutboxEvent hiện có UUID generator; khi xây publisher/producer 
 Theo thiết kế, order.paid chỉ được phát sau xác nhận thu tiền **và** Ticket confirm phát vé thành công. Đã PAID mà confirm tạm lỗi cần retry bền vững; bản thân outbox_events không lưu đủ mọi việc điều phối còn chờ. pending_operations là đề xuất trong plan, chưa có trong DDL này.
 
 ## 8. Ví dụ nối các trường để đọc một đơn
+
+C02 còn cần migration bổ sung orders.customer_email để lưu snapshot email buyer đã xác minh. Owner vé là customer_id. Cột này chưa có trong DDL đang giải thích nên không được trộn vào bảng cột hiện hữu; triển khai migration/adapter sau. Bù lỗi phát vé 100% dùng operation riêng, khác refund khách 70%.
 
 Khách U mua hai VIP giá 500000 và một STANDARD giá 300000 cho sự kiện E:
 

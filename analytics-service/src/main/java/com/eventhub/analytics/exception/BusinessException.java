@@ -14,6 +14,9 @@ public class BusinessException extends RuntimeException {
         this.errorCode = errorCode;
     }
 
+    /**
+     * Trả mã lỗi nghiệp vụ để GlobalExceptionHandler xác định HTTP status và code JSON.
+     */
     public ErrorCode getErrorCode() {
         return errorCode;
     }

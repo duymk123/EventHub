@@ -9,6 +9,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Repository JPA lấy mẫu theo cặp code/channel duy nhất. TemplateInitializer và TemplateServiceImpl dùng SQL
+ * atomic khi cần ghi mẫu.
+ */
 @Repository
 public interface NotificationTemplateRepository extends JpaRepository<NotificationTemplate, UUID> {
 

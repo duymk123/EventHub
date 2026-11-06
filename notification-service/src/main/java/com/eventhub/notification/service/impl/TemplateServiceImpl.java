@@ -24,11 +24,20 @@ import java.util.UUID;
 public class TemplateServiceImpl implements TemplateService {
 
     private final NotificationTemplateRepository templateRepository;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final com.eventhub.notification.service.TemplateRenderer renderer;
 
-    public TemplateServiceImpl(NotificationTemplateRepository templateRepository) {
+    public TemplateServiceImpl(NotificationTemplateRepository templateRepository,
+            org.springframework.jdbc.core.JdbcTemplate jdbc,
+            com.eventhub.notification.service.TemplateRenderer renderer) {
         this.templateRepository = templateRepository;
+        this.jdbc = jdbc;
+        this.renderer = renderer;
     }
 
+    /**
+     * Kiểm tra business role trước mọi thao tác quản lý mẫu.
+     */
     private void assertAdmin(Actor actor) {
         if (actor.role() != BusinessRole.ADMIN) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Only ADMIN can manage templates");
@@ -42,6 +51,7 @@ public class TemplateServiceImpl implements TemplateService {
     @Override
     @Transactional(readOnly = true)
     public List<TemplateResponse> list(Actor actor) {
+        // Kiểm tra business role trước mọi thao tác quản lý mẫu.
         assertAdmin(actor);
         return templateRepository.findAllByOrderByCodeAscChannelAsc().stream()
                 .map(this::toResponse)
@@ -55,11 +65,13 @@ public class TemplateServiceImpl implements TemplateService {
     @Override
     @Transactional(readOnly = true)
     public TemplateResponse get(Actor actor, String code, NotificationChannel channel) {
+        // Kiểm tra business role trước mọi thao tác quản lý mẫu.
         assertAdmin(actor);
         NotificationTemplate template = templateRepository.findByCodeAndChannel(code, channel)
                 .orElseThrow(() -> new BusinessException(
                         ErrorCode.TEMPLATE_NOT_FOUND,
                         "Template not found: code=" + code + ", channel=" + channel));
+        // Map mẫu đang lưu thành DTO để ADMIN xem trên giao diện.
         return toResponse(template);
     }
 
@@ -71,28 +83,31 @@ public class TemplateServiceImpl implements TemplateService {
     @Override
     @Transactional
     public TemplateResponse upsert(Actor actor, String code, TemplateRequest request) {
+        // Kiểm tra business role trước mọi thao tác quản lý mẫu.
         assertAdmin(actor);
 
         NotificationChannel channel = request.channel();
 
-        // Tìm template hiện có với cùng (code, channel)
-        NotificationTemplate template = templateRepository.findByCodeAndChannel(code, channel)
-                .orElseGet(() -> {
-                    NotificationTemplate newTemplate = new NotificationTemplate();
-                    newTemplate.setId(UUID.randomUUID());
-                    newTemplate.setCode(code);
-                    newTemplate.setChannel(channel);
-                    return newTemplate;
-                });
-
-        // Cập nhật các trường
-        template.setSubject(request.subject());
-        template.setBodyTemplate(request.bodyTemplate());
-
-        NotificationTemplate saved = templateRepository.save(template);
-        return toResponse(saved);
+        try {
+            renderer.validate(request.subject());
+            renderer.validate(request.bodyTemplate());
+        } catch (RuntimeException error) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid notification template");
+        }
+        // UPSERT được DB thực hiện atomic, id giữ nguyên nếu code/channel đã tồn tại.
+        jdbc.update("""
+                INSERT INTO notification_templates(id, code, channel, subject, body_template, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE subject = VALUES(subject),
+                    body_template = VALUES(body_template), updated_at = VALUES(updated_at)
+                """, UUID.randomUUID().toString(), code, channel.name(), request.subject(), request.bodyTemplate(),
+                java.sql.Timestamp.from(java.time.Instant.now()));
+        // Map mẫu đang lưu thành DTO để ADMIN xem trên giao diện.
+        return toResponse(templateRepository.findByCodeAndChannel(code, channel).orElseThrow());
     }
 
+    /**
+     * Map mẫu đang lưu thành DTO để ADMIN xem trên giao diện.
+     */
     private TemplateResponse toResponse(NotificationTemplate t) {
         return new TemplateResponse(
                 t.getId(),

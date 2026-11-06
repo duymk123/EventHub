@@ -1,5 +1,7 @@
 # Plan code analytics-service
 
+Cập nhật triển khai 2026-11-05 có REST security/S2S, projection Kafka và STOMP. Dashboard là tổng doanh thu gộp/số vé bán của cả sự kiện. Báo cáo giữ riêng gộp/hoàn/thuần và chia ngày theo Asia/Ho_Chi_Minh. Schema attendance_state đã có migration V2/entity và DDL/ERD. Các mô tả đề xuất C09 cũ dưới đây được cập nhật theo xác nhận này. Xem [hướng dẫn chạy](../notification-analytics-implementation.md).
+
 Ngày 2026-10-28. Đọc [quy ước chung](00-cross-service-contracts.md), [OpenAPI Analytics](../api/analytics-service-openapi.yaml), [DDL/V1](../database/analytics-service/init.sql), [ERD](../database/analytics-service/erd.md), [Kafka](../kafka/events.md). Analytics là read model từ Kafka, không JOIN Order/Ticket/Event DB.
 
 ## 1. Entity, model và migration
@@ -8,16 +10,16 @@ V1 có SalesMetric(id/eventId/ticketTypeId UUID, ticketTypeName, metricDate, rev
 
 Đã code bốn entity tại [entity](../../analytics-service/src/main/java/com/eventhub/analytics/entity), cùng enum AttendanceAction đặt trực tiếp trong common của service. Theo xác nhận mới nhất, giữ V1 và bỏ qua BaseEntity/audit columns. UUID lưu CHAR(36), action VARCHAR(10), tiền DECIMAL(14,2). SalesMetric.updatedAt, DashboardSnapshot.lastUpdated và AttendanceLog.occurredAt được projection gán rõ ràng, không dùng audit callback để ghi đè thời điểm nghiệp vụ; ProcessedEvent.processedAt được Hibernate gán khi insert.
 
-V2 đề xuất `attendance_state(id UUID, ticket_id UUID UNIQUE, event_id UUID, checked_in_at/checked_out_at TIMESTAMP NULL)` và index cần query; không sửa V1 đã áp dụng. AttendanceLog có thể dùng id=messageId để audit/replay ổn định, không dùng ticketId làm PK log vì mỗi vé có hai action.
+V2 đã bổ sung `attendance_state(id UUID, ticket_id UUID UNIQUE, event_id UUID, checked_in_at/checked_out_at TIMESTAMP NULL)` và index cần query; không sửa V1 đã áp dụng. AttendanceLog có thể dùng id=messageId để audit/replay ổn định, không dùng ticketId làm PK log vì mỗi vé có hai action.
 
-Snapshot gross/net còn C09. API hiện có SalesReport tổng gộp/refund/net, byTicketType và daily; Dashboard tổng thuần là đề xuất chưa duyệt. Không đặt công thức thành mặc định business trong entity chỉ vì field tên total. Tiền refund theo hạng cần items[].refundedAmount và C04/C09, quantity đơn lẻ chưa đủ.
+Dashboard giữ tổng gộp của toàn sự kiện. API SalesReport tách gộp/refund/net, byTicketType và daily theo ngày Việt Nam. Không đặt công thức thành mặc định business trong entity chỉ vì field tên total. Tiền refund theo hạng cần items[].refundedAmount và C04, quantity đơn lẻ chưa đủ.
 
 ## 2. Query/access service
 
 | Signature | Hành vi / transaction |
 |---|---|
 | `EventAccessService.assertCanView(Actor actor, UUID eventId): EventAccessContext` | ADMIN hoặc ORGANIZER owner; gọi EventClient để xác minh tồn tại/owner, mọi status được phép theo nghiệp vụ analytics. CUSTOMER bị 403, nonexistent 404, upstream lỗi 503, không giả snapshot 0 để che lỗi. |
-| `AnalyticsQueryService.getSales(Actor actor, UUID eventId, LocalDate from, LocalDate to): SalesReportResponse` | Access trước → validate from≤to → read-only aggregate theo ngày/hạng. Thiếu đầu nào không giới hạn đầu đó. Mapping tiền gộp/refund/net theo C09, không load entity từng ticket. |
+| `AnalyticsQueryService.getSales(Actor actor, UUID eventId, LocalDate from, LocalDate to): SalesReportResponse` | Access trước → validate from≤to → read-only aggregate theo ngày/hạng. Thiếu đầu nào không giới hạn đầu đó. Mapping tiền gộp/refund/net theo xác nhận 2026-11-05, không load entity từng ticket. |
 | `getAttendance(Actor actor, UUID eventId): AttendanceResponse` | Access rồi đọc snapshot; chưa có projection trả currentAttendance=0,totalCheckedIn=0,updatedAt=null. |
 | `getDashboard(Actor actor, UUID eventId): DashboardSnapshotResponse` | Access rồi cùng DTO dùng WS; không có projection trả số 0/null time, không tạo một snapshot giả trong GET. |
 | `DashboardReadService.getForPush(UUID eventId): DashboardSnapshotResponse` | Nội bộ server sau commit, transaction read-only mới để tránh persistence context stale; không là public bypass quyền. |
@@ -29,7 +31,7 @@ Access là lớp trước transaction DB query dài, không giữ DB connection 
 | Signature | Hành vi |
 |---|---|
 | `SalesProjectionService.handlePaid(OrderPaidEvent event): void` | Validate envelope/amount/items/currency → transaction claim messageId → UPSERT từng type/date từ paidAt → update snapshot đúng công thức đã chốt → publish DashboardChanged local event → commit. Không subscribe ticket.issued để cộng lần nữa. |
-| `handleRefunded(OrderRefundedEvent event): void` | Tương tự claim+refund_amount/refundedQty theo refundedAt; phân bổ từng hạng theo payload đủ dữ liệu sau C04/C09. Không lấy giá Ticket hiện tại hoặc sửa lại ngày mua. |
+| `handleRefunded(OrderRefundedEvent event): void` | Claim và ghi thực hoàn theo refundedAt; C04 amount=70% giá mua, items gồm mọi hạng và toàn bộ quantity, tiền allocation tổng bằng amount. Không lấy giá hiện tại hoặc tính lại 70% ở consumer. Bù chưa có sale không gửi vào handler này. |
 | `AttendanceProjectionService.handleCheckedIn(TicketCheckedInEvent event): void` | Claim message → create/lock state ticket → ghi bằng chứng in/scannedAt → tính delta trước/sau → append log → atomic snapshot → event local, cùng transaction. |
 | `handleCheckedOut(TicketCheckedOutEvent event): void` | Giữ bằng chứng out kể cả chưa nhận in; không trừ âm rồi clamp, không bỏ out chỉ vì chưa có in. Cùng transaction và lock thứ tự thống nhất. |
 | `MessageDeduplicationService.claim(UUID messageId, Instant at): void` | INSERT unique processed_events ở transaction hiện tại; nếu projection fail thì claim rollback. Duplicate đúng claim được outer consumer bỏ qua sau rollback, không nuốt mọi unique error khác. |
@@ -64,7 +66,7 @@ Sau khi nhận đủ cặp IN/OUT, cả hai thứ tự đều cho current=0, tot
 | `aggregateByTicketType(UUID, LocalDate, LocalDate): List<TicketTypeSalesRow>` | GROUP BY type ID; tên snapshot chọn nhất quán, không GROUP riêng theo tên làm tách cùng ID sau đổi tên. |
 | `DashboardSnapshotRepository.findByEventId(UUID): Optional<DashboardSnapshot>` | Một row/event, không dùng UUID id mới mỗi update. |
 | `addSales(UUID eventId, UUID initialSnapshotId, BigDecimal amount, int qty, Instant at): int` | UPSERT phần sales, giữ nguyên attendance. UUID initial id chỉ dùng khi INSERT; duplicate không đổi PK. |
-| `applyRefund(UUID eventId, UUID initialSnapshotId, BigDecimal amount, int qty, Instant at): int` | Công thức snapshot chờ C09; không clamp mất adjustment khi refund tới trước sale. |
+| `applyRefund(UUID eventId, UUID initialSnapshotId, BigDecimal amount, int qty, Instant at): int` | Dashboard gộp giữ nguyên phần sales khi nhận refund; không clamp mất adjustment khi refund tới trước sale. |
 | `addAttendanceDelta(UUID eventId, UUID initialSnapshotId, int currentDelta, int checkedInDelta, Instant at): int` | Atomic update đúng hai cột attendance, giữ sales. Delta từ state locked, không trực tiếp lấy +1/-1 theo topic. |
 | `AttendanceStateRepository.ensureExists(UUID stateId, UUID ticketId, UUID eventId): void` | Sau V2, unique ticketId, retry insert race đúng cách hoặc upsert giữ row cũ. |
 | `findByTicketIdForUpdate(UUID): Optional<AttendanceState>` | Lock khi đọc đóng góp trước/sau và cập nhật evidence. |
@@ -94,7 +96,7 @@ OrderEventConsumer nhận order.paid/refunded; TicketEventConsumer nhận checke
 ## 7. Kiểm tra và triển khai
 
 1. V1 entity mapping/query repo/API/EventClient/access; test 0 khi event tồn tại, 404/403/503 khác nhau, range/null bounds và UUID.
-2. Sales/refund fixture theo hợp đồng đủ tiền từng hạng, dedup transaction+UPSERT; C04/C09 trước chốt expected business totals.
+2. Sales/refund fixture C04 cả đơn 1.000.000 hoàn 700.000, quantity giữ toàn bộ; dedup/UPSERT và allocation từng hạng. C05 compensation khi chưa có sale không làm âm báo cáo.
 3. V2 attendance_state và projection, test IN→OUT/OUT→IN, duplicate, hai thread, rollback sau claim, khác eventId; snapshot sales/attendance update đồng thời không mất cột.
 4. WS CONNECT/SUBSCRIBE/expiry/forbidden SEND, AFTER_COMMIT chỉ push khi commit, reconnect GET hội tụ; Kafka/DLQ integration.
 

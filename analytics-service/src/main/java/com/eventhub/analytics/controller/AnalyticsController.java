@@ -39,7 +39,7 @@ public class AnalyticsController {
     @GetMapping("/{id}/sales")
     public ResponseEntity<SalesReportResponse> getSales(
             @AuthenticationPrincipal Actor actor,
-            @PathVariable("id") @Pattern(regexp = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$") UUID id,
+            @PathVariable("id") UUID id,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         SalesReportResponse response = queryService.getSales(actor, id, from, to);
@@ -54,7 +54,7 @@ public class AnalyticsController {
     @GetMapping("/{id}/attendance")
     public ResponseEntity<AttendanceResponse> getAttendance(
             @AuthenticationPrincipal Actor actor,
-            @PathVariable("id") @Pattern(regexp = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$") UUID id) {
+            @PathVariable("id") UUID id) {
         AttendanceResponse response = queryService.getAttendance(actor, id);
         return ResponseEntity.ok(response);
     }
@@ -67,7 +67,7 @@ public class AnalyticsController {
     @GetMapping("/{id}/dashboard")
     public ResponseEntity<DashboardSnapshotResponse> getDashboard(
             @AuthenticationPrincipal Actor actor,
-            @PathVariable("id") @Pattern(regexp = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$") UUID id) {
+            @PathVariable("id") UUID id) {
         DashboardSnapshotResponse response = queryService.getDashboard(actor, id);
         return ResponseEntity.ok(response);
     }

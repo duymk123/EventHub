@@ -398,7 +398,7 @@ paths:
       - Internal
       operationId: cancelTicketsByOrder
       summary: Hủy vé sau Refund thành công
-      description: 'Hình 2.54: sau provider xác nhận hoàn tiền, chỉ hủy vé ISSUED, kiểm tra >=48 giờ; gọi lặp vé đã CANCELLED không trả quota lần hai. Nếu trạng thái đã dùng hoặc quá hạn trả 409. Khoảng trống đã hoàn tiền nhưng cancel bị từ chối còn C05, không giải quyết bằng retry vô hạn.'
+      description: 'Endpoint cũ cần bổ sung hợp đồng hold token trước bật refund C05. Chuẩn bị giữ quyền hủy toàn bộ ISSUED và >=48 giờ trước provider, chặn scan; sau success commit theo token, không recheck mốc 48 giờ theo giờ mới. Retry không trả quota hai lần. Không dùng check sau provider để thay prepare; hold UNKNOWN không tự mở. Chi tiết docs/architecture/payment-refund-recovery.md.'
       parameters:
       - name: orderId
         in: path
@@ -547,7 +547,7 @@ components:
           type: integer
           minimum: 0
           example: 200
-          description: Không âm về mặt invariant; yêu cầu quota > 0 và đủ ba hạng còn C08.
+          description: C08 cho quota 0, không âm và không nhỏ hơn lượng reserved+sold. Publish chỉ cần ít nhất một hạng ACTIVE có total_quota > 0.
     CreateTicketTypesRequest:
       type: object
       required:
@@ -566,7 +566,7 @@ components:
           maxItems: 3
           items:
             $ref: '#/components/schemas/TicketTypeInput'
-      description: Chỉ cho các tên VIP/PREMIUM/STANDARD, không lặp tên trong cùng event. Có bắt buộc tạo cả ba cùng lúc chưa chốt C08; hợp đồng draft không áp đặt minItems=3.
+      description: C08 chỉ cho VIP/PREMIUM/STANDARD, không trùng trong cùng event; được cấu hình sau tạo Event và được quota 0, không bắt buộc cả ba cùng lúc. Publish cần một ACTIVE quota > 0, không buộc mọi hạng dương.
     UpdateTicketTypeRequest:
       type: object
       properties:
@@ -707,19 +707,24 @@ components:
         holderEmail:
           type: string
           format: email
-          description: NULL theo Bảng 2.12; fallback email chờ C02. Giữ trong payload/outbox snapshot để retry không mất dữ liệu dù tickets không có cột email.
+          description: C02 cho NULL; có thì gửi QR cho holder, thiếu fallback buyer snapshot. Giữ trong payload/outbox để retry dù tickets không có cột email.
           nullable: true
         ownerUserId:
           type: string
           format: uuid
           minLength: 36
           maxLength: 36
-          description: Bắt buộc theo Bảng 2.9; buyer hay holder còn C02, phải lấy từ nguồn tin cậy của Order.
+          description: C02 chốt owner là buyer; lấy customerId tin cậy từ Order, không suy quyền theo holderEmail.
     ConfirmRequest:
       type: object
       required:
       - holders
+      - customerEmail
       properties:
+        customerEmail:
+          type: string
+          format: email
+          description: Snapshot email buyer đã xác minh từ Order; dùng fallback email vé theo C02, không lookup hồ sơ mới khi retry.
         holders:
           type: array
           minItems: 1

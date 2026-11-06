@@ -13,6 +13,22 @@
     <name>notification-service</name>
     <description>EventHub notification-service</description>
     <dependencies>
+        <!-- Resource Server xác minh JWT trước khi controller nhận Actor. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
+        <!-- Mustache render subject/body từ template và dữ liệu event. -->
+        <dependency>
+            <groupId>com.samskivert</groupId>
+            <artifactId>jmustache</artifactId>
+        </dependency>
+        <!-- ZXing biến token QR của Ticket thành ảnh PNG nhúng trong email. -->
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>3.5.3</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
@@ -49,6 +65,7 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.kafka</groupId>
+            <!-- Cung cấp KafkaTemplate, KafkaListener và cơ chế retry/DLQ. -->
             <artifactId>spring-kafka</artifactId>
         </dependency>
         <dependency>

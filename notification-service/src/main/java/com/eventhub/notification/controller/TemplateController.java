@@ -7,6 +7,7 @@ import com.eventhub.notification.dto.response.TemplateResponse;
 import com.eventhub.notification.service.TemplateService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
@@ -49,7 +50,7 @@ public class TemplateController {
     @GetMapping("/{code}")
     public ResponseEntity<TemplateResponse> get(
             @AuthenticationPrincipal Actor actor,
-            @PathVariable("code") @Pattern(regexp = "^[A-Z_]+$") String code,
+            @PathVariable("code") @Pattern(regexp = "^[A-Z_]+$") @Size(max = 50) String code,
             @RequestParam NotificationChannel channel) {
         TemplateResponse response = templateService.get(actor, code, channel);
         return ResponseEntity.ok(response);
@@ -63,7 +64,7 @@ public class TemplateController {
     @PutMapping("/{code}")
     public ResponseEntity<TemplateResponse> upsert(
             @AuthenticationPrincipal Actor actor,
-            @PathVariable("code") @Pattern(regexp = "^[A-Z_]+$") String code,
+            @PathVariable("code") @Pattern(regexp = "^[A-Z_]+$") @Size(max = 50) String code,
             @Valid @RequestBody TemplateRequest request) {
         TemplateResponse response = templateService.upsert(actor, code, request);
         return ResponseEntity.ok(response);

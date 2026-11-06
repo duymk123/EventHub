@@ -6,7 +6,7 @@ info:
     Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Mã nguồn hiện là scaffold, chưa có endpoint nghiệp vụ.
     UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
     Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
-    Event sở hữu events/categories, không sở hữu loại vé/tồn kho/zones A–D. CLOSED là ngừng bán. C03 còn quyết định venue; không tự thêm trường địa điểm bắt buộc.
+    Event sở hữu events/categories, không sở hữu loại vé/tồn kho/zones A–D. CLOSED là ngừng bán. C03 chốt một địa điểm với text cấu hình chung trong email QR, chưa cần venue bắt buộc trên Event. C08 cho quota 0, publish cần một hạng ACTIVE có total_quota > 0.
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
@@ -159,7 +159,7 @@ paths:
       - Event
       operationId: submitEvent
       summary: EVT-03 Nộp duyệt
-      description: DRAFT → SUBMITTED, kiểm tra owner. Điều kiện đủ ba hạng/quota trước submit chưa được V2 chốt (C08); không tự bắt buộc.
+      description: DRAFT → SUBMITTED, kiểm tra owner. C08 chốt submit không bắt buộc đã cấu hình Ticket hoặc đủ ba hạng; cho cấu hình Ticket sau tạo Event.
       security:
       - bearerAuth: []
       parameters:
@@ -185,14 +185,14 @@ paths:
       - Event
       operationId: publishEvent
       summary: EVT-05 Publish Event
-      description: APPROVED → PUBLISHED, chỉ owner. Quy tắc quota/đủ loại vé trước publish chờ C08.
+      description: 'APPROVED → PUBLISHED, chỉ owner, thời gian hợp lệ. C08 preflight Ticket cần ít nhất một ACTIVE có total_quota > 0, không buộc ba hạng dương. Chưa đủ cấu hình trả 409; Ticket không phản hồi trả 503, giữ trạng thái cũ. Reserve vẫn kiểm tra tồn kho hiện tại, đây không phải transaction xuyên hai DB.'
       security:
       - bearerAuth: []
       parameters:
       - $ref: '#/components/parameters/EventId'
       responses:
         '200':
-          description: Đã chuyển sang PUBLISHED
+          description: Đã chuyển sang PUBLISHED sau kiểm tra cấu hình Ticket
           content:
             application/json:
               schema:
@@ -204,7 +204,17 @@ paths:
         '404':
           $ref: '#/components/responses/EventNotFound'
         '409':
-          $ref: '#/components/responses/InvalidEventState'
+          description: INVALID_EVENT_STATE hoặc TICKET_CONFIGURATION_NOT_READY
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: TICKET_SERVICE_UNAVAILABLE khi không xác minh được điều kiện publish
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /events/{id}/close:
     post:
       tags:

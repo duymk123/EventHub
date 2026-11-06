@@ -65,7 +65,7 @@ Mua hai vé VIP tạo hai dòng tickets, mỗi dòng có ID và QR riêng. Quant
 | `reservation_id` | CHAR(36), bắt buộc, FK | Lần giữ chỗ được xác nhận để sinh ra vé, trỏ reservations.id. | UUID R |
 | `order_id` | CHAR(36), bắt buộc | Đơn đã mua vé; ID mềm sang Order. Hỗ trợ tra vé theo đơn hoặc hủy theo đơn. | UUID O |
 | `ticket_type_id` | CHAR(36), bắt buộc, FK | Hạng của vé, trỏ ticket_types.id. | UUID hạng VIP |
-| `owner_user_id` | CHAR(36), bắt buộc | Tài khoản có quyền sở hữu/xem vé trong hệ thống; khác tên người đi sự kiện. Việc owner là người mua hay người nhận còn C02. | UUID tài khoản U |
+| `owner_user_id` | CHAR(36), bắt buộc | C02 chốt tài khoản mua đơn; holder là người sử dụng. Có holderEmail không tự cấp quyền xem/lấy QR bằng tài khoản khác. | UUID buyer U |
 | `holder_name` | VARCHAR(100), được NULL | Tên người sử dụng vé tại sự kiện, lấy từ thông tin holder theo luồng confirm. Không tự là tài khoản đăng nhập. | `Nguyễn Lan` |
 | `qr_code_value` | VARCHAR(255), bắt buộc, UNIQUE | Chuỗi bí mật/opaque dùng làm nội dung QR và kiểm tra khi quét. Không lấy ticketId làm QR thay thế. | `<chuỗi-QR-minh-họa>` |
 | `status` | VARCHAR(20), bắt buộc, DEFAULT ISSUED | Trạng thái vé: ISSUED đã phát; CHECKED_IN đã vào; CHECKED_OUT đã ra; CANCELLED đã hủy. | `CHECKED_IN` |
@@ -114,4 +114,4 @@ Vé có status là trạng thái hiện tại; ticket_scans là lịch sử đã
 4. Người giữ vé T1 vào rồi ra tạo hai ticket_scans cho T1, còn tickets.status cuối cùng là CHECKED_OUT.
 5. Các message phát vé/vào/ra đi qua outbox_events; Analytics và Notification nhận dữ liệu theo topic tương ứng.
 
-Xem [ERD](erd.md), [API Ticket](../../api/ticket-service-openapi.yaml) và các điểm chưa chốt [C02, C07, C08](../../project-clarifications.md). C08 còn quyết định có bắt buộc đủ ba hạng/quota dương trước publish không; có CHECK tổng lượng không đồng nghĩa quy tắc publish này đã được chốt.
+C08 đã chốt quota 0 và cấu hình sau tạo Event; submit không đòi đủ ba hạng, publish cần một ACTIVE có total_quota > 0. C05 cần bảng/API hold trước provider, chặn scan/cancel và fence confirm khi bù lỗi; chưa có các trường này trong DDL hiện tại. C07 thiết bị để sau. Xem [quyết định](../../project-clarifications.md), [thiết kế phục hồi](../../architecture/payment-refund-recovery.md), [ERD](erd.md) và [API Ticket](../../api/ticket-service-openapi.yaml).

@@ -15,8 +15,8 @@ const layouts = {
   event: { categories:[0,0], events:[1,0] },
   ticket: { ticket_types:[0,0], reservations:[1,0], outbox_events:[2,0], reservation_items:[0,1], tickets:[1,1], ticket_scans:[2,1] },
   order: { orders:[1,0], order_items:[0,1], payments:[1,1], refund_requests:[2,1], order_holders:[0,2], payment_webhooks:[1,2], outbox_events:[2,2] },
-  notification: { notification_templates:[0,0], notifications:[1,0], processed_events:[2,0] },
-  analytics: { sales_metrics:[0,0], dashboard_snapshot:[1,0], attendance_logs:[0,1], processed_events:[1,1] }
+  notification: { notification_templates:[0,0], notifications:[1,0], processed_events:[2,0], notification_batches:[0,1] },
+  analytics: { sales_metrics:[0,0], dashboard_snapshot:[1,0], attendance_logs:[0,1], processed_events:[1,1], attendance_state:[2,1] }
 };
 
 function splitFields(body) {

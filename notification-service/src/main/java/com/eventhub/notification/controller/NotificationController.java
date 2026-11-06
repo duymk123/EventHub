@@ -55,8 +55,8 @@ public class NotificationController {
      */
     @PutMapping("/{id}/read")
     public ResponseEntity<Void> markRead(
-            @AuthenticationPrincipal Actor actor,
-            @PathVariable("id") @Pattern(regexp = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$") UUID id) {
+            @AuthenticationPrincipal Actor actor, //Spring hãy lấy thông tin người đang gọi API và gán vào biến actor
+            @PathVariable("id") UUID id) {
         notificationService.markRead(actor, id);
         return ResponseEntity.noContent().build();
     }

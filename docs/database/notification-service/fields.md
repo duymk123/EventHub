@@ -4,7 +4,7 @@ Database mặc định: `eventhub_notification`. Service này lưu mẫu nội d
 
 Nguồn đối chiếu: [DDL tham chiếu](init.sql), [migration V1](../../../notification-service/src/main/resources/db/migration/V1__init.sql), [entity](../../../notification-service/src/main/java/com/eventhub/notification/entity), [plan nghiệp vụ](../../plans/notification-service.md), [hợp đồng Kafka](../../kafka/events.md). Xem [cách đọc kiểu dữ liệu và NULL](../README.md#cach-doc-tu-dien-truong).
 
-Các bảng dưới mô tả V1; kiểu, NULL và DEFAULT lấy từ SQL. Cấu hình [application.yml](../../../notification-service/src/main/resources/application.yml) hiện đặt `ddl-auto: update`, `flyway.enabled: false`, khác hướng dẫn Flyway/validate trong tài liệu cũ. Đây là đối chiếu file trong repo, chưa phải kiểm tra database đang chạy.
+Các bảng nền dưới mô tả V1, phần V2 bổ sung ở cuối tài liệu; kiểu, NULL và DEFAULT lấy từ SQL. Cấu hình [application.yml](../../../notification-service/src/main/resources/application.yml) hiện đặt `ddl-auto: update`, `flyway.enabled: false`, khác hướng dẫn Flyway/validate trong tài liệu cũ. Đây là đối chiếu file trong repo, chưa phải kiểm tra database đang chạy.
 
 ## 1. `notification_templates` — Mẫu nội dung thông báo
 
@@ -23,7 +23,7 @@ Cặp `(code, channel)` là duy nhất: có thể có `TICKET_ISSUED + EMAIL` v�
 
 ## 2. `notifications` — Thông báo cụ thể cho người nhận
 
-Ví dụ cùng một lần phát hành vé, hệ thống có thể tạo một dòng EMAIL và một dòng IN_APP. Hai dòng có ID khác nhau, cùng `source_message_id`, khác `channel` và `dedup_key`. Cách chọn người nhận email còn phụ thuộc C02.
+Ví dụ một lần phát hành có các EMAIL theo địa chỉ nhận và một IN_APP buyer. C02 mới nhất gửi từng vé tới holderEmail nếu có, thiếu fallback buyer snapshot; gom cùng địa chỉ, không gửi QR của nhóm khác. Các target khác ID/channel/dedup_key nhưng cùng source_message_id. Code hiện buyer-only/hai target cần sửa trước hỗ trợ chính sách này.
 
 | Trường | Kiểu / ràng buộc theo SQL | Ý nghĩa và lúc sử dụng | Ví dụ minh họa |
 |---|---|---|---|
@@ -77,4 +77,18 @@ Giả sử message M báo “đã phát hành hai vé”, và người nhận U 
 | `id` với `dedup_key` | id định danh một dòng; dedup_key phát hiện yêu cầu tạo lại cùng thông báo dù có thể được sinh id khác. |
 | `readAt`/`createdAt` trong Java | Ánh xạ lần lượt tới `read_at`/`created_at` trong database. |
 
-`notification_batches`, lease token và lease time là đề xuất trong [plan](../../plans/notification-service.md), chưa có trong V1 nên không liệt kê như cột hiện hành. Nguồn email và fallback khi holder không có email còn [C02](../../project-clarifications.md). Xem tiếp [ERD](erd.md) hoặc [API Notification](../../api/notification-service-openapi.yaml).
+V2 đã bổ sung notification_batches và lease; code hiện gửi buyer, còn C02 mới yêu cầu EMAIL thay đổi theo nhóm holder/fallback buyer và một IN_APP buyer. C03 text địa điểm chung dự kiến EVENTHUB_VENUE_TEXT cần snapshot trong model batch. Đây là cập nhật cần triển khai, không khẳng định config/multi-recipient đã có; xem [quyết định](../../project-clarifications.md).
+
+## 6. Phần bổ sung V2
+
+| Bảng / cột | Ý nghĩa |
+|---|---|
+| notification_batches.id | UUID messageId nguồn, khóa batch khi tạo/hoàn tất |
+| target_fingerprint | SHA-256 payload chuẩn hóa, phát hiện tái sử dụng messageId với dữ liệu khác |
+| expected_count | Hai target gồm EMAIL và IN_APP |
+| status | PENDING hoặc COMPLETE khi mọi target SENT |
+| created_at | Thời điểm tạo batch UTC |
+| notifications.lease_token | UUID bảo vệ quyền cập nhật kết quả của worker đang gửi |
+| notifications.lease_until | Thời hạn lease, được gia hạn khi SMTP còn chạy |
+
+Migration ở [V2](../../../notification-service/src/main/resources/db/migration/V2__notification_delivery.sql), DDL/ERD đã đồng bộ.

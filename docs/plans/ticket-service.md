@@ -6,7 +6,7 @@ Ngày 2026-10-28. Nguồn: [quy ước chung](00-cross-service-contracts.md), [O
 
 `TicketType` gộp price/quota/counters; enum name VIP/PREMIUM/STANDARD. `Reservation`, `ReservationItem`, `Ticket`, `TicketScan`, `OutboxEvent`. Mọi PK/FK/soft reference UUID CHAR(36). `event_id` mềm sang Event, không tạo entity Event local.
 
-Invariant: available + reserved + sold = totalQuota, không âm. Reservation UNIQUE(order_id); các dòng reservation_items unique reservation/type, giá snapshot. Ticket có reservation_id, ticket_type_id, owner_user_id bắt buộc, qr_code_value opaque UNIQUE; không dùng UUID vé thay QR. Scan gắn ticket_id/gate_id UUID và thời điểm gốc. Owner/email fallback còn C02, gate ownership còn C07.
+Invariant: available + reserved + sold = totalQuota, không âm; C08 cho quota 0, không buộc ba hạng dương. Reservation UNIQUE(order_id); reservation_items unique reservation/type, giá snapshot. Ticket có reservation_id, ticket_type_id, owner_user_id bắt buộc, qr_code_value opaque UNIQUE. C02 chốt owner là buyer; holderEmail có thì nhận vé, thiếu fallback buyer snapshot. Gate ownership C07 để sau.
 
 Trạng thái: RESERVED → CONFIRMED/RELEASED/EXPIRED; ISSUED → CHECKED_IN → CHECKED_OUT hoặc ISSUED → CANCELLED. Không tái nhập. CLOSED của Event chỉ ngừng bán, không tự làm vé đã phát hành mất hiệu lực.
 
@@ -14,19 +14,20 @@ Trạng thái: RESERVED → CONFIRMED/RELEASED/EXPIRED; ISSUED → CHECKED_IN �
 
 | Interface / signature | Logic / transaction |
 |---|---|
-| `TicketTypeService.createTypes(Actor organizer, CreateTicketTypesRequest request): List<TicketTypeResponse>` | EventClient xác minh owner trước; chỉ tên cho phép, không trùng, giá/quota hợp lệ; insert các type cùng transaction. Bắt buộc đủ ba/quota dương còn C08. |
+| `TicketTypeService.createTypes(Actor organizer, CreateTicketTypesRequest request): List<TicketTypeResponse>` | EventClient xác minh owner trước; tên cho phép, không trùng, giá/quota không âm; insert cùng transaction. C08 cho quota 0 và không buộc đủ ba hạng; publish cần ít nhất một ACTIVE có total_quota > 0. |
 | `updateType(Actor organizer, UUID typeId, UpdateTicketTypeRequest request): TicketTypeResponse` | Đọc eventId, xác minh owner, lock lại type và kiểm tra quota mới ≥ reserved+sold; available = quota mới - reserved - sold. Không sửa giá snapshot của reservation/order cũ. |
 | `listPublicTypes(UUID eventId): List<TicketTypeResponse>` | Xác minh trạng thái công khai của event phù hợp API, trả tồn kho hiện tại; số lượng chỉ tham khảo, reserve mới là bước quyết định. |
 | `ReservationService.reserve(ServiceActor orderCaller, ReserveRequest request): ReservationResponse` | Event hợp lệ/PUBLISHED và các type cùng event, normalize giỏ; lock type theo thứ tự UUID; giảm available/tăng reserved, tạo reservation/items trong một transaction. Deadline Ticket cấp tối đa 3 phút, trả giá/hạn chính thức. |
 | `confirm(ServiceActor orderCaller, UUID reservationId, ConfirmRequest request): ConfirmResponse` | Lock reservation, CONFIRMED trả vé cũ; RELEASED/EXPIRED trả 409. RESERVED hết hạn: hoàn quota/đổi EXPIRED rồi trả lỗi theo ranh giới commit tách rõ, không throw làm rollback hoàn quota. Hợp lệ: CAS confirm, reserved→sold, tạo vé/QR và outbox trong cùng transaction. |
 | `release(ServiceActor orderCaller, UUID reservationId): ReservationStatusResponse` | Lock; RESERVED → RELEASED + hoàn available một lần; RELEASED/EXPIRED trả trạng thái cũ; CONFIRMED 409. Cùng transaction counters/status. |
 | `expire(UUID reservationId, Instant now): boolean` | Internal worker một reservation/transaction; chỉ RESERVED có expiresAt ≤ now; trả quota đúng một lần, thua CAS bỏ qua. Không gọi Order khi giữ lock DB. |
-| `TicketQueryService.getMine(Actor customer): List<TicketResponse>` | Query owner_user_id=Principal, read-only, array theo OpenAPI hiện tại. Ai là owner được quyết định ở C02; không dùng holder email để cho quyền xem vé. |
+| `TicketQueryService.getMine(Actor customer): List<TicketResponse>` | Query owner_user_id=Principal, read-only, array hiện tại. C02 chốt owner là người mua; holder email không cấp quyền xem vé. |
 | `getQr(Actor customer, UUID ticketId): QrResponse` | Ticket thuộc owner, trạng thái được phép hiển thị theo API; không lộ QR qua API danh sách hoặc nội bộ refund. Không sinh QR mới mỗi GET. |
 | `GateService.checkIn(GateActor gate, GateScanRequest request): GateScanResponse` | Xác minh thiết bị được quét event/gate, QR/event khớp, CAS ISSUED→CHECKED_IN; log và outbox cùng transaction. Retry đã CHECKED_IN trả lỗi trạng thái theo API, không thêm lượt. |
 | `checkOut(GateActor gate, GateScanRequest request): GateScanResponse` | CAS CHECKED_IN→CHECKED_OUT, log/outbox; không có check-in lại từ CHECKED_OUT. |
-| `TicketCancellationService.cancelByOrder(ServiceActor caller, UUID orderId): CancelResponse` | Sau provider refund thành công theo orchestration: lock toàn bộ tickets theo UUID, kiểm tra tất cả ISSUED hoặc đã CANCELLED hợp lệ, >=48h; hủy cả phạm vi được C04 cho phép, sold→available, outbox ticket.cancelled. Lặp không trả quota lần hai. |
-| `RefundEligibilityService.getByOrder(ServiceActor caller, UUID orderId, Instant at): RefundEligibilityResponse` | **API nội bộ đề xuất**, đọc trạng thái vé và Event start time cho Order; không trả QR, không tự giữ quyền hủy. C05 quyết định có hold/lock riêng hay không. |
+| `TicketCancellationService.cancelByOrder(ServiceActor caller, UUID orderId): CancelResponse` | C05 cần hold PREPARED trước provider; sau success commit hủy cả đơn theo token, sold→available một lần và outbox ticket.cancelled. Không recheck mốc 48h theo giờ mới. Chữ ký/endpoint cũ cần bổ sung token trước dùng. |
+| `RefundEligibilityService.getByOrder(ServiceActor caller, UUID orderId, Instant at): RefundEligibilityResponse` | API read nội bộ đề xuất, không QR. Không thay prepare hold: C05 đã chọn giữ quyền hủy có khóa trước khi gọi provider. |
+| `RefundHoldService.prepare/commit/release/query(...)` | Thiết kế mới theo C05: prepare toàn bộ ISSUED/>=48h, chặn scan/cancel cạnh tranh; commit theo token hoặc release khi chắc chắn không hoàn. Không tự mở hold vì TTL khi tiền UNKNOWN. |
 
 Với confirm hết hạn, có thể gọi `expireInTransaction` commit rồi outer layer ném RESERVATION_EXPIRED, hoặc trả outcome DTO để controller map 409 sau commit. Không dùng catch/throw khiến trạng thái EXPIRED và trả quota bị rollback vô tình.
 
@@ -63,7 +64,7 @@ Reserve cùng orderId: so fingerprint của event/items/deadline gốc; cùng pa
 
 Confirm holders phải đúng số quantity từng type, owner lấy từ caller đáng tin cậy và mapping C02. Snapshot tên/email/eventTitle/startTime/QR vào outbox; đọc template/email sau này không được phải gọi lại Order để dựng dữ liệu vé cũ. Redis lock TTL không thay DB lock/unique/counters.
 
-Cancel phải toàn bộ phạm vi hoặc rollback, không hủy được nửa đơn rồi trả 409. Ticket đang CHECKED_IN/CHECKED_OUT hoặc qua 48h có thể khiến cancel từ chối sau provider refund; đây là điểm C05 cần giải quyết trước bật workflow refund, không tự xóa điều kiện để làm test xanh.
+Prepare phải toàn bộ đơn hoặc rollback nếu một vé không hợp lệ. C05 giữ quyền trước provider, commit sau success không từ chối do thời gian trôi; hold chặn scan và không tự mở khi tiền UNKNOWN. Bổ sung storage/API hold và fence reservation theo [thiết kế phục hồi](../architecture/payment-refund-recovery.md); chưa coi hợp đồng mới đã có trong runtime.
 
 ## 5. API và client/worker
 
@@ -89,4 +90,4 @@ Tạo Flyway initial schema theo DDL, entity đầy đủ, ddl-auto validate. Th
 
 ErrorCode: INSUFFICIENT_TICKETS 409, RESERVATION_EXPIRED/RESERVATION_ALREADY_CONFIRMED/INVALID_TICKET_STATE 409, TICKET_NOT_FOUND/EVENT_NOT_FOUND 404, FORBIDDEN_NOT_OWNER 403, EVENT_SERVICE_UNAVAILABLE 503, VALIDATION_ERROR 400; code không được thay cả lỗi mạng bằng business permanent error.
 
-MySQL integration test: 100 reserve tranh quota không oversell; reserve lặp/khác payload; giá đổi không đổi snapshot; confirm đua expire/release; confirm quá hạn vẫn trả quota đã commit; confirm lặp không thêm QR; hai cổng cùng QR chỉ một scan/outbox; checkout trước checkin ở Ticket bị chặn; cancel lặp/đã dùng/48h biên và rollback cả đơn; outbox crash/retry giữ messageId. WebMvcTest cho owner/service/gate. C02/C05/C07/C08 cần chốt nhánh tương ứng trước end-to-end.
+MySQL integration test: 100 reserve tranh quota không oversell; reserve lặp/khác payload; giá đổi không đổi snapshot; confirm đua expire/release; confirm quá hạn vẫn trả quota đã commit; confirm lặp không thêm QR; hai cổng cùng QR chỉ một scan/outbox; checkout trước checkin ở Ticket bị chặn; cancel lặp/đã dùng/48h biên và rollback cả đơn; outbox crash/retry giữ messageId. WebMvcTest cho owner/service/gate. C02/C05/C08 đã có quyết định; cần triển khai buyer ownership, hold/fence và quota 0/publish preflight. C07 thiết bị để sau.

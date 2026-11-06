@@ -1,5 +1,5 @@
--- Ban tham chieu dong bo tu migration V1; KHONG chay thu cong ben canh Flyway.
--- UUID IDs; schema managed by Flyway, never by Hibernate update.
+-- Schema tham chieu dong bo tu migration V1 + V2.
+-- UUID IDs; deployment schema mode follows the service configuration.
 CREATE TABLE notification_templates (
   id CHAR(36) PRIMARY KEY,
   code VARCHAR(50) NOT NULL, channel VARCHAR(10) NOT NULL,
@@ -15,10 +15,19 @@ CREATE TABLE notifications (
   channel VARCHAR(10) NOT NULL, template_code VARCHAR(50) NOT NULL,
   title VARCHAR(255), content TEXT, payload JSON,
   status VARCHAR(10) NOT NULL, attempts INT NOT NULL DEFAULT 0,
+  lease_token CHAR(36) NULL, lease_until TIMESTAMP NULL,
   last_error VARCHAR(500), sent_at TIMESTAMP NULL, read_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL,
+  INDEX idx_delivery_message (source_message_id, status),
   INDEX idx_inapp (recipient_user_id, channel, read_at, created_at));
 
 CREATE TABLE processed_events (
   id CHAR(36) PRIMARY KEY, -- chính là messageId, không sinh UUID mới
   processed_at TIMESTAMP NOT NULL);
+
+CREATE TABLE notification_batches (
+  id CHAR(36) PRIMARY KEY,
+  target_fingerprint VARCHAR(64) NOT NULL,
+  expected_count INT NOT NULL,
+  status VARCHAR(10) NOT NULL,
+  created_at TIMESTAMP NOT NULL);

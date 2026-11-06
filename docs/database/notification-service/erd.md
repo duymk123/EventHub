@@ -29,6 +29,8 @@ erDiagram
     JSON payload
     VARCHAR(10) status
     INT attempts
+    CHAR(36) lease_token
+    TIMESTAMP lease_until
     VARCHAR(500) last_error
     TIMESTAMP sent_at
     TIMESTAMP read_at
@@ -37,6 +39,13 @@ erDiagram
   processed_events {
     CHAR(36) id PK
     TIMESTAMP processed_at
+  }
+  notification_batches {
+    CHAR(36) id PK
+    VARCHAR(64) target_fingerprint
+    INT expected_count
+    VARCHAR(10) status
+    TIMESTAMP created_at
   }
 ```
 

@@ -15,6 +15,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Repository JPA cho API đọc/đánh dấu IN_APP và tra cứu Notification. Truy vấn theo recipientUserId và channel
+ * bảo vệ phạm vi dữ liệu của người đăng nhập.
+ */
 @Repository
 public interface NotificationRepository extends JpaRepository<Notification, UUID> {
 
