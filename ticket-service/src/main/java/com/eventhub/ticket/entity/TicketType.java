@@ -18,6 +18,8 @@ import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
+import com.eventhub.ticket.entity.enums.TicketTypeName;
+import com.eventhub.ticket.entity.enums.TicketTypeStatus;
 
 @Entity
 @Table(name = "ticket_types",

@@ -19,6 +19,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.UUID;
+import com.eventhub.ticket.entity.enums.ScanType;
 
 @Entity
 @Table(name = "ticket_scans", indexes = @Index(name = "idx_scan_ticket", columnList = "ticket_id, scanned_at"))

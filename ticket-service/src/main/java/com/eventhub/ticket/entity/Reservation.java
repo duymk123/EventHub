@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import com.eventhub.ticket.entity.enums.ReservationStatus;
 
 @Entity
 @Table(name = "reservations",
