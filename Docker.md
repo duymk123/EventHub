@@ -2,7 +2,7 @@
 
 ## Khởi động
 
-Cài Docker Desktop/Engine và Compose. Tạo .env ở root với MYSQL_ROOT_PASSWORD=<mật khẩu local>; không commit secret. Keycloak đã được chọn làm nơi đăng nhập/cấp token; realm/client/issuer/audience/JWK và xác thực nội bộ còn chờ cấu hình, chưa thêm khóa giả định. Mailpit local không cần tài khoản SMTP.
+Cài Docker Desktop/Engine và Compose. Sao chép `.env.example` thành `.env` ở root, thay mật khẩu local và không commit secret. Keycloak đã được chọn làm nơi đăng nhập/cấp token; realm/client/issuer/audience/JWK và xác thực nội bộ còn chờ cấu hình, chưa thêm khóa giả định. Mailpit local không cần tài khoản SMTP.
 
 ```powershell
 docker compose up --build -d
@@ -23,6 +23,14 @@ Compose hiện có 7 MySQL database scaffold, 7 backend scaffold, Kafka KRaft m�
 | api-gateway | eventhub_gateway | 8080 | 33107 |
 
 DBeaver: host 127.0.0.1, user root, password từ .env, database/port như bảng. Trong Docker, backend dùng tên DB service (ví dụ notification-db) và port 3306. Tài khoản root này dành cho local.
+
+Với MySQL Workbench, kết nối `order-service` bằng host `127.0.0.1`, port `33104`,
+user `root`, password từ `.env`, schema `eventhub_order`. Khởi động riêng database
+bằng `docker compose up -d order-db`. Nếu chạy `order-service` ngoài Docker, đặt
+`DB_HOST=localhost`, `DB_PORT=33104`, `DB_NAME=eventhub_order`,
+`DB_USERNAME=root` và `DB_PASSWORD` bằng mật khẩu trong `.env`. Nếu chạy bằng
+Compose, dùng `docker compose up --build -d order-db order-service`; Compose tự
+đổi host thành `order-db` và port nội bộ `3306`.
 
 ## Kafka và email dev
 
