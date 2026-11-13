@@ -69,6 +69,45 @@ services:
     networks:
       - eventhub
 
+# Database Services
+# Database riêng dành cho Keycloak
+  keycloak-db:
+    image: postgres:17-alpine
+    container_name: eventhub-keycloak-db
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak_dev_password
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Keycloak Identity Provider
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2
+    container_name: eventhub-keycloak
+    command: start-dev
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin_dev_password
+
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak_dev_password
+
+    ports:
+      - "8180:8080"
+
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+# Auth Service DB
   auth-db:
     image: mysql:8.4
     environment:
@@ -89,6 +128,7 @@ services:
     networks:
       - eventhub
 
+# Event Service DB
   event-db:
     image: mysql:8.4
     environment:
@@ -209,6 +249,7 @@ services:
     networks:
       - eventhub
 
+# Application Services
   auth-service:
     image: eventhub/auth-service:local
     build:
@@ -379,8 +420,10 @@ networks:
   eventhub:
     driver: bridge
 
+# Volumes is used to persist data for services that require it, such as databases and Kafka.
 volumes:
   kafka_data:
+  keycloak_db_data:
   auth_mysql_data:
   event_mysql_data:
   ticket_mysql_data:
