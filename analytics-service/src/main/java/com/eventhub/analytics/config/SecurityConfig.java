@@ -106,6 +106,8 @@ public class SecurityConfig {
                 .requestCache(cache -> cache.disable())
                 .authorizeHttpRequests(auth -> {
                     auth.requestMatchers(org.springframework.http.HttpMethod.GET, "/ws/dashboard").permitAll()
+                            // C10: /overview và /events cho ADMIN (mọi sự kiện) và ORGANIZER (chỉ sự kiện của mình);
+                            // service giới hạn phạm vi theo owner, filter chỉ chặn CUSTOMER.
                             .requestMatchers("/api/v1/analytics/**").hasAnyRole("ADMIN", "ORGANIZER")
                             .anyRequest().denyAll();
                 })

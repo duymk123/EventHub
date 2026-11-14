@@ -8,7 +8,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Gọi endpoint nội bộ của Event Service để xác minh sự kiện tồn tại và quyền sở hữu.
@@ -58,6 +63,61 @@ public class EventClientImpl implements EventClient {
             // Lỗi từ phía upstream — không tự tạo số 0 để che giấu lỗi
             throw new BusinessException(ErrorCode.EVENT_SERVICE_UNAVAILABLE,
                     "Event service unavailable");
+        }
+    }
+
+    /**
+     * INT-02 (C10): GET /internal/events?ids=a,b,... Bỏ các phần tử thiếu id; mọi lỗi HTTP/token/response đều là
+     * 503 vì bảng thống kê không được hiển thị tên giả.
+     */
+    @Override
+    public Map<UUID, InternalEventResponse> getBatch(Collection<UUID> eventIds) {
+        if (eventIds.isEmpty()) {
+            return Map.of();
+        }
+        if (eventIds.size() > MAX_BATCH) {
+            throw new IllegalArgumentException("At most " + MAX_BATCH + " event ids per batch");
+        }
+        String ids = eventIds.stream().map(UUID::toString).distinct().collect(Collectors.joining(","));
+        try {
+            List<InternalEventResponse> body = restClient.get()
+                    .uri(uri -> uri.path("/internal/events").queryParam("ids", ids).build())
+                    .headers(headers -> headers.setBearerAuth(tokens.getToken()))
+                    .retrieve()
+                    .body(new org.springframework.core.ParameterizedTypeReference<List<InternalEventResponse>>() {});
+            if (body == null) {
+                throw new BusinessException(ErrorCode.EVENT_SERVICE_UNAVAILABLE, "Invalid event service response");
+            }
+            Map<UUID, InternalEventResponse> result = new HashMap<>();
+            for (InternalEventResponse event : body) {
+                if (event != null && event.id() != null) {
+                    result.put(event.id(), event);
+                }
+            }
+            return result;
+        } catch (RestClientException | IllegalStateException ex) {
+            throw new BusinessException(ErrorCode.EVENT_SERVICE_UNAVAILABLE, "Event service unavailable");
+        }
+    }
+
+    /**
+     * INT-03 (C10): GET /internal/events/ids?organizerId=. Body null hoặc lỗi HTTP/token là 503: không được đoán
+     * phạm vi rỗng vì ORGANIZER sẽ thấy số 0 sai thay vì lỗi.
+     */
+    @Override
+    public List<UUID> getIdsByOrganizer(UUID organizerId) {
+        try {
+            List<UUID> body = restClient.get()
+                    .uri(uri -> uri.path("/internal/events/ids").queryParam("organizerId", organizerId).build())
+                    .headers(headers -> headers.setBearerAuth(tokens.getToken()))
+                    .retrieve()
+                    .body(new org.springframework.core.ParameterizedTypeReference<List<UUID>>() {});
+            if (body == null) {
+                throw new BusinessException(ErrorCode.EVENT_SERVICE_UNAVAILABLE, "Invalid event service response");
+            }
+            return body.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        } catch (RestClientException | IllegalStateException ex) {
+            throw new BusinessException(ErrorCode.EVENT_SERVICE_UNAVAILABLE, "Event service unavailable");
         }
     }
 }

@@ -13,7 +13,11 @@ import java.util.UUID;
  * projection xử lý được checkout đến trước checkin.
  */
 @Entity
-@Table(name = "attendance_state")
+@Table(name = "attendance_state", indexes = {
+        // C10/V3: đếm khán giả theo khoảng checked_in_at, toàn hệ thống hoặc một sự kiện.
+        @Index(name = "idx_state_checkin_event", columnList = "checked_in_at, event_id"),
+        @Index(name = "idx_state_event_checkin", columnList = "event_id, checked_in_at")
+})
 @Getter
 @NoArgsConstructor
 public class AttendanceState {
