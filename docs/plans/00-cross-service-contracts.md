@@ -34,6 +34,7 @@ Các mục dưới **chưa có đủ trong DDL/migration hiện tại**. Lập m
 | Order | Idempotency/fingerprint, snapshot customer_email đã xác minh, quote/allocation refund | Retry cùng đơn/giao dịch/quote 70%, giữ recipient C02 |
 | Notification | `notification_batches` id=messageId UUID, fingerprint/expected_count/status; notifications thêm lease_token UUID, lease_until | Tạo toàn bộ target nguyên tử, một worker gửi mỗi target tại một thời điểm |
 | Analytics | `attendance_state`: id UUID, ticket_id UUID UNIQUE, event_id UUID, checked_in_at/checked_out_at nullable | Chịu đảo thứ tự giữa hai topic; không decrement rồi clamp |
+| Analytics (C10) | V3 chỉ thêm index: `sales_metrics(metric_date, event_id)`, `sales_metrics(event_id, metric_date)`, `attendance_state(checked_in_at, event_id)`, `attendance_state(event_id, checked_in_at)` | Query thống kê toàn hệ thống theo khoảng ngày; chi tiết [plan Analytics §8.5](analytics-service.md) |
 
 Outbox Ticket/Order đã có reference DDL tối thiểu. Khi code nhiều publisher, bổ sung attempts/next_attempt_at/lease_token/lease_until hoặc cơ chế claim DB tương đương. `outbox.id = payload.messageId`; không sinh lại messageId khi retry. Không tạo outbox cho Event nếu chưa có topic/use case cần phát.
 
@@ -55,6 +56,9 @@ Scheduler lấy batch theo index status/deadline, không load tất cả bảng 
 |---|---|---|
 | `GET /internal/tickets/by-order/{orderId}/refund-eligibility` | Order → Ticket | tickets/order, status từng vé, eventId/typeId và thời điểm event hoặc dùng EventClient; phục vụ kiểm tra refund, không trả QR |
 | `GET /internal/events/{eventId}/ticket-types/configuration` | Event → Ticket trước publish theo C08; submit không cần | Có ít nhất một ACTIVE với total_quota > 0; đọc Ticket DB, không callback Event gây vòng gọi |
+| `GET /internal/events/ids?organizerId=...` (INT-03, C10) | Analytics → Event | Mảng id mọi sự kiện của organizer, rỗng nếu chưa có; organizerId từ JWT đã xác minh. Giới hạn thống kê gộp của ORGANIZER vào sự kiện mình sở hữu. Đã có trong OpenAPI dạng đề xuất. |
+| `GET /internal/events?ids=...` (INT-02, C10) | Analytics → Event | Batch ≤100 id, trả InternalEventResponse mọi status, bỏ qua id không tồn tại; bổ sung tên/trạng thái/ngày cho một trang thống kê. Đã có trong OpenAPI dạng đề xuất. |
+| `GET /internal/ticket-types/capacity?eventIds=...` (C10) | Analytics → Ticket | Batch ≤100 id, trả `[{eventId, capacity=SUM(total_quota)}]`; lỗi thì Analytics trả capacity=null. Đã có trong OpenAPI dạng đề xuất. |
 | Prepare/commit/release/query quyền hủy | Order ↔ Ticket, C05 đã chọn | Durable token và tập vé cố định; chặn scan, không tự mở bằng TTL khi tiền UNKNOWN; chưa có storage/endpoint mới |
 
 Nếu giữ endpoint đã có để lấy cùng thông tin, phải chứng minh không dùng API của CUSTOMER hoặc giả user để đọc nội bộ. API nội bộ trả DTO tối thiểu, không lộ email/QR không cần thiết.
@@ -88,7 +92,7 @@ Khi triển khai mới thêm validation/security/resource-server, Flyway/MySQL v
 
 Chi tiết route/method/quyền và các lớp cần xây nằm trong [plan Gateway](api-gateway.md). Gateway hiện chỉ là scaffold MVC/JPA/MySQL; các nội dung dưới là thiết kế mục tiêu.
 
-- Client gọi REST `/api/v1/**` qua Gateway; giữ nguyên prefix, query, Authorization, body và response contract. Route theo allowlist method/path, không proxy catch-all. Có 47 REST operations public và 5 internal trong 52 operations hiện hành; WS tính riêng.
+- Client gọi REST `/api/v1/**` qua Gateway; giữ nguyên prefix, query, Authorization, body và response contract. Route theo allowlist method/path, không proxy catch-all. Có 47 REST operations public và 5 internal trong 52 operations hiện hành; WS tính riêng. C10 thêm 2 public (Analytics `/analytics/overview`, `/analytics/events`, đã có ở analytics-service) và 3 internal đề xuất (Event INT-02, INT-03, Ticket capacity); khi đủ thành 49 public + 8 internal = 57.
 - GET `/api/v1/events/{eventId}/ticket-types` thuộc Ticket, các API events khác thuộc Event. `/api/v1/admin/users` thuộc Auth, admin events thuộc Event, admin refunds thuộc Order, admin notification-templates thuộc Notification; không gom `/admin/**` về một service.
 - Gateway và service đều xác thực token phù hợp issuer/audience đã cấu hình. Gateway kiểm tra quyền đầu vào; service kiểm tra owner/trạng thái và tạo Actor từ Principal đã xác minh. Không tin header userId/role client tự gửi. Keycloak cấp token; Gateway không tự cấp/refresh token hoặc gọi Auth để kiểm JWT cho mọi request.
 - Register/login/refresh/logout chỉ miễn access JWT đúng method/path theo Auth contract; me/password vẫn cần access JWT. Không mở toàn bộ `/auth/**`. Flow Keycloak, role/sub mapping và S2S còn phải cấu hình.

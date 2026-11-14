@@ -66,7 +66,7 @@ Phân biệt ID: **eventId là sự kiện khách tham dự; messageId là một
 | Ticket | [ERD](ticket-service/erd.md) |
 | Order | [ERD](order-service/erd.md) |
 | Notification | [ERD V1 + V2](notification-service/erd.md) |
-| Analytics | [ERD V1 + V2](analytics-service/erd.md) |
+| Analytics | [ERD V1 + V2](analytics-service/erd.md); [ERD C10 – thống kê toàn hệ thống, đề xuất](analytics-service/erd-c10.md) |
 
 Chạy `node docs/database/render-erd.mjs` từ root để sinh SVG/Mermaid từ DDL; `node docs/database/render-erd.mjs --check` phát hiện lệch nguồn và từ chối ID không dùng CHAR(36). Chạy `docs/database/render-erd.ps1` trên Windows để sinh lại cả SVG/Mermaid và JPEG Order/Ticket từ cùng model. SVG chứa tên cột/kiểu dưới dạng text, đọc được bằng mã, không chỉ là ảnh chụp. Đã kiểm tra parser đọc cả nhiều cột trên cùng một dòng của V1.
 

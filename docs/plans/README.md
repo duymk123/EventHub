@@ -15,7 +15,7 @@ Bổ sung 2026-10-31: [plan API Gateway](api-gateway.md) và [tài liệu nhập
 | [Ticket](ticket-service.md) | Hạng vé/tồn kho, reserve/confirm/release/expire, QR, check-in/out/cancel |
 | [Order](order-service.md) | Chỉnh model hiện có, order/items/holders, payment/webhook/refund, phục hồi saga |
 | [Notification](notification-service.md) | Template/in-app, email/QR, dedup, lease từng lần gửi và DLQ |
-| [Analytics](analytics-service.md) | Sales/refund theo hạng, attendance chịu đảo thứ tự, API và STOMP |
+| [Analytics](analytics-service.md) | Sales/refund theo hạng, attendance chịu đảo thứ tự, API và STOMP; §8 thống kê toàn hệ thống cho ADMIN (C10, đề xuất) |
 
 Mỗi plan chỉ rõ interface/service methods, repository methods, kiểu dữ liệu và DTO, API → service, transaction/lock, migration còn thiếu, lỗi và test. Tên hàm là thiết kế đề xuất để bắt đầu code; khi đổi phải sửa API/plan/DDL liên quan cùng thay đổi.
 

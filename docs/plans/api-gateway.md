@@ -46,9 +46,10 @@ Giữ nguyên `/api/v1`, body/query/status và schema phân trang của owner. K
 | notifications-mark | PUT `/api/v1/notifications/{id}/read` | Notification | Business actor hợp lệ + owner. |
 | notification-templates | GET `/api/v1/admin/notification-templates`, `/api/v1/admin/notification-templates/{code}`; PUT `/api/v1/admin/notification-templates/{code}` | Notification | ADMIN. |
 | analytics-rest | GET `/api/v1/analytics/events/{id}/sales`, `/attendance`, `/dashboard` dưới cùng id | Analytics | ORGANIZER/ADMIN, owner/tồn tại tại Analytics qua Event. |
+| analytics-admin (đề xuất C10) | GET `/api/v1/analytics/overview`, GET `/api/v1/analytics/events` (đúng path, không có `{id}`) | Analytics | ADMIN và ORGANIZER; Analytics tự giới hạn ORGANIZER vào sự kiện mình sở hữu. Khai báo route cụ thể, không mở `/api/v1/analytics/**`. |
 | analytics-ws | Upgrade `/ws/dashboard` | Analytics | Origin/giới hạn kết nối ở handshake; JWT CONNECT và quyền SUBSCRIBE tại Analytics. |
 
-Tên rút gọn `/login`, `/publish` trong một ô luôn nối với prefix được ghi trong ô; khi code phải khai báo đầy đủ từng path. Route có nhiều method/path phải tách khi các tổ hợp không cùng hợp lệ, tránh mở PUT collection hoặc POST item ngoài bảng. 47 public operations gồm Auth 9, Event 13, Ticket 7, Order 9, Notification 6, Analytics 3. Năm internal operations gồm Event 1 và Ticket 4; các API internal đề xuất mới cũng bị chặn.
+Tên rút gọn `/login`, `/publish` trong một ô luôn nối với prefix được ghi trong ô; khi code phải khai báo đầy đủ từng path. Route có nhiều method/path phải tách khi các tổ hợp không cùng hợp lệ, tránh mở PUT collection hoặc POST item ngoài bảng. 47 public operations gồm Auth 9, Event 13, Ticket 7, Order 9, Notification 6, Analytics 3. Năm internal operations gồm Event 1 và Ticket 4; các API internal đề xuất mới cũng bị chặn. C10 khi triển khai: Analytics 5 public (tổng 49), internal thêm Event INT-02, INT-03 và Ticket capacity (tổng 8), các internal đều không route qua Gateway.
 
 Đặt `ticket-types-public` trước route events rộng nếu sau này dùng wildcard; ưu tiên exact patterns để giảm chồng lấn. Không route `/api/v1/admin/**` về một owner. Endpoint chưa implement ở downstream vẫn có thể trả 404; có route không chứng minh tính năng đã hoàn tất.
 

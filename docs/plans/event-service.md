@@ -75,6 +75,8 @@ Chốt cách chuẩn hóa/collation tên với UNIQUE của MySQL: không dựa 
 | POST/GET `/api/v1/categories` | CategoryService.create/list |
 | PUT/DELETE `/api/v1/categories/{id}` | CategoryService.update/deleteUnused |
 | GET `/internal/events/{id}` | getInternal |
+| GET `/internal/events/ids?organizerId=` (INT-03, đề xuất C10) | getInternalIdsByOrganizer: `SELECT id FROM events WHERE organizer_id = ?` (mọi status), trả mảng rỗng khi chưa có. Map path literal trước `/internal/events/{id}`. Caller là Analytics ([plan §8.4](analytics-service.md)). |
+| GET `/internal/events?ids=` (INT-02, đề xuất C10) | getInternalBatch: `findAllById` tối đa 100 id, map InternalEventResponse, không 404 khi thiếu id. Caller duy nhất là Analytics ([plan §8.4](analytics-service.md)). |
 
 C08 yêu cầu kiểm tra Ticket trước publish, không trước submit. Bổ sung `TicketConfigurationClient.getConfiguration(UUID): TicketConfigurationResponse` và OpenAPI nội bộ theo [plan chung](00-cross-service-contracts.md); chưa coi endpoint này đã có.
 

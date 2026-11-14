@@ -386,6 +386,7 @@ services:
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EVENT_SERVICE_URL: http://event-service:8080
+      TICKET_SERVICE_URL: http://ticket-service:8080
     restart: unless-stopped
     networks:
       - eventhub

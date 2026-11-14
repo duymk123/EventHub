@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.AllArgsConstructor;
@@ -27,6 +28,10 @@ import java.util.UUID;
 @Entity
 @Table(name = "sales_metrics", uniqueConstraints = {
         @UniqueConstraint(name = "uk_metric", columnNames = {"event_id", "ticket_type_id", "metric_date"})
+}, indexes = {
+        // C10/V3: khai báo cùng tên với migration để môi trường ddl-auto update cũng có index khi Flyway tắt.
+        @Index(name = "idx_sales_date_event", columnList = "metric_date, event_id"),
+        @Index(name = "idx_sales_event_date", columnList = "event_id, metric_date")
 })
 @Getter
 @Setter

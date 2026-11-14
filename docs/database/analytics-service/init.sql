@@ -1,4 +1,4 @@
--- Schema tham chieu dong bo tu migration V1 + V2.
+-- Schema tham chieu dong bo tu migration V1 + V2 + V3.
 -- UUID IDs; deployment schema mode follows the service configuration.
 CREATE TABLE sales_metrics (
   id CHAR(36) PRIMARY KEY,
@@ -36,3 +36,9 @@ CREATE TABLE attendance_state (
   event_id CHAR(36) NOT NULL,
   checked_in_at TIMESTAMP NULL,
   checked_out_at TIMESTAMP NULL);
+
+-- V3 (C10): index cho thống kê toàn hệ thống, không đổi bảng/cột.
+CREATE INDEX idx_sales_date_event ON sales_metrics (metric_date, event_id);
+CREATE INDEX idx_sales_event_date ON sales_metrics (event_id, metric_date);
+CREATE INDEX idx_state_checkin_event ON attendance_state (checked_in_at, event_id);
+CREATE INDEX idx_state_event_checkin ON attendance_state (event_id, checked_in_at);

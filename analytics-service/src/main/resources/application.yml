@@ -2,7 +2,7 @@ spring:
   application:
     name: analytics-service
   datasource:
-    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_analytics}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
+    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_analytics}?serverTimezone=UTC&forceConnectionTimeZoneToSession=true&createDatabaseIfNotExist=true}"
     username: "${DB_USERNAME:root}"
     password: "${DB_PASSWORD:root}"
   jpa:
@@ -13,6 +13,12 @@ spring:
     properties:
       hibernate.jdbc.time_zone: UTC
       hibernate.type.preferred_uuid_jdbc_type: CHAR
+  data:
+    web:
+      pageable:
+        # Quy ước chung: Page trả JSON {content, page{size, number, totalElements, totalPages}}.
+        serialization-mode: via-dto
+        max-page-size: 100
   flyway:
     # Môi trường dùng migration bật SPRING_FLYWAY_ENABLED và đổi ddl-auto thành validate.
     enabled: false
@@ -61,6 +67,9 @@ eventhub:
     allowed-origins: ${DASHBOARD_ALLOWED_ORIGINS:}
   event-service:
     url: ${EVENT_SERVICE_URL:http://localhost:8082}
+  ticket-service:
+    # C10: GET /internal/ticket-types/capacity cho cột sức chứa của bảng thống kê theo sự kiện.
+    url: ${TICKET_SERVICE_URL:http://localhost:8083}
 
 server:
   port: "${SERVER_PORT:8086}"

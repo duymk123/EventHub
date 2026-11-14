@@ -1,6 +1,6 @@
 # Quyết định nghiệp vụ và các phần còn cần hoàn thiện
 
-Cập nhật 2026-11-05 theo xác nhận mới nhất của chủ dự án. Các câu hỏi C02–C05/C08 trước đây được thay bằng quyết định bên dưới; C06 và C07 chủ động để sau. [Nguồn và thứ tự ưu tiên](architecture/source-decisions.md).
+Cập nhật 2026-11-05 theo xác nhận mới nhất của chủ dự án; bổ sung C10 (thống kê toàn hệ thống cho ADMIN) ngày 2026-11-13. Các câu hỏi C02–C05/C08 trước đây được thay bằng quyết định bên dưới; C06 và C07 chủ động để sau. [Nguồn và thứ tự ưu tiên](architecture/source-decisions.md).
 
 Đã chốt từ trước: UUID cho mọi PK/tham chiếu ứng dụng và gateId; VIP/PREMIUM/STANDARD; messageId khác eventId; Keycloak cấp token, Auth giữ UI/API riêng; lỗi REST có code/message/timestamp/path. C01 đã đóng về lựa chọn Auth facade. Realm/client, sub/role mapper, issuer/audience/JWK và S2S là cấu hình tích hợp còn cần hoàn thiện.
 
@@ -16,6 +16,7 @@ Cập nhật 2026-11-05 theo xác nhận mới nhất của chủ dự án. Các
 | C07 | Để sau theo chủ dự án | gateId vẫn UUID; chưa chọn nơi quản lý cổng, thiết bị và quyền quét. Không tự tạo bảng gates hoặc mở quyền thiết bị. |
 | C08 | Chủ dự án chốt quota 0/cấu hình sau tạo Event; giao Codex chọn publish | Tạo Event trước rồi cấu hình Ticket, được để hạng quota 0. Submit không đòi đủ ba hạng. Publish cần owner, APPROVED, thời gian hợp lệ và ít nhất một hạng ACTIVE có total_quota > 0; không buộc cả ba hạng đều dương. |
 | C09 | Giữ xác nhận trước đó ngày 2026-11-05 | Dashboard tổng gộp doanh thu/vé bán cả sự kiện; sales tách gộp, hoàn, thuần. Ngày Asia/Ho_Chi_Minh theo paidAt/refundedAt, giữ lịch sử qua các ngày. Không mở lại quyết định này. |
+| C10 | Chủ dự án duyệt ý tưởng 2026-11-13; định nghĩa số liệu do Claude đề xuất; analytics-service triển khai 2026-11-14 | Thêm thống kê gộp cho ADMIN (mọi sự kiện) và ORGANIZER (sự kiện của mình, bổ sung 2026-11-14): doanh thu gộp/hoàn/thuần, vé bán, khán giả theo ngày/tháng và theo từng sự kiện. Khán giả = số vé đã check-in (mỗi vé một lần, theo ngày check-in). Giữ nguyên C09. Còn thiếu API nội bộ ở Event/Ticket; xem mục C10 bên dưới. |
 
 Các mục “Codex chọn” ghi rõ nguồn thiết kế, không phải lời xác nhận nguyên văn của chủ dự án. Đây là quyết định tài liệu; migration, adapter và API mới vẫn cần triển khai.
 
@@ -59,6 +60,22 @@ Phân bổ tiền theo 70% line_total từng hạng; phần lẻ đơn vị 0,01
 Tạo Event và submit không phụ thuộc đủ ba hạng. Trước publish, Event gọi API nội bộ Ticket đọc cấu hình; cần ít nhất một hạng ACTIVE có total_quota > 0, sau đó recheck owner/trạng thái và CAS APPROVED → PUBLISHED. Không giữ khóa DB Event lúc chờ HTTP. Ticket không phản hồi: 503 và chưa publish; chưa đủ cấu hình: 409 TICKET_CONFIGURATION_NOT_READY.
 
 Đây là kiểm tra tại lúc chuẩn bị publish, không phải transaction hai DB hoặc cam kết luôn còn hàng. Sau publish có thể hết vé/tắt bán hạng; reserve vẫn kiểm tra Event PUBLISHED, hạng ACTIVE và available_quantity đủ tại lúc đặt, cập nhật số lượng nguyên tử. Thay đổi đồng thời không cho phép oversell.
+
+## C10 — Thống kê toàn hệ thống cho ADMIN
+
+Bối cảnh: trang Phân tích (admin) và báo cáo của Ban tổ chức cần số liệu gộp nhiều sự kiện cùng lúc; API Analytics hiện chỉ đọc từng sự kiện. Chủ dự án đồng ý hướng bổ sung API ngày 2026-11-13. Các định nghĩa dưới đây là đề xuất của Claude, áp dụng khi chưa có chỉ đạo khác.
+
+| Câu hỏi | Quyết định áp dụng |
+|---|---|
+| Doanh thu, hoàn tiền ghi vào kỳ nào? | Giữ C09: doanh thu theo ngày VN của paidAt, hoàn tiền theo ngày VN của refundedAt. Doanh thu thuần của một kỳ = gộp − hoàn, có thể âm. |
+| "Khán giả tham gia" là gì? | Số **vé** đã check-in hợp lệ, mỗi vé tính một lần, ghi vào ngày VN của lần check-in đầu tiên; check-out không trừ. Không phải số người/tài khoản khác nhau. |
+| Tỉ lệ check-in tính thế nào? | Khán giả toàn thời gian / vé hợp lệ (bán − hoàn) toàn thời gian của sự kiện, chỉ hiển thị khi sự kiện đã diễn ra. Không chia theo khoảng lọc để tránh kết quả >100%. |
+| "Theo tháng" là tháng nào? | Tháng dương lịch theo giờ Việt Nam; tháng đầu/cuối của khoảng lọc chỉ tính phần ngày nằm trong khoảng. |
+| So sánh "kỳ trước"? | Khoảng liền trước có cùng số ngày. |
+| Ai được xem? | Cập nhật theo yêu cầu chủ dự án 2026-11-14: cả ADMIN và ORGANIZER đều dùng trang Phân tích. ADMIN xem toàn hệ thống và mọi sự kiện; ORGANIZER xem tổng và bảng xếp hạng **chỉ gồm sự kiện mình sở hữu**, và từng sự kiện của mình; CUSTOMER không được xem. Analytics lấy danh sách sự kiện của ORGANIZER qua Event INT-03, không tự lưu organizer. |
+| Giới hạn khoảng thời gian? | Theo ngày tối đa 366 ngày; theo tháng tối đa 36 tháng. |
+
+Sơ đồ dữ liệu: [ERD C10](database/analytics-service/erd-c10.md). Thiết kế API, query và migration: [plan Analytics §8](plans/analytics-service.md#8-thống-kê-toàn-hệ-thống-cho-admin-c10). Hợp đồng: [Analytics](api/analytics-service-openapi.yaml), INT-02 ở [Event](api/event-service-openapi.yaml), capacity ở [Ticket](api/ticket-service-openapi.yaml).
 
 ## Những việc còn cần trước khi tích hợp
 

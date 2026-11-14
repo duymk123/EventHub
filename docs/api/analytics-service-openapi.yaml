@@ -7,12 +7,148 @@ info:
     UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
     Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
     ADMIN hoặc ORGANIZER sở hữu sự kiện, kiểm tra Event Service trước khi trả dữ liệu. Dashboard tổng gộp toàn sự kiện, sales report tách gộp/hoàn/thuần theo ngày Việt Nam. Doanh số nhận từ order.paid.
+    Bổ sung 2026-11-13 (C10), analytics-service đã triển khai 2026-11-14: /analytics/overview và /analytics/events là thống kê gộp cho trang Phân tích: ADMIN xem mọi sự kiện, ORGANIZER chỉ sự kiện của mình (bổ sung 2026-11-14). Thiết kế chi tiết tại docs/plans/analytics-service.md §8.
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
 tags:
 - name: Analytics
+- name: AdminAnalytics
+  description: 'Thống kê gộp (C10): ADMIN mọi sự kiện, ORGANIZER sự kiện của mình. Đã triển khai ở analytics-service 2026-11-14; cần Event INT-02 (/analytics/events) và INT-03 (phạm vi ORGANIZER).'
 paths:
+  /analytics/overview:
+    get:
+      tags:
+      - AdminAnalytics
+      operationId: getAnalyticsOverview
+      summary: Tổng quan doanh thu, vé bán và khán giả theo ngày/tháng
+      description: |-
+        C10. Không có eventId: ADMIN nhận tổng toàn hệ thống; ORGANIZER nhận tổng các sự kiện mình sở hữu (Analytics lấy danh sách qua Event INT-03 GET /internal/events/ids?organizerId=, organizerId lấy từ JWT); CUSTOMER 403. Có eventId: cùng quyền với /analytics/events/{id}/sales (ADMIN hoặc ORGANIZER owner, xác minh qua Event Service).
+        Kỳ báo cáo theo Asia/Ho_Chi_Minh: doanh thu/vé bán theo paidAt, hoàn tiền theo refundedAt (C09), khán giả theo attendance_state.checked_in_at (mỗi vé tính một lần).
+        series được điền đủ mọi kỳ từ from..to (kỳ không có số liệu trả 0). previousTotals là khoảng liền trước có cùng số ngày, dùng hiển thị % thay đổi.
+        ADMIN không có eventId thì không gọi Event Service. ORGANIZER chưa có sự kiện nào nhận series toàn 0.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/From'
+      - $ref: '#/components/parameters/To'
+      - name: granularity
+        in: query
+        required: true
+        description: DAY nhóm theo ngày (from..to tối đa 366 ngày); MONTH nhóm theo tháng dương lịch (tối đa 36 tháng).
+        schema:
+          $ref: '#/components/schemas/Granularity'
+      - name: eventId
+        in: query
+        required: false
+        description: Lọc một sự kiện; bỏ trống là toàn hệ thống.
+        schema:
+          type: string
+          format: uuid
+          minLength: 36
+          maxLength: 36
+      responses:
+        '200':
+          description: Số liệu tổng quan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsOverview'
+        '400':
+          description: VALIDATION_ERROR (thiếu from/to/granularity, sai định dạng), INVALID_DATE_RANGE (from sau to) hoặc DATE_RANGE_TOO_LARGE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: FORBIDDEN (CUSTOMER) hoặc FORBIDDEN_NOT_OWNER (eventId không thuộc ORGANIZER)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: EVENT_NOT_FOUND (chỉ khi có eventId)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: EVENT_SERVICE_UNAVAILABLE (khi có eventId, hoặc ORGANIZER cần lấy danh sách sự kiện của mình)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /analytics/events:
+    get:
+      tags:
+      - AdminAnalytics
+      operationId: listEventAnalytics
+      summary: Bảng thống kê theo từng sự kiện
+      description: |-
+        C10. ADMIN thấy mọi sự kiện; ORGANIZER chỉ thấy sự kiện mình sở hữu (phạm vi lấy qua Event INT-03); CUSTOMER 403. Liệt kê sự kiện có phát sinh doanh thu, hoàn tiền hoặc check-in trong from..to, sắp xếp và phân trang tại server rồi mới bổ sung metadata cho đúng trang đó:
+        title/status/startTime từ Event Service (GET /internal/events?ids=), capacity từ Ticket Service (GET /internal/ticket-types/capacity?eventIds=).
+        Event Service lỗi trả 503 (không trả tên giả). Ticket Service lỗi vẫn trả 200 với capacity=null.
+        validTicketsLifetime và attendeesLifetime không phụ thuộc from..to, dùng làm mẫu số tỉ lệ check-in để không vượt 100% khi vé bán trước khoảng lọc.
+        Phân trang theo quy ước chung (page từ 0, size mặc định 20, tối đa 100, JSON via-dto).
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/From'
+      - $ref: '#/components/parameters/To'
+      - name: sort
+        in: query
+        required: false
+        description: Trường sắp xếp giảm dần, tie-break theo eventId tăng dần. Mặc định netRevenue.
+        schema:
+          type: string
+          enum:
+          - netRevenue
+          - grossRevenue
+          - ticketsSold
+          - attendees
+          default: netRevenue
+      - name: page
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: size
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: Trang thống kê theo sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventAnalyticsPage'
+        '400':
+          description: VALIDATION_ERROR, INVALID_DATE_RANGE hoặc DATE_RANGE_TOO_LARGE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: FORBIDDEN (CUSTOMER)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: EVENT_SERVICE_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /analytics/events/{id}/sales:
     get:
       tags:
@@ -165,6 +301,22 @@ components:
         format: uuid
         minLength: 36
         maxLength: 36
+    From:
+      name: from
+      in: query
+      required: true
+      description: Ngày bắt đầu, bao gồm (yyyy-MM-dd, Asia/Ho_Chi_Minh)
+      schema:
+        type: string
+        format: date
+    To:
+      name: to
+      in: query
+      required: true
+      description: Ngày kết thúc, bao gồm (yyyy-MM-dd, Asia/Ho_Chi_Minh)
+      schema:
+        type: string
+        format: date
   responses:
     Unauthorized:
       description: Thiếu hoặc sai JWT
@@ -179,6 +331,182 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
   schemas:
+    Granularity:
+      type: string
+      enum:
+      - DAY
+      - MONTH
+    AnalyticsMetrics:
+      type: object
+      description: 'C10. grossRevenue/ticketsSold gộp theo paidAt; refundedAmount/ticketsRefunded theo refundedAt; netRevenue = grossRevenue - refundedAmount; attendees = số vé có checked_in_at trong khoảng (mỗi vé một lần, không trừ khi check-out).'
+      required:
+      - grossRevenue
+      - refundedAmount
+      - netRevenue
+      - ticketsSold
+      - ticketsRefunded
+      - attendees
+      properties:
+        grossRevenue:
+          type: number
+          multipleOf: 0.01
+        refundedAmount:
+          type: number
+          multipleOf: 0.01
+        netRevenue:
+          type: number
+          multipleOf: 0.01
+          description: Có thể âm trong một kỳ chỉ có hoàn tiền.
+        ticketsSold:
+          type: integer
+          minimum: 0
+        ticketsRefunded:
+          type: integer
+          minimum: 0
+        attendees:
+          type: integer
+          minimum: 0
+    AnalyticsSeriesPoint:
+      allOf:
+      - $ref: '#/components/schemas/AnalyticsMetrics'
+      - type: object
+        required:
+        - period
+        properties:
+          period:
+            type: string
+            description: yyyy-MM-dd khi DAY, yyyy-MM khi MONTH. Kỳ đầu/cuối của MONTH chỉ tính phần ngày nằm trong from..to.
+            example: '2026-11'
+    TicketTypeTotals:
+      type: object
+      description: Gom theo tên hạng snapshot trên mọi sự kiện (ticket_type_id khác nhau giữa các sự kiện). ticketsSold là vé hợp lệ = bán - hoàn trong khoảng.
+      required:
+      - ticketTypeName
+      - ticketsSold
+      - netRevenue
+      properties:
+        ticketTypeName:
+          type: string
+          enum:
+          - VIP
+          - PREMIUM
+          - STANDARD
+        ticketsSold:
+          type: integer
+        netRevenue:
+          type: number
+          multipleOf: 0.01
+    AnalyticsOverview:
+      type: object
+      required:
+      - from
+      - to
+      - granularity
+      - totals
+      - previousFrom
+      - previousTo
+      - previousTotals
+      - series
+      - byTicketType
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        granularity:
+          $ref: '#/components/schemas/Granularity'
+        eventId:
+          type: string
+          format: uuid
+          nullable: true
+        totals:
+          $ref: '#/components/schemas/AnalyticsMetrics'
+        previousFrom:
+          type: string
+          format: date
+        previousTo:
+          type: string
+          format: date
+        previousTotals:
+          $ref: '#/components/schemas/AnalyticsMetrics'
+        series:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalyticsSeriesPoint'
+        byTicketType:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketTypeTotals'
+    EventAnalyticsRow:
+      allOf:
+      - $ref: '#/components/schemas/AnalyticsMetrics'
+      - type: object
+        required:
+        - eventId
+        - title
+        - status
+        - startTime
+        - validTicketsLifetime
+        - attendeesLifetime
+        properties:
+          eventId:
+            type: string
+            format: uuid
+            minLength: 36
+            maxLength: 36
+          title:
+            type: string
+          status:
+            type: string
+            enum:
+            - DRAFT
+            - SUBMITTED
+            - APPROVED
+            - REJECTED
+            - PUBLISHED
+            - CLOSED
+          startTime:
+            type: string
+            format: date-time
+          capacity:
+            type: integer
+            nullable: true
+            description: Tổng total_quota các hạng của sự kiện; null khi Ticket Service không phản hồi.
+          validTicketsLifetime:
+            type: integer
+            description: dashboard_snapshot.total_tickets_sold - SUM(sales_metrics.tickets_refunded) toàn thời gian.
+          attendeesLifetime:
+            type: integer
+            description: dashboard_snapshot.total_checked_in.
+    EventAnalyticsPage:
+      type: object
+      required:
+      - content
+      - page
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventAnalyticsRow'
+        page:
+          type: object
+          required:
+          - size
+          - number
+          - totalElements
+          - totalPages
+          properties:
+            size:
+              type: integer
+            number:
+              type: integer
+            totalElements:
+              type: integer
+              format: int64
+            totalPages:
+              type: integer
     DailySales:
       type: object
       properties:

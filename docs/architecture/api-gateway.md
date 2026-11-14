@@ -203,7 +203,7 @@ Sau SUBSCRIBE thành công, frontend GET lại snapshot để hội tụ cập n
 | `/api/v1/ticket-types...`, `/api/v1/tickets...`, `/api/v1/gate/...` | Ticket | Thiết bị cổng cần identity riêng, chờ C07. |
 | `/api/v1/orders...`, `/api/v1/payments/webhook/{provider}`, `/api/v1/admin/refunds...` | Order | Webhook có cơ chế xác thực riêng. |
 | `/api/v1/notifications...`, `/api/v1/admin/notification-templates...` | Notification | Các route admin không cùng owner service. |
-| `/api/v1/analytics/events/{id}/...`, `/ws/dashboard` | Analytics | Tách REST và WS. |
+| `/api/v1/analytics/events/{id}/...`, `/api/v1/analytics/overview`, `/api/v1/analytics/events` (C10), `/ws/dashboard` | Analytics | Tách REST và WS. Hai path C10 cho ADMIN và ORGANIZER (Analytics giới hạn theo owner), khai báo cụ thể. |
 | `/internal/**`, `/api/v1/internal/**` | Không chuyển tiếp | Chỉ gọi trực tiếp trong mạng nội bộ với S2S. |
 
 Không route toàn bộ `/api/v1/admin/**` về một service. Không thêm `StripPrefix=2` nếu controller đã nhận `/api/v1/...`: các OpenAPI public dùng server URL có `/api/v1`, path bên dưới là phần còn lại. Giữ nguyên query `page`, `size`, `sort` và body/response theo contract.

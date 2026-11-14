@@ -465,6 +465,117 @@ paths:
     servers:
     - url: http://localhost:8082
       description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
+  /internal/events/ids:
+    get:
+      tags:
+      - Internal
+      operationId: getEventIdsByOrganizerInternal
+      summary: INT-03 Danh sách id Event của một organizer (đề xuất C10)
+      description: |
+        Đề xuất 2026-11-14, CHƯA triển khai ở Event Service (client phía Analytics đã có). Analytics gọi để giới hạn
+        thống kê gộp (/analytics/overview không có eventId, /analytics/events) vào đúng sự kiện ORGANIZER sở hữu.
+        organizerId do Analytics lấy từ JWT đã xác minh của người gọi, không nhận từ request public.
+        Trả id mọi status (kể cả DRAFT/CLOSED), không phân trang; organizer chưa có sự kiện trả mảng rỗng (200, không 404).
+        Path literal /internal/events/ids phải được ưu tiên hơn /internal/events/{id} khi map controller.
+      parameters:
+      - name: organizerId
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          minLength: 36
+          maxLength: 36
+      responses:
+        '200':
+          description: Id các Event của organizer
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+        '400':
+          description: VALIDATION_ERROR (thiếu hoặc sai UUID)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Service credential thiếu/không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Service không có quyền gọi operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - serviceAuth: []
+    servers:
+    - url: http://localhost:8082
+      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
+  /internal/events:
+    get:
+      tags:
+      - Internal
+      operationId: getEventsInternalBatch
+      summary: INT-02 Lấy nhiều Event theo danh sách id (đề xuất C10)
+      description: |
+        Đề xuất 2026-11-13, CHƯA triển khai ở Event Service (client phía Analytics đã có từ 2026-11-14). Analytics gọi để bổ sung title/status/startTime cho một trang
+        thống kê theo sự kiện (GET /api/v1/analytics/events), thay vì gọi INT-01 từng id.
+        Trả mọi status (kể cả DRAFT/CLOSED), chỉ gồm id tồn tại; id không tồn tại bị bỏ qua, không trả 404.
+        Thứ tự kết quả không đảm bảo, caller tự map theo id. Không trả mô tả/ảnh để giữ DTO tối thiểu.
+      parameters:
+      - name: ids
+        in: query
+        required: true
+        description: Danh sách UUID phân tách dấu phẩy, 1..100 phần tử, trùng lặp được gộp.
+        style: form
+        explode: false
+        schema:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Danh sách Event tìm thấy
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InternalEventResponse'
+        '400':
+          description: VALIDATION_ERROR (rỗng, quá 100 id hoặc sai UUID)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Service credential thiếu/không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Service không có quyền gọi operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - serviceAuth: []
+    servers:
+    - url: http://localhost:8082
+      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
 components:
   securitySchemes:
     bearerAuth:
