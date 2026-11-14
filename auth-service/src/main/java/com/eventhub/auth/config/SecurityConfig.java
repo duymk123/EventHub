@@ -39,6 +39,10 @@ public class SecurityConfig {
             // Cấu hình phân quyền truy cập API
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/health").permitAll()
+                // Đăng ký/đăng nhập/refresh/logout chưa có access token
+                .requestMatchers(org.springframework.http.HttpMethod.POST,
+                        "/api/v1/auth/register", "/api/v1/auth/login",
+                        "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
 
                 // Chỉ ADMIN được truy cập API quản trị
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")

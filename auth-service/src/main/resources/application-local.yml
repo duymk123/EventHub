@@ -1,0 +1,9 @@
+# Profile "local": chạy auth-service từ IDE/terminal, không cần Docker.
+# Bật bằng SPRING_PROFILES_ACTIVE=local (hoặc --spring.profiles.active=local).
+# - Database: MySQL cài trên máy (cổng 3306), tự tạo eventhub_auth nếu chưa có.
+# - Keycloak: chạy bằng infrastructure/keycloak/start-keycloak-local.ps1 (cổng 8180).
+spring:
+  datasource:
+    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_auth}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
+    username: "${DB_USERNAME:root}"
+    password: "${DB_PASSWORD:root}"

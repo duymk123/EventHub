@@ -90,7 +90,10 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.2
     container_name: eventhub-keycloak
-    command: start-dev
+    # --import-realm nạp realm eventhub từ file dùng chung với chế độ chạy local; realm đã tồn tại thì bỏ qua.
+    command: start-dev --import-realm
+    volumes:
+      - ./infrastructure/keycloak/eventhub-realm.json:/opt/keycloak/data/import/eventhub-realm.json:ro
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin_dev_password

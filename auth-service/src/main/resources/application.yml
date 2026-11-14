@@ -19,8 +19,17 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          # issuer-uri: "${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/eventhub}"
-          issuer-uri: http://localhost:8180/realms/eventhub
+          # Keycloak local (start-keycloak-local.ps1) và Docker đều mở cổng 8180, realm eventhub.
+          issuer-uri: "${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/eventhub}"
+
+eventhub:
+  keycloak:
+    # Auth Service gọi Keycloak (Admin API + token endpoint) bằng client confidential eventhub-auth-service.
+    # Secret dưới đây chỉ dành cho dev, khớp infrastructure/keycloak/eventhub-realm.json; môi trường thật đặt qua biến.
+    server-url: "${KEYCLOAK_SERVER_URL:http://localhost:8180}"
+    realm: "${KEYCLOAK_REALM:eventhub}"
+    client-id: "${KEYCLOAK_AUTH_CLIENT_ID:eventhub-auth-service}"
+    client-secret: "${KEYCLOAK_AUTH_CLIENT_SECRET:eventhub-auth-service-dev-secret}"
 
 server:
   port: "${SERVER_PORT:8081}"

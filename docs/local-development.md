@@ -24,6 +24,16 @@ Hai giao diện chỉ mở cổng trên loopback. Redis Insight có màn hình �
 
 File hạ tầng dùng cùng project/network/volume Kafka với `docker-compose.yml` hiện tại. Không thêm `--remove-orphans` khi chạy file này nếu project còn các container khác.
 
+## Keycloak không cần Docker
+
+Keycloak lo đăng ký, đăng nhập và phân quyền. Chạy trực tiếp trên Windows, lưu dữ liệu vào MySQL local (database `keycloak`), cổng 8180:
+
+~~~powershell
+powershell -ExecutionPolicy Bypass -File infrastructurekeycloakstart-keycloak-local.ps1 -DbPassword <mat-khau-root-mysql>
+~~~
+
+Chạy auth-service với profile `local` (MySQL local, `eventhub_auth` tự tạo). Tài khoản test, cách lấy token và cách sửa realm: [infrastructure/keycloak/README.md](../infrastructure/keycloak/README.md).
+
 ## Chạy API Gateway và 6 service bằng Shift+F10
 
 Cấu hình local nằm trực tiếp trong `src/main/resources/application.yml` của từng service; không cần profile `local` hoặc file YAML riêng. Bật MySQL trên máy với tài khoản `root`, mật khẩu `root`, chọn cấu hình chạy của service trong IntelliJ rồi nhấn Shift+F10.

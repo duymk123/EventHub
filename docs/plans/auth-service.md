@@ -75,3 +75,19 @@ ErrorCode dự kiến: EMAIL_ALREADY_EXISTS 409, INVALID_CREDENTIALS 401, ACCOUN
 4. Test tích hợp Keycloak trong môi trường test riêng khi có realm/client: subject UUID, role mapper, phiên hết hạn, disable/session revoke, email verification. Không dùng context test hiện có để kết luận integration đạt.
 
 Đã có thể code interfaces/DTO/client error mapping với fixture. Phần grant/key/realm/S2S và nguồn email C02 vẫn cần cấu hình đã hẹn; không đặt một quyết định mới thay chủ dự án trong plan.
+
+## Trạng thái triển khai (2026-11-14)
+
+Đã code phần facade xác thực, đúng hướng "UI/API riêng, Auth gọi Keycloak" ở trên:
+
+| Operation | Trạng thái |
+|---|---|
+| POST `/api/v1/auth/register` | Đã có. `KeycloakUserClient.createUser` (Admin API) → Keycloak gán CUSTOMER bằng role mặc định → tạo `user_profiles`. Lỗi tạo hồ sơ thì xóa user Keycloak (bù trừ). Kiểm tra trùng số điện thoại trước khi tạo user. |
+| POST `/api/v1/auth/login`, `/refresh`, `/logout` | Đã có. `KeycloakTokenClient` dùng client confidential `eventhub-auth-service` (password grant, refresh_token, logout endpoint). |
+| GET `/api/v1/auth/me` | Đã có. Keycloak (email, enabled, createdTimestamp, role hiệu lực) + `user_profiles.fullName`. |
+| change-password, admin lock/unlock/role | Chưa làm. |
+
+- Mã lỗi: `VALIDATION_ERROR`, `EMAIL_ALREADY_EXISTS`, `PHONE_ALREADY_EXISTS` (mới), `INVALID_CREDENTIALS`, `ACCOUNT_LOCKED`, `INVALID_REFRESH_TOKEN`, `REFRESH_TOKEN_EXPIRED`, `REFRESH_TOKEN_REUSED`, `USER_NOT_FOUND`, `AUTH_PROVIDER_UNAVAILABLE`.
+- Cấu hình: `eventhub.keycloak.server-url / realm / client-id / client-secret` (biến `KEYCLOAK_SERVER_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_AUTH_CLIENT_ID`, `KEYCLOAK_AUTH_CLIENT_SECRET`). Realm, client và quyền service account nằm trong [eventhub-realm.json](../../infrastructure/keycloak/eventhub-realm.json); cách chạy local và thử Postman: [infrastructure/keycloak/README.md](../../infrastructure/keycloak/README.md).
+- Token quản trị được cache tới 30 giây trước khi hết hạn; Admin API trả 401 thì xin token mới và thử lại một lần (Keycloak khởi động lại/đổi khóa ký).
+- Đã kiểm thử thủ công với Keycloak 26.8.2 + MySQL local: đăng ký (cả tên tiếng Việt), trùng email/số điện thoại, sai mật khẩu, đăng nhập, me, refresh, dùng lại refresh token cũ, logout, tài khoản bị khóa.

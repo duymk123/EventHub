@@ -15,3 +15,6 @@ out/
 .DS_Store
 Thumbs.db
 
+
+# Cong cu tai ve de chay local (vi du Keycloak native)
+.local/
