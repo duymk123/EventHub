@@ -48,7 +48,7 @@ Migration Flyway ở src/main/resources/db/migration/V<n>__description.sql. Noti
 
 **ID và dữ liệu:** UUID cho mọi PK/tham chiếu bảng EventHub, gồm gateId. Java UUID; JSON/OpenAPI string format uuid; MySQL CHAR(36). Không AUTO_INCREMENT, không nhận số thay UUID. Mã giao dịch/providerEventId bên ngoài là string của provider. UUID không phải QR; QR là token opaque.
 
-Tên cột snake_case, Java camelCase, enum lưu string. Tiền dùng BigDecimal; DDL tham chiếu dùng DECIMAL(14,2) thống nhất với migration Analytics, không dùng double. UTC Instant/TIMESTAMP; ngày báo cáo đề xuất Asia/Ho_Chi_Minh, còn C09 xác nhận nghiệp vụ. Không tự bổ sung phí/voucher/đa tiền tệ.
+Tên cột snake_case, Java camelCase, enum string. Tiền BigDecimal/DECIMAL(14,2), không double. UTC Instant/TIMESTAMP; ngày báo cáo Asia/Ho_Chi_Minh theo C09 đã xác nhận 2026-11-05. Không tự bổ sung phí/voucher/đa tiền tệ. C02 owner=buyer, snapshot buyer email đã xác minh, holderEmail thiếu fallback buyer; C03 text địa điểm chung cho email QR.
 
 **API:** OpenAPI trong docs/api là hợp đồng mục tiêu, không chứng minh endpoint đã tồn tại. Public /api/v1, internal /internal, admin /api/v1/admin; WS /ws/dashboard ngoại lệ có route riêng. Tạo mới 201, cập nhật không body 204, GET trả DTO hoặc page. Quy tắc ownership kiểm tra tại service. Giá/tổng tiền tính từ dữ liệu server.
 
@@ -67,7 +67,8 @@ Ghi outbox/delivery log cùng transaction nghiệp vụ, publish có retry và �
 - Ticket ISSUED → CHECKED_IN → CHECKED_OUT, ISSUED → CANCELLED. Không có tái nhập trong V2. CAS trạng thái và ghi ticket_scans cùng transaction, gateId UUID.
 - Order PENDING_PAYMENT → PAID|FAILED|EXPIRED, PAID → REFUNDED. order.paid chỉ publish sau confirm thành công; confirm retry phải tồn tại bền vững sau ACK webhook.
 - Webhook xác minh chữ ký; hash chỉ phát hiện payload thay đổi, không thay thế chữ ký. UNIQUE(provider,provider_event_id) cho chống trùng; hai payload khác nhau cùng key phải báo lỗi/đối soát.
-- Refund kiểm tra điều kiện ít nhất 48 giờ lúc yêu cầu và duyệt, vé chưa dùng. Các khoảng trống thanh toán muộn/hủy vé sau refund nằm ở C04–C06; không lấp bằng mặc định kinh doanh.
+- Refund khách cả đơn: 70% snapshot giá mua, giữ 30%, không thêm phí, ADMIN duyệt theo phương án giai đoạn đầu; mọi vé chưa dùng và >=48 giờ lúc yêu cầu/duyệt. C05 durable hold trước provider, verify UNKNOWN, commit sau success; không cung cấp vé sau thu tiền thì fence phát vé và bù 100% thực thu chưa hoàn. Xem [thiết kế phục hồi](docs/architecture/payment-refund-recovery.md); C06 provider để sau.
+- C08 cho quota 0 và cấu hình Ticket sau tạo Event; submit không đòi đủ ba hạng. Publish cần ít nhất một ACTIVE có total_quota > 0; reserve kiểm tra tồn kho/trạng thái hiện tại.
 
 ## 7. Hoàn thành một thay đổi
 

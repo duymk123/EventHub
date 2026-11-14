@@ -121,6 +121,8 @@ Chi tiết cấu hình và xử lý schema đã có dữ liệu: [Docker.md](Doc
 
 ### 4. Build backend locally
 
+Để chạy service bằng IntelliJ, dùng MySQL trên máy và chỉ chạy Kafka/Redis bằng Docker, xem [hướng dẫn phát triển local](docs/local-development.md).
+
 PowerShell, chạy tại root repository:
 
 ```powershell
@@ -225,6 +227,10 @@ Trong từng service, `entity` chỉ chứa entity/mapped superclass; enum nằm
 | **Document** | **Content** |
 |---|---|
 | [Kế hoạch sáu service](docs/plans/README.md) | Hàm service/repository, DTO, transaction và trình tự triển khai |
+| [API Gateway từ đầu](docs/architecture/api-gateway.md) | Khái niệm, vai trò, luồng REST/JWT, mua vé/webhook và WebSocket |
+| [Kế hoạch API Gateway](docs/plans/api-gateway.md) | Bảng route, phân quyền, filter, lỗi, cấu hình và checklist triển khai |
+| [Chạy Notification và Analytics](docs/notification-analytics-implementation.md) | Identity/S2S, consumer, email/QR, số liệu, schema V2 và WebSocket |
+| [Đọc code Notification và Analytics](docs/notification-analytics-code-reading.md) | Thứ tự mở file/hàm, luồng message, chú thích transaction, security và WebSocket |
 | [Quy ước kiến trúc/code](SKILL.md) | Phân lớp, dữ liệu, bảo mật và messaging |
 | [Code templates](code-templates.md) | Entity/UUID, BaseEntity tùy schema, mapper, controller, producer/consumer |
 | [Database và ERD](docs/database/README.md) | Schema tham chiếu, UUID và sơ đồ từng service |

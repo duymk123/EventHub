@@ -1,5 +1,7 @@
 # Plan code notification-service
 
+Cập nhật 2026-11-05: code có REST security, ba consumer, batch/lease và email buyer. C02 mới yêu cầu gom EMAIL theo holderEmail/fallback buyer snapshot, một IN_APP buyer; C03 text địa điểm chung dự kiến EVENTHUB_VENUE_TEXT cần snapshot khi tạo batch. Hai thay đổi này cần triển khai, không coi code buyer-only đã đáp ứng. Schema V2 đã có; xem [hướng dẫn chạy và khoảng cách với quyết định mới](../notification-analytics-implementation.md).
+
 Ngày 2026-10-28. Đọc [plan chung](00-cross-service-contracts.md), [OpenAPI](../api/notification-service-openapi.yaml), [DDL/V1](../database/notification-service/init.sql), [ERD](../database/notification-service/erd.md), [payload Kafka](../kafka/events.md). Hiện có Application, Kafka/mail config và migration nền; chưa có delivery/API nghiệp vụ.
 
 ## 1. Entity và migration
@@ -10,13 +12,13 @@ V1: NotificationTemplate(id UUID, code, channel, subject, bodyTemplate, updatedA
 
 Chỉ EMAIL/IN_APP giai đoạn này. Template UNIQUE(code,channel), không dùng code làm PK. IN_APP phải có recipientUserId và title/content đã render; EMAIL phải có recipientEmail được quyết định ở C02. Payload có thể chứa QR/email nên không trả vào REST in-app và không log.
 
-**V2 đề xuất khi triển khai delivery:** notification_batches(id=messageId UUID, expectedCount, targetFingerprint, status, createdAt) và các cột leaseToken UUID/leaseUntil của notifications. Không sửa V1 đã áp dụng. Batch tạo toàn bộ targets một transaction để worker không đánh processed trước khi target cuối được tạo. Template seed TICKET_ISSUED/ORDER_FAILED/ORDER_REFUNDED cho EMAIL/IN_APP đi migration riêng với UUID cố định, không dữ liệu người thật.
+**V2 đã triển khai delivery:** notification_batches(id=messageId UUID, expectedCount, targetFingerprint, status, createdAt) và các cột leaseToken UUID/leaseUntil của notifications. Không sửa V1 đã áp dụng. Batch tạo toàn bộ targets một transaction để worker không đánh processed trước khi target cuối được tạo. Template seed TICKET_ISSUED/ORDER_FAILED/ORDER_REFUNDED cho EMAIL/IN_APP đi migration riêng với UUID cố định, không dữ liệu người thật.
 
 ## 2. Service API/query
 
 | Interface / signature | Hành vi |
 |---|---|
-| `NotificationService.getMine(Actor actor, boolean unreadOnly, Pageable page): PageResponse<NotificationResponse>` | Chỉ IN_APP của Principal; read-only, sort createdAt/id giảm dần. Không trả delivery EMAIL hoặc payload/QR. |
+| `NotificationService.getMine(Actor actor, boolean unreadOnly, Pageable pageable): Page<NotificationResponse>` | Chỉ IN_APP của Principal; read-only, sort mặc định createdAt/id giảm dần qua @PageableDefault. Truyền Pageable tới repository, map bằng Page.map; JSON content/page theo via-dto. Không trả delivery EMAIL hoặc payload/QR. |
 | `markRead(Actor actor, UUID notificationId): void` | UPDATE id+recipientUserId+IN_APP WHERE read_at IS NULL. Đã đọc vẫn 204, không đổi mốc đầu. Không tồn tại/thuộc người khác/EMAIL đều 404. |
 | `countUnread(Actor actor): UnreadCountResponse` | COUNT theo user+IN_APP+read_at NULL, cùng semantics GET page. |
 | `TemplateService.upsert(Actor admin, String code, TemplateRequest request): TemplateResponse` | ADMIN, code pattern/max length, channel EMAIL/IN_APP; upsert (code,channel), giữ id khi cập nhật, render kiểm tra cú pháp. Transaction ghi ngắn. |
@@ -31,7 +33,7 @@ Upsert khi hai request cùng code/channel: UNIQUE chặn insert trùng; đọc l
 
 | Interface / signature | Logic / transaction |
 |---|---|
-| `NotificationProcessingService.handleTicketIssued(TicketIssuedEvent event): void` | Validate envelope/tickets → RecipientResolver → model QR/event snapshot → prepareBatch → gửi targets → hoàn batch. Source email/owner và venue phụ thuộc C02/C03. |
+| `NotificationProcessingService.handleTicketIssued(TicketIssuedEvent event): void` | Validate envelope/tickets; C02 owner=buyer, từng vé ưu tiên holderEmail/fallback buyer, gom theo địa chỉ. C03 snapshot text địa điểm cấu hình chung khi tạo batch; số EMAIL thay đổi và một IN_APP buyer. Cần mở rộng batch hiện hai target cố định. |
 | `handleOrderFailed(OrderFailedEvent event): void` | Validate reason PAYMENT_FAILED/EXPIRED, customer identity/email snapshot; chọn ORDER_FAILED, một EMAIL/IN_APP theo policy recipient. Không tự lookup bằng quyền admin chưa cấp. |
 | `handleOrderRefunded(OrderRefundedEvent event): void` | Tương tự ORDER_REFUNDED, amount/currency snapshot; không consume ticket.cancelled để gửi thêm thư cùng refund. |
 | `NotificationBatchService.prepareBatch(NotificationCommand command): BatchWork` | Một transaction: claim/đọc batch, so fingerprint, tạo toàn bộ Notification snapshots/dedup keys. Cùng messageId khác targets/payload phải báo conflict, không im lặng thay recipient. |
@@ -40,7 +42,7 @@ Upsert khi hai request cùng code/channel: UNIQUE chặn insert trùng; đọc l
 | `markSent(UUID id, UUID leaseToken, Instant at): boolean` | UPDATE đúng id+leaseToken, lưu sentAt và bỏ lease. Worker mất lease không ghi đè kết quả worker mới. |
 | `markFailed(UUID id, UUID leaseToken, String safeError): boolean` | Ghi FAILED/error đã lọc và bỏ lease; không ghi token/QR/email nguyên văn vào lỗi. |
 | `NotificationBatchService.completeIfAllSent(UUID messageId): boolean` | Một transaction: batch đã materialize, count target khớp expectedCount và tất cả SENT → ghi processed_events + COMPLETE. Chưa đủ thì false, không processed trong finally. |
-| `RecipientResolver.resolve(NotificationEvent event): List<NotificationTarget>` | Pure mapping theo C02; gom theo địa chỉ người nhận và owner, normalization nhất quán cho dedup. Không âm thầm bỏ target email NULL trước khi có fallback được chốt. |
+| `RecipientResolver.resolve(NotificationEvent event): List<NotificationTarget>` | C02: holderEmail hợp lệ thì nhận QR vé của mình, thiếu fallback buyer email đã xác minh/snapshot. Gom địa chỉ, không suy user holder qua email; một IN_APP buyer. Tập target/fingerprint phải ổn định khi replay. |
 | `TemplateRenderer.render(TemplateSnapshot template, Map<String,Object> model): RenderedMessage` | Mustache escape mặc định; không eval expression, không chèn raw HTML từ dữ liệu người dùng. Subject/body render một lần khi tạo notification. |
 | `QrCodeGenerator.generatePng(String qrCodeValue, int size): byte[]` | ZXing QRCodeWriter; không sinh token QR mới, PNG lấy từ opaque token Ticket đã cấp. |
 | `EmailSender.send(EmailMessage message): SendReceipt` | JavaMailSender/MimeMessageHelper, HTML + InlineImage cid; có SMTP timeout, receipt không chứng minh người dùng đã đọc. |
@@ -92,4 +94,4 @@ Nếu target đang được worker khác lease, không coi message đã xong; re
 3. V2 batch/lease và dịch vụ transaction ngắn; test hai worker cùng message/target, lặp SENT skip, target thất bại không gửi lại target đã SENT, lease stale không overwrite.
 4. Kafka/DLQ + Testcontainers MySQL/Kafka, malformed payload, SMTP timeout, DLQ publish fail, replay giữ messageId. Không viết test khẳng định một crash luôn không gửi trùng email.
 
-ErrorCode API: NOTIFICATION_NOT_FOUND/TEMPLATE_NOT_FOUND 404, FORBIDDEN 403, VALIDATION_ERROR 400; lỗi delivery phân loại retry riêng, không expose toàn bộ SMTP exception. C02/C03 chặn phần dựng target/email đầy đủ, không chặn in-app CRUD/template và bộ khung delivery bằng fixture được ghi rõ.
+ErrorCode API: NOTIFICATION_NOT_FOUND/TEMPLATE_NOT_FOUND 404, FORBIDDEN 403, VALIDATION_ERROR 400; delivery phân loại retry riêng. C02/C03 đã chốt chính sách, còn nguồn snapshot, multi-target và text thật cần triển khai/cấu hình. payment.compensated là bổ sung dự kiến cho nhánh C05 sau provider C06, chưa có consumer/template.

@@ -1,36 +1,53 @@
 spring:
   application:
     name: notification-service
+  data:
+    # Controller nhận Pageable, frontend nhận Page DTO gồm content và metadata phân trang.
+    web:
+      pageable:
+        default-page-size: 20
+        max-page-size: 100
+        serialization-mode: via-dto
   datasource:
-    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_notification}?serverTimezone=UTC}"
-    username: "${DB_USERNAME:eventhub}"
-    password: "${DB_PASSWORD}"
+    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_notification}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
+    username: "${DB_USERNAME:root}"
+    password: "${DB_PASSWORD:root}"
   jpa:
     hibernate:
-      ddl-auto: validate
+      # Chế độ local đang dùng entity để cập nhật schema.
+      ddl-auto: update
     open-in-view: false
     properties:
+      hibernate.jdbc.time_zone: UTC
       hibernate.type.preferred_uuid_jdbc_type: CHAR
   flyway:
-    enabled: true
+    # Với môi trường do Flyway quản lý, bật biến SPRING_FLYWAY_ENABLED và dùng ddl-auto=validate.
+    enabled: false
     locations: classpath:db/migration
     baseline-on-migrate: false
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
     consumer:
+      # Group đọc độc lập với Analytics, kể cả khi cùng nhận order.refunded.
       group-id: notification-service
       auto-offset-reset: earliest
+      # Spring listener container quyết định lúc commit offset sau xử lý/recover.
       enable-auto-commit: false
+      max-poll-records: 1
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     producer:
+      # KafkaTemplate trong KafkaConfig dùng producer này để phát record lỗi sang notification.dlq.
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
     listener:
+      # Mỗi record xử lý xong sẽ được container commit theo chính sách ack và error handler.
       ack-mode: record
       concurrency: 3
       missing-topics-fatal: true
   mail:
+    # JavaMailSender dùng SMTP ở đây, các timeout tránh chờ mạng vô hạn.
     host: ${MAIL_HOST:localhost}
     port: ${MAIL_PORT:1025}
     username: ${MAIL_USERNAME:}
@@ -44,3 +61,14 @@ spring:
 
 server:
   port: "${SERVER_PORT:8085}"
+
+eventhub:
+  security:
+    # Điền theo Keycloak của nhóm, role-claim là đường dẫn claim, ví dụ realm_access.roles.
+    issuer: ${KEYCLOAK_ISSUER:}
+    audience: ${EVENTHUB_JWT_AUDIENCE:}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:}
+    role-claim: ${EVENTHUB_ROLE_CLAIM:}
+    algorithm: ${EVENTHUB_JWT_ALGORITHM:RS256}
+  notification:
+    mail-from: ${MAIL_FROM:noreply@eventhub.local}

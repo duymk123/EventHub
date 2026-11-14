@@ -6,9 +6,9 @@ Ngày 2026-10-28. Nguồn: [quy ước chung](00-cross-service-contracts.md), [O
 
 Tạo `entity/Category, Event`, enum `common/EventStatus`; `EventRepository, CategoryRepository`; `EventService, CategoryService` cùng `impl`; controller Event/OrganizerEvent/AdminEvent/Category/InternalEvent; mapper, exception, security và config. Entity chỉ chứa entity/mapped superclass, không chứa enum.
 
-ID/organizerId/categoryId đều UUID, local Category association ánh xạ FK `events.category_id`; organizerId là ID mềm Keycloak/Auth. Event có title/description/status/startTime/endTime/createdAt/updatedAt/reviewReason theo DDL; không tự thêm venue trước C03. reviewReason là bổ sung kỹ thuật đã có reference DDL, map API rejectReason cho kết quả từ chối phù hợp.
+ID/organizerId/categoryId đều UUID, local Category association ánh xạ FK `events.category_id`; organizerId là ID mềm Keycloak/Auth. Event có title/description/status/startTime/endTime/createdAt/updatedAt/reviewReason theo DDL; C03 dùng text địa điểm chung tại Notification, chưa cần venue trong Event. reviewReason map API rejectReason khi từ chối.
 
-Request: EventRequest, ReviewRequest, CategoryRequest. Response: EventResponse (category object CategoryRef), EventSummary, EventStatusResponse, CategoryResponse, InternalEventResponse, PageResponse. Internal response gồm id/organizerId/title/status/startTime/endTime đúng API. Các command `EventSearch`/`OrganizerEventFilter` chỉ là DTO query, không Entity.
+Request: EventRequest, ReviewRequest, CategoryRequest. Response: EventResponse (category object CategoryRef), EventSummary, EventStatusResponse, CategoryResponse, InternalEventResponse. Phân trang nhận Pageable và trả Page<ResponseDTO> theo quy ước chung, không tạo DTO bọc trang riêng. Internal response gồm id/organizerId/title/status/startTime/endTime đúng API. Các command `EventSearch`/`OrganizerEventFilter` chỉ là DTO query, không Entity.
 
 ## 2. EventService
 
@@ -16,13 +16,13 @@ Request: EventRequest, ReviewRequest, CategoryRequest. Response: EventResponse (
 |---|---|
 | `create(Actor organizer, EventRequest request): EventResponse` | ORGANIZER, category tồn tại, startTime < endTime → DRAFT; organizerId từ Principal. Ghi một transaction, không tạo loại vé cùng DB. |
 | `update(Actor organizer, UUID eventId, EventRequest request): EventResponse` | Lock event, owner, chỉ DRAFT/REJECTED; sửa REJECTED → DRAFT, xóa lý do review cũ khi resubmit vòng mới; cập nhật field cho phép. |
-| `submit(Actor organizer, UUID eventId): EventStatusResponse` | Lock/CAS DRAFT → SUBMITTED, owner. Điều kiện đủ hạng/quota trước submit chờ C08; không tự thêm lỗi bắt buộc chưa duyệt. |
+| `submit(Actor organizer, UUID eventId): EventStatusResponse` | Lock/CAS DRAFT → SUBMITTED, owner. C08 cho cấu hình Ticket sau tạo Event; submit không đòi đủ ba hạng hoặc quota dương. |
 | `review(Actor admin, UUID eventId, ReviewRequest request): EventStatusResponse` | ADMIN, lock SUBMITTED → APPROVED/REJECTED; reason bắt buộc khi REJECT; lưu review_reason/update time cùng transaction. |
-| `publish(Actor organizer, UUID eventId): EventStatusResponse` | Owner, APPROVED → PUBLISHED. Nếu C08 yêu cầu cấu hình Ticket, gọi client trước transaction và recheck/CAS khi ghi; cần quy tắc chịu thay đổi cấu hình đồng thời. |
+| `publish(Actor organizer, UUID eventId): EventStatusResponse` | Owner, APPROVED → PUBLISHED; thời gian hợp lệ, ít nhất một hạng ACTIVE có total_quota > 0 theo C08. Gọi Ticket trước transaction, lỗi phụ thuộc 503, chưa đủ cấu hình 409 TICKET_CONFIGURATION_NOT_READY; recheck/CAS khi ghi. Đây là preflight, reserve vẫn kiểm tra tồn kho hiện tại, không buộc cả ba hạng dương. |
 | `close(Actor organizer, UUID eventId): EventStatusResponse` | Owner, PUBLISHED → CLOSED; nghĩa ngừng bán, không cancel vé hay cấm check-in. |
-| `searchPublic(EventSearch filter, Pageable pageable): PageResponse<EventSummary>` | Chỉ PUBLISHED, keyword/category/startDate/endDate, sort ổn định; read-only. Validate date range; normalize keyword, không ghép SQL từ input. |
+| `searchPublic(EventSearch filter, Pageable pageable): Page<EventSummary>` | Chỉ PUBLISHED, keyword/category/startDate/endDate, sort ổn định; read-only. Validate date range; normalize keyword, không ghép SQL từ input. |
 | `getPublic(UUID eventId): EventResponse` | Query id+PUBLISHED, không có trả 404; không tự gom Ticket DB. |
-| `getMine(Actor organizer, OrganizerEventFilter filter, Pageable pageable): PageResponse<EventResponse>` | Query organizerId=Principal, filter status nếu có theo API, read-only. |
+| `getMine(Actor organizer, OrganizerEventFilter filter, Pageable pageable): Page<EventResponse>` | Query organizerId=Principal, filter status nếu có theo API, read-only. |
 | `getInternal(ServiceActor caller, UUID eventId): InternalEventResponse` | Service được cấp quyền, trả mọi status cho kiểm tra owner/giờ/sales; không public, 404 nếu không tồn tại. |
 
 Chọn một cách nhất quán cho máy trạng thái: `findByIdForUpdate` kiểm tra rồi mutate/save cùng transaction, hoặc CAS có điều kiện trạng thái/owner. Không đọc entity ngoài transaction rồi save toàn bộ vì có thể ghi đè review/close của worker khác. Với network ở publish, không giữ khóa Event trong lúc chờ Ticket.
@@ -76,12 +76,12 @@ Chốt cách chuẩn hóa/collation tên với UNIQUE của MySQL: không dựa 
 | PUT/DELETE `/api/v1/categories/{id}` | CategoryService.update/deleteUnused |
 | GET `/internal/events/{id}` | getInternal |
 
-Nếu C08 yêu cầu Event kiểm tra Ticket trước submit/publish, thêm `TicketConfigurationClient.getConfiguration(UUID): TicketConfigurationResponse` và OpenAPI nội bộ theo [plan chung](00-cross-service-contracts.md). Không giả endpoint này đã có.
+C08 yêu cầu kiểm tra Ticket trước publish, không trước submit. Bổ sung `TicketConfigurationClient.getConfiguration(UUID): TicketConfigurationResponse` và OpenAPI nội bộ theo [plan chung](00-cross-service-contracts.md); chưa coi endpoint này đã có.
 
 ## 6. Migration, lỗi và kiểm tra
 
 Event chưa có Flyway/entity: tạo migration đầu tiên dựa DDL tham chiếu, đổi ddl-auto validate cùng thay đổi triển khai, dùng UUID CHAR(36) và các index hiện có. Với DB đã có bảng dùng mapping cũ phải kiểm tra/baseline có kiểm soát; không bật tự động để che khác schema.
 
-ErrorCode: EVENT_NOT_FOUND/CATEGORY_NOT_FOUND 404, FORBIDDEN_NOT_OWNER/FORBIDDEN 403, INVALID_EVENT_STATE/CATEGORY_ALREADY_EXISTS/CATEGORY_IN_USE 409, INVALID_DATE_RANGE/VALIDATION_ERROR 400, TICKET_SERVICE_UNAVAILABLE 503 nếu C08 cần client.
+ErrorCode: EVENT_NOT_FOUND/CATEGORY_NOT_FOUND 404, FORBIDDEN_NOT_OWNER/FORBIDDEN 403, INVALID_EVENT_STATE/CATEGORY_ALREADY_EXISTS/CATEGORY_IN_USE/TICKET_CONFIGURATION_NOT_READY 409, INVALID_DATE_RANGE/VALIDATION_ERROR 400, TICKET_SERVICE_UNAVAILABLE 503 cho preflight C08.
 
 Test cần có: role+owner; DRAFT→SUBMITTED→APPROVED→PUBLISHED→CLOSED; REJECTED edit→DRAFT; hai review/edit đồng thời chỉ một trạng thái hợp lệ; public không thấy draft/closed; internal vẫn đọc được; filter ngày/page ổn định; xóa category đua create Event bị FK chặn; schema UUID cột organizer/category. Unit service + WebMvcTest, MySQL Testcontainers cho lock/FK/unique. C03/C08 chỉ chặn nhánh phụ thuộc, không chặn toàn bộ Category/Event core.

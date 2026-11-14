@@ -2,36 +2,63 @@ spring:
   application:
     name: analytics-service
   datasource:
-    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_analytics}?serverTimezone=UTC}"
-    username: "${DB_USERNAME:eventhub}"
-    password: "${DB_PASSWORD}"
+    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_analytics}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
+    username: "${DB_USERNAME:root}"
+    password: "${DB_PASSWORD:root}"
   jpa:
     hibernate:
-      ddl-auto: validate
+      # Chế độ local cập nhật schema từ entity, trong đó có attendance_state.
+      ddl-auto: update
     open-in-view: false
     properties:
+      hibernate.jdbc.time_zone: UTC
       hibernate.type.preferred_uuid_jdbc_type: CHAR
   flyway:
-    enabled: true
+    # Môi trường dùng migration bật SPRING_FLYWAY_ENABLED và đổi ddl-auto thành validate.
+    enabled: false
     locations: classpath:db/migration
     baseline-on-migrate: false
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
     consumer:
+      # Analytics giữ offset riêng với Notification khi đọc chung topic order.refunded.
       group-id: analytics-service
       auto-offset-reset: earliest
+      # Listener container quản lý commit offset sau khi handler hoặc recoverer hoàn tất.
       enable-auto-commit: false
+      max-poll-records: 10
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     producer:
+      # Producer phục vụ KafkaTemplate trong nhánh gửi record lỗi vào analytics.dlq.
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
     listener:
       ack-mode: record
       concurrency: 3
       missing-topics-fatal: true
 
 eventhub:
+  security:
+    # JWT người dùng được xác minh và chuyển thành Actor trước khi truy vấn báo cáo.
+    issuer: ${KEYCLOAK_ISSUER:}
+    audience: ${EVENTHUB_JWT_AUDIENCE:}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:}
+    role-claim: ${EVENTHUB_ROLE_CLAIM:}
+    algorithm: ${EVENTHUB_JWT_ALGORITHM:RS256}
+  s2s:
+    # Credential riêng của Analytics để gọi GET /internal/events/{id}.
+    token-uri: ${KEYCLOAK_SERVICE_TOKEN_URI:}
+    client-id: ${ANALYTICS_SERVICE_CLIENT_ID:}
+    client-secret: ${ANALYTICS_SERVICE_CLIENT_SECRET:}
+    scope: ${ANALYTICS_SERVICE_SCOPE:}
+  analytics:
+    # paidAt/refundedAt UTC được đổi sang ngày Việt Nam trước khi ghi metric_date.
+    reporting-zone: Asia/Ho_Chi_Minh
+  websocket:
+    # Danh sách Origin frontend, phân cách bằng dấu phẩy, dùng khi mở WebSocket.
+    allowed-origins: ${DASHBOARD_ALLOWED_ORIGINS:}
   event-service:
     url: ${EVENT_SERVICE_URL:http://localhost:8082}
 

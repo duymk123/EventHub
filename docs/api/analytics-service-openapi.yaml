@@ -3,10 +3,10 @@ info:
   title: EventHub - Analytics Service API
   version: 2.0.0-draft
   description: |-
-    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Mã nguồn hiện là scaffold, chưa có endpoint nghiệp vụ.
+    Hợp đồng đối chiếu BC_32_V2, REST/Kafka/WebSocket đã triển khai ngày 2026-11-05, còn cấu hình identity và tích hợp producer của nhóm.
     UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
     Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
-    ADMIN hoặc ORGANIZER sở hữu sự kiện; kiểm tra Event Service trước khi trả dữ liệu, kể cả trường hợp chưa có projection. snapshot/API chỉ số gộp/thuần và ngày refund còn C09 (đề xuất bên dưới), không coi đã chốt nghiệp vụ. Không cộng ticket.issued lần hai.
+    ADMIN hoặc ORGANIZER sở hữu sự kiện, kiểm tra Event Service trước khi trả dữ liệu. Dashboard tổng gộp toàn sự kiện, sales report tách gộp/hoàn/thuần theo ngày Việt Nam. Doanh số nhận từ order.paid.
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
@@ -19,7 +19,7 @@ paths:
       - Analytics
       operationId: getSalesReport
       summary: Báo cáo doanh số theo khoảng thời gian
-      description: ADMIN hoặc ORGANIZER owner, xác minh sự kiện qua /internal/events/{id}. Sự kiện tồn tại chưa có projection trả 0; sự kiện không tồn tại 404, Event Service lỗi 503. from > to trả 400. Quy tắc ngày, refund và giá trị gộp/thuần là đề xuất C09 trong SalesReport.
+      description: ADMIN hoặc ORGANIZER owner, xác minh sự kiện qua /internal/events/{id}. Sự kiện tồn tại chưa có projection trả 0; sự kiện không tồn tại 404, Event Service lỗi 503. from > to trả 400. Ngày theo Asia/Ho_Chi_Minh từ paidAt/refundedAt, công thức trong SalesReport.
       security:
       - bearerAuth: []
       parameters:
@@ -239,7 +239,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TicketTypeSales'
-      description: 'Đề xuất C09: revenue/ticketsSold gộp, refund ghi ngày refundedAt, netRevenue = revenue - refundedAmount, ngày Asia/Ho_Chi_Minh. Thiếu from/to thì không giới hạn đầu tương ứng; trả nullable from/to phản ánh request.'
+      description: 'Xác nhận 2026-11-05. revenue/ticketsSold gộp, refund ghi ngày refundedAt, netRevenue = revenue - refundedAmount, ngày Asia/Ho_Chi_Minh. Thiếu from/to thì không giới hạn đầu tương ứng; trả nullable from/to phản ánh request.'
     Attendance:
       type: object
       properties:
@@ -260,7 +260,7 @@ components:
       description: 'Theo luồng V2 không tái nhập: tổng số vé từng check-in thành công, không đếm retry. currentAttendance đếm vé đã vào chưa ra; projection phải chịu đảo thứ tự Kafka.'
     DashboardSnapshot:
       type: object
-      description: 'Payload WS và GET ban đầu. Đề xuất C09: totalRevenue/totalTicketsSold là thuần sau refund (khác báo cáo sales gộp). Chưa chốt C09 nên chưa triển khai công thức snapshot. Khi chưa có dữ liệu trả 0 và updatedAt=null.'
+      description: 'Payload WS và GET ban đầu. totalRevenue/totalTicketsSold là tổng gộp toàn sự kiện theo xác nhận 2026-11-05. Báo cáo sales hiển thị riêng hoàn tiền và số thuần. Khi chưa có dữ liệu trả 0 và updatedAt=null sau khi xác minh sự kiện.'
       properties:
         eventId:
           type: string
@@ -272,7 +272,7 @@ components:
           multipleOf: 0.01
         totalTicketsSold:
           type: integer
-          description: Ý nghĩa thuần/gộp còn C09. Nếu thiết kế cộng/trừ chịu đảo topic, không clamp mất điều chỉnh; trạng thái tạm thời chưa đủ message cần xử lý nhất quán khi triển khai.
+          description: Tổng số vé đã bán của toàn sự kiện, giữ nguyên khi hoàn tiền.
         currentAttendance:
           type: integer
           minimum: 0
@@ -332,7 +332,7 @@ components:
           type: integer
           minimum: 0
 x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
-x-implementation-status: scaffold-only
+x-implementation-status: implemented-pending-team-identity-and-producer-integration
 x-open-decisions: ../project-clarifications.md
 x-websocket:
   endpoint: /ws/dashboard
@@ -340,4 +340,4 @@ x-websocket:
   destination: /topic/event/{eventId}/dashboard
   protocol: STOMP
   authentication: JWT Keycloak trong CONNECT; kiểm tra expiry khi thao tác và giới hạn tuổi session; role/owner khi SUBSCRIBE; cấm client SEND tới topic server
-  status: technical-contract-proposed; issuer/roles pending; endpoint theo Hình 2.81
+  status: implemented-pending-team-identity-and-gateway-integration

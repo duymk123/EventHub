@@ -2,6 +2,8 @@
 
 Đọc [quyết định đã đối chiếu BC_32_V2](source-decisions.md) trước. Đây là thiết kế mục tiêu; repo chưa có code nghiệp vụ. Những nhánh chưa đủ yêu cầu nằm ở [C01–C09](../project-clarifications.md).
 
+API Gateway có [tài liệu nhập môn và luồng request](api-gateway.md) cùng [plan triển khai riêng](../plans/api-gateway.md): routing, JWT/CORS, REST nội bộ, webhook và WebSocket.
+
 ## Ai giữ dữ liệu nào?
 
 ```mermaid
@@ -18,7 +20,7 @@ flowchart LR
     AU[Auth facade: UI/API tài khoản riêng]
     GW --> AU
     AU -->|đăng nhập và quản lý identity| KC
-    KC -->|access token| GW
+    GW -.->|discovery / JWK để xác minh token| KC
     GW --> E
     GW --> T
     GW --> O
@@ -28,7 +30,7 @@ flowchart LR
     T -->|REST đọc sự kiện| E
     A -->|REST kiểm tra owner| E
     O --> P
-    P -->|webhook xác minh chữ ký| O
+    P -->|webhook qua Gateway, Order xác minh chữ ký| GW
     O --> K
     T --> K
     K --> N
@@ -61,7 +63,7 @@ orders.reservation_id và reservations.order_id chỉ là UUID mềm giữa hai 
 4. Order gọi REST confirm. Ticket tạo vé/QR trong transaction rồi đưa ticket.issued vào outbox.
 5. Sau confirm thành công, Order ghi order.paid để Analytics tính doanh số. Notification nhận ticket.issued để gửi vé. Không phát vé thêm bằng consumer order.paid.
 
-Lỗi tạm thời cần job retry bền vững. Nếu reservation đã hết hạn dù tiền đã thu, hoặc provider đã hoàn tiền nhưng Ticket không thể hủy, đó là nhánh còn cần quy tắc C05/C06; không chỉ retry vô hạn.
+Lỗi tạm thời có job retry bền vững. C05 đã chọn: timeout confirm phải query/retry cùng ID; nếu chắc chắn không phát được vé thì fence phát vé và hoàn bù 100% thực thu chưa hoàn. Refund khách là 70% cả đơn, Ticket giữ quyền hủy trước provider; commit hủy sau success. Kết quả tiền UNKNOWN phải verify, không mở hold hoặc gửi lệnh mới bằng key khác. [Thiết kế chi tiết và đối soát](payment-refund-recovery.md); provider C06 để sau.
 
 ## Báo cáo không phải database gốc
 

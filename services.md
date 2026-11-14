@@ -4,7 +4,11 @@ Cập nhật 2026-10-27. Đây là thiết kế mục tiêu, mã nguồn hiện 
 
 Kế hoạch triển khai chi tiết ngày 2026-10-28: [docs/plans](docs/plans/README.md), gồm từng hàm service/repository, API, transaction, worker, migration và test cho cả sáu service.
 
+Bổ sung 2026-10-31: [plan API Gateway](docs/plans/api-gateway.md) và [tài liệu nhập môn có sơ đồ luồng](docs/architecture/api-gateway.md). Gateway hiện vẫn là scaffold, chưa có route/security.
+
 Public API có prefix /api/v1 ở server URL OpenAPI; /internal/** là đường trực tiếp service, WS /ws/dashboard là ngoại lệ có route Gateway riêng. UUID cho mọi PK/tham chiếu bảng. Không FK/JOIN xuyên DB.
+
+API có phân trang dùng `Pageable` (query `page`, `size`, `sort`) và trả `Page<ResponseDTO>`. Page từ 0, size mặc định 20/tối đa 100; JSON gồm `content` và `page` (size, number, totalElements, totalPages) theo cấu hình Spring Data `via-dto`. Notification đã áp dụng; Event/Order dùng cùng quy ước khi triển khai. Các API trả array giữ hợp đồng hiện tại.
 
 ## auth-service
 
@@ -30,7 +34,7 @@ Role CUSTOMER/ORGANIZER/ADMIN và ACTIVE/LOCKED trong DTO là mapping ứng dụ
 
 Database: eventhub_event. Nguồn: Bảng 2.3–2.4, Hình 2.36–2.43.
 
-Chỉ owner ORGANIZER được sửa/submit/publish/close; ADMIN review. Chỉ DRAFT/REJECTED được sửa, sửa REJECTED đưa về DRAFT. Public chỉ PUBLISHED. CLOSED ngừng bán, không tự hủy vé. Loại vé/quota thuộc Ticket, không zones A–D. venue chưa có trong baseline, chờ C03; review_reason là bổ sung kỹ thuật lưu lý do review.
+Chỉ owner ORGANIZER được sửa/submit/publish/close; ADMIN review. Chỉ DRAFT/REJECTED được sửa, sửa REJECTED đưa về DRAFT. Public chỉ PUBLISHED. CLOSED ngừng bán, không tự hủy vé. C03 chốt một địa điểm: text cấu hình chung hiển thị trong email QR, chưa cần thêm venue/location vào Event. C08 cho cấu hình Ticket sau tạo Event, quota 0 hợp lệ; submit không cần đủ ba hạng, publish cần ít nhất một hạng ACTIVE có total_quota > 0. review_reason lưu lý do review.
 
 **Trạng thái:** DRAFT → SUBMITTED → APPROVED → PUBLISHED → CLOSED; SUBMITTED → REJECTED → DRAFT khi sửa.
 
@@ -57,7 +61,7 @@ Schema/kiểu/NULL/unique: [DDL](docs/database/event-service/init.sql), [ERD](do
 
 Database: eventhub_ticket. Nguồn: Bảng 2.5–2.9, Hình 2.44–2.56.
 
-ticket_types gộp quota/counters; ba tên VIP/PREMIUM/STANDARD. Reserve 3 phút trong DB transaction với khóa hàng/UPDATE điều kiện, UNIQUE(order_id), giá snapshot. Confirm CAS và phát vé/QR trong cùng transaction, lặp trả kết quả cũ. Release CONFIRMED trả 409; RELEASED/EXPIRED gọi lại không trả quota hai lần. Check-in/out CAS và ticket_scans cùng transaction. Không tái nhập. gateId UUID nhưng owner/quyền thiết bị chờ C07. Cancel sau refund chỉ vé chưa dùng và >=48 giờ; khoảng trống sau provider refund chờ C05. Redis hỗ trợ khóa/cache, DB là nguồn chính.
+ticket_types gộp quota/counters; ba tên VIP/PREMIUM/STANDARD, cho phép quota 0. Reserve 3 phút với DB lock/UPDATE điều kiện, UNIQUE(order_id), giá snapshot; kiểm tra Event PUBLISHED, hạng ACTIVE và tồn kho hiện tại. Confirm phát vé/QR một lần, retry trả kết quả cũ. Release CONFIRMED trả 409; release/expire không trả quota hai lần. Owner vé là buyer; holder là người sử dụng. Refund C05 phải prepare giữ quyền hủy toàn bộ vé ISSUED và >=48 giờ trước provider; commit theo token sau provider success, không từ chối lại vì thời gian trôi. Hold chặn scan và không tự mở khi tiền UNKNOWN. Check-in/out CAS cùng log, không tái nhập. C07 thiết bị để sau. Xem [thiết kế phục hồi](docs/architecture/payment-refund-recovery.md); API/hold mới cần triển khai.
 
 **Trạng thái:** Reservation RESERVED → CONFIRMED|RELEASED|EXPIRED. Ticket ISSUED → CHECKED_IN → CHECKED_OUT; ISSUED → CANCELLED.
 
@@ -81,7 +85,7 @@ Schema/kiểu/NULL/unique: [DDL](docs/database/ticket-service/init.sql), [ERD](d
 
 Database: eventhub_order. Nguồn: Bảng 2.10–2.15, Hình 2.57–2.72.
 
-Sinh orderId → reserve → lưu Order/items/holders; một holder mỗi vé. Giá/hạn từ Ticket, không từ client. Payment ID provider có thể NULL trước phản hồi. Webhook phải xác minh chữ ký và đối chiếu amount/currency/transaction, dedup theo provider + provider_event_id; payload_hash không thay chữ ký. CAS với scheduler, chỉ một nhánh được hoàn quota. PAID rồi confirm tạm lỗi: job retry bền vững, chỉ order.paid sau phát vé. PAID nhưng reservation EXPIRED cần quy tắc C05/C06, không tự phát vé. Refund kiểm tra điều kiện >=48h lúc yêu cầu và duyệt; provider lỗi không hủy vé. Chính sách amount/từng vé/quyền duyệt C04 chưa chốt.
+Sinh orderId → snapshot email buyer đã xác minh → reserve → lưu Order/items/holders, một holder mỗi vé. Giá/hạn từ Ticket; owner=buyer. Webhook xác minh chữ ký, tiền/currency/transaction, dedup provider+provider_event_id và task bền vững trước ACK. Chỉ order.paid sau phát vé. C04 hoàn khách cả đơn 70% giá mua, giữ 30%, không thêm phí; ADMIN duyệt, PAID/mọi vé chưa dùng/>=48h lúc yêu cầu và duyệt. C05 prepare quyền hủy trước provider, verify timeout, commit hủy sau success; không phát được vé thì fence phát vé và bù 100% thực thu chưa hoàn. Không phát refund sale cho khoản chưa có sale. [Thiết kế trạng thái/đối soát](docs/architecture/payment-refund-recovery.md). Provider C06 để sau; không coi adapter đã có.
 
 **Trạng thái:** Order PENDING_PAYMENT → PAID|FAILED|EXPIRED; PAID → REFUNDED. Payment CREATED → PENDING → SUCCEEDED|FAILED. Refund REQUESTED → APPROVED → PROCESSING → REFUNDED; REQUESTED → REJECTED; APPROVED|PROCESSING → FAILED.
 
@@ -103,7 +107,7 @@ Schema/kiểu/NULL/unique: [DDL](docs/database/order-service/init.sql), [ERD](do
 
 Database: eventhub_notification. Nguồn: Bảng 2.16–2.18, Hình 2.73–2.77; Flyway V1 bổ sung để thực hiện in-app và retry.
 
-Consume ticket.issued, order.failed, order.refunded. EMAIL và IN_APP; PUSH/reminder để giai đoạn sau. Render title/content và lưu snapshot; QR PNG nhúng cid. Không lộ email/QR/payload ra GET notifications. Dedup từng messageId:channel:recipient, transaction ngắn, SMTP ngoài transaction. Chỉ processed khi mọi target thành công. SMTP có thể gửi trùng nếu crash giữa send và markSent. Nguồn customerEmail/holder fallback C02, venue C03. API page/unread-count/PUT template là bổ sung kỹ thuật có nhãn trong OpenAPI.
+Consume ticket.issued, order.failed, order.refunded; EMAIL và IN_APP. C02 dùng buyer email đã snapshot, email vé ưu tiên holderEmail và fallback buyer; gom theo địa chỉ, IN_APP thuộc buyer. C03 text địa điểm chung dự kiến EVENTHUB_VENUE_TEXT, chụp vào nội dung khi tạo batch. Code hiện buyer-only cần mở rộng target theo chính sách mới. QR PNG nhúng cid; không trả email/QR/payload qua REST in-app. Dedup từng message/channel/recipient, SMTP ngoài transaction, processed chỉ khi mọi target xong; SMTP vẫn có cửa sổ gửi trùng lúc crash. Message payment.compensated cho hoàn bù là bổ sung thiết kế, chưa có consumer. API page/unread-count/PUT template giữ hợp đồng hiện tại.
 
 **Trạng thái:** Delivery PENDING → SENT|FAILED; FAILED có thể retry → SENT. Đọc IN_APP chỉ set read_at lần đầu. Template UUID PK, UNIQUE(code,channel).
 
@@ -140,4 +144,4 @@ Hợp đồng đầy đủ tại [docs/kafka/events.md](docs/kafka/events.md). T
 
 Order reserve → thanh toán → webhook đã xác minh → CAS PAID → REST Ticket confirm → Ticket commit vé/QR và outbox ticket.issued → Order ghi outbox order.paid. Không phát vé qua hai đường. Consumer idempotent; lỗi đồng bộ phải có retry task bền vững và đối soát.
 
-Sự kiện hủy/hoàn qua các topic có thể đến khác thứ tự; cùng key không bảo đảm thứ tự xuyên topic. Các điểm late payment/refund sau cancel conflict chưa được lấp bằng mặc định: xem C04–C06.
+Sự kiện hủy/hoàn qua các topic có thể đến khác thứ tự; cùng key không bảo đảm thứ tự xuyên topic. C04/C05 đã có quyết định trong [project-clarifications](docs/project-clarifications.md) và [luồng phục hồi](docs/architecture/payment-refund-recovery.md); triển khai provider vẫn chờ C06, thiết bị chờ C07.

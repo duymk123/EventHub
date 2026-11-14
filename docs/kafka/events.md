@@ -1,6 +1,8 @@
 # Hợp đồng Kafka EventHub
 
-Cập nhật theo BC_32_V2 và xác nhận ngày 2026-10-27. Hợp đồng mục tiêu; repo chưa có producer/consumer nghiệp vụ. [Đối chiếu nguồn](../architecture/source-decisions.md), [điểm cần chốt C01–C09](../project-clarifications.md).
+Đọc sơ đồ publisher → topic → consumer và vị trí KafkaTemplate trong [luồng Kafka](flows.md).
+
+Cập nhật theo BC_32_V2 và xác nhận ngày 2026-10-27. Consumer Notification/Analytics đã triển khai ngày 2026-11-05. Producer Order/Ticket cần nối theo contract và các JSON mẫu trong samples/. [Đối chiếu nguồn](../architecture/source-decisions.md), [điểm cần chốt C01–C09](../project-clarifications.md).
 
 ## 1. Envelope, ID và serialization
 
@@ -17,7 +19,7 @@ orderId, refundId, customerId, ticketId, ticketTypeId, ownerUserId, gateId đề
 
 Java UUID/Instant/BigDecimal; tiền JSON number tối đa hai chữ số thập phân, quantity integer dương, tên vé VIP/PREMIUM/STANDARD snapshot. Trường bắt buộc nếu không ghi nullable/pending; mảng items/tickets không rỗng. Parse lỗi/field thiếu không được ACK như thành công.
 
-Producer JsonSerializer đặt spring.json.add.type.headers=false. Consumer StringDeserializer + StringJsonMessageConverter lấy kiểu theo listener, không phụ thuộc tên package/class producer. Publisher DLQ raw JSON dùng StringSerializer để tránh encode JSON lần hai.
+Producer gửi JSON UTF-8. Khi dùng JsonSerializer, đặt spring.json.add.type.headers=false. Consumer hiện dùng StringDeserializer và EventDecoder để parse JSON/validate theo topic, độc lập với tên package/class producer. Publisher DLQ raw JSON dùng StringSerializer để giữ payload JSON gốc.
 
 ## 2. Topic và key
 
@@ -64,23 +66,23 @@ Phát sau Order PAID **và REST confirm đã phát hành vé thành công** (Hì
 
 orderId, customerId (UUID), customerEmail (email), reason (PAYMENT_FAILED|EXPIRED), totalAmount (decimal).
 
-Chỉ producer thắng CAS FAILED/EXPIRED phát; webhook trùng/scheduler thua không phát lại. **C02 đang mở:** customerEmail chưa có nguồn xác minh/snapshot được duyệt. Chọn Keycloak chưa tự thêm email claim, email_verified hoặc cột customer_email. Không triển khai gửi thư bằng giá trị đoán hoặc email client chưa xác minh.
+Chỉ producer thắng CAS FAILED/EXPIRED phát; webhook trùng/scheduler thua không phát lại. C02 chốt snapshot email buyer đã xác minh lúc tạo đơn; producer dùng snapshot cho customerEmail. Adapter/claim mapper và cột customer_email còn cần triển khai; không lấy email buyer tùy ý từ client hay lookup hồ sơ mới khi retry.
 
 ### order.refunded
 
-orderId, refundId, customerId (UUID), customerEmail (C02), amount (decimal dương), refundedAt (instant), items[{ticketTypeId UUID, ticketTypeName, quantity}].
+orderId, refundId, customerId (UUID), customerEmail (snapshot C02), currency (VND), amount (decimal dương), refundedAt (instant), items[{ticketTypeId UUID, ticketTypeName, quantity, refundedAmount}].
 
-Phát sau provider xác nhận refund và Ticket cancel hoàn tất (Hình 2.67). Nếu provider thành công nhưng Ticket từ chối vĩnh viễn, chưa thể coi workflow hoàn thành: C05 cần quy tắc đối soát/bù trừ.
+Phát sau provider xác nhận refund và Ticket commit hủy theo hold hoàn tất. C04 hoàn khách 70% giá mua nhưng quantity là tất cả vé của đơn. C05 prepare hold trước provider; UNKNOWN giữ hold/verify, lỗi commit giữ WAIT_CANCEL/MANUAL_REVIEW và không phát event sớm. Bù kỹ thuật khi chưa phát vé dùng message riêng, không đưa vào sale chưa có.
 
-**Bổ sung kỹ thuật đề xuất:** currency và items[].refundedAmount, tổng phân bổ bằng amount. Payload I.D chỉ có quantity không đủ tính tiền refund từng hạng khi tỷ lệ/phí thay đổi. Đây là phụ thuộc C04/C09, chưa là field producer đã triển khai. Không tự chia đều, không dùng giá hiện tại và không tính refund như revenue âm của ngày mua.
+Consumer Analytics yêu cầu currency và items[].refundedAmount, tổng bằng amount. Order tính 70% line_total từng hạng theo snapshot, xử lý phần lẻ theo [C04](../project-clarifications.md), không chia đều hạng khác giá. samples/order.refunded.json minh họa đơn 1.000.000 hoàn 700.000 với quantity=2. Không dùng giá mới hoặc ghi refund như revenue âm của ngày mua.
 
 ### ticket.issued
 
-orderId (UUID), eventTitle (snapshot string), eventStartTime (instant), venue (nullable, C03), ownerUserId (UUID), tickets[{ticketId UUID, ticketTypeId UUID, ticketTypeName, holderName, holderEmail nullable C02, qrCodeValue opaque}].
+orderId (UUID), customerEmail (snapshot email buyer đã xác minh), eventTitle (snapshot string), eventStartTime (instant), venue (nullable tương thích), ownerUserId (UUID buyer), tickets[{ticketId UUID, ticketTypeId UUID, ticketTypeName, holderName, holderEmail nullable C02, qrCodeValue opaque}].
 
-Sau transaction confirm tạo vé/QR commit (Hình 2.50–2.52). Event Client lấy title/startTime từ InternalEventResponse đã bổ sung title. venue chưa có nguồn trong từ điển V2, không tự phát dữ liệu giả.
+Sau transaction confirm tạo vé/QR commit. Event Client lấy title/startTime từ InternalEventResponse. C03 chốt một địa điểm: Notification dùng text cấu hình chung dự kiến EVENTHUB_VENUE_TEXT, snapshot lúc tạo batch; chưa cần venue trong Event DB. venue nullable giữ tương thích message cũ; thiếu cấu hình thật không dùng địa chỉ giả.
 
-owner_user_id của tickets là NOT NULL theo Bảng 2.9; ai là owner và có phải cùng người mua cho toàn message còn C02. Email holder được Order chuyển từ order_holders lúc confirm, cần giữ snapshot trong outbox để retry dù bảng tickets không có holder_email. Fallback holderEmail NULL chờ C02 trước khi hoàn tất consumer EMAIL. Đề xuất gom một email/địa chỉ với các QR và một IN_APP cho owner; không log QR/email trong lỗi.
+C02 mới nhất chốt owner_user_id=customerId buyer. Mỗi vé ưu tiên holderEmail, thiếu fallback buyer customerEmail; gom cùng địa chỉ, mỗi email chỉ nhận QR nhóm vé gửi tới mình. Một IN_APP thuộc buyer, không suy tài khoản holder từ email. Order chuyển email vào confirm/outbox để retry không tra dữ liệu mới. Code Notification hiện buyer-only với hai target cố định cần mở rộng theo quyết định mới; chưa coi đã hỗ trợ gửi holder. Không log QR/email trong lỗi.
 
 ### ticket.checked-in / ticket.checked-out
 
@@ -97,8 +99,8 @@ orderId UUID, tickets[{ticketId UUID, ticketTypeId UUID}], cancelledAt instant. 
 - Ghi outbox trong cùng transaction với trạng thái nghiệp vụ. Outbox.id = payload.messageId. Publisher gửi có ACK, retry cùng message/key/payload. AFTER_COMMIT một mình vẫn mất event nếu process dừng sau commit.
 - Analytics claim unique processed_events.id = messageId cùng transaction UPSERT/log/snapshot. Rollback cả claim khi xử lý lỗi; existsById trước khi cộng không chống hai worker chạy đồng thời.
 - Notification dedup từng messageId:channel:recipient, ghi SENT trong transaction ngắn sau SMTP; processed chỉ hoàn tất sau mọi target. Có cửa sổ gửi trùng nếu crash sau SMTP trước markSent. Cần cơ chế provider idempotency nếu nghiệp vụ yêu cầu chặt hơn.
-- Check-out có thể đến trước check-in. Với một lượt vào/ra: trạng thái đóng góp của một vé = 1 khi đã nhận CHECK_IN và chưa nhận CHECK_OUT; tổng checked-in tăng một lần mỗi vé. Cần khóa/serialize trạng thái vé và tính delta trước/sau, thay vì decrement + GREATEST(...,0). **V1 Analytics chưa đủ dữ liệu trạng thái này**; bổ sung migration/projection và test cả hai thứ tự trước triển khai. Không yêu cầu người dùng chọn thuật toán kỹ thuật.
-- order.refunded có thể tới trước order.paid ở topic khác; cộng/trừ có tính giao hoán, không clamp tiền/số vé thuần về 0 vì sẽ mất điều chỉnh. C09 cần chốt ý nghĩa snapshot. Đề xuất báo cáo gộp + refund riêng, ngày Asia/Ho_Chi_Minh theo paidAt/refundedAt.
+- Check-out có thể đến trước check-in. Với một lượt vào/ra: trạng thái đóng góp của một vé = 1 khi đã nhận CHECK_IN và chưa nhận CHECK_OUT; tổng checked-in tăng một lần mỗi vé. Cần khóa/serialize trạng thái vé và tính delta trước/sau, thay vì decrement + GREATEST(...,0). Analytics V2 đã có attendance_state và projection lưu cả hai bằng chứng, đã kiểm tra hai thứ tự. Không yêu cầu người dùng chọn thuật toán kỹ thuật.
+- order.refunded có thể tới trước order.paid ở topic khác; cộng/trừ có tính giao hoán, không clamp tiền/số vé thuần về 0 vì sẽ mất điều chỉnh. Xác nhận 2026-11-05 dashboard gộp toàn sự kiện, báo cáo gộp + refund riêng theo ngày Asia/Ho_Chi_Minh từ paidAt/refundedAt.
 - Cùng một request confirm/refund/cancel lỗi tạm thời cần task retry bền vững. ACK webhook hoặc outbox không tự đảm bảo một lời gọi REST đã hoàn thành.
 
 ## 5. Retry và DLQ
@@ -109,9 +111,11 @@ DLQ giữ key và metadata topic/partition/offset/exception. Chỉ commit offset
 
 Replay giữ nguyên messageId, sửa nguyên nhân trước, không đổi ID né dedup. Giới hạn quyền đọc topic/DLQ chứa PII/QR; không ghi payload nhạy cảm vào lastError.
 
-## 6. Phần chưa thể triển khai trọn vẹn
+## 6. Quyết định và phần tích hợp còn thiếu
 
-C02 nguồn/fallback email + owner, C03 venue, C04 phân bổ tiền hoàn, C05/C06 lỗi điều phối/provider, C07 thiết bị cổng, C09 ý nghĩa chỉ số. Realm/JWK/issuer/audience/S2S chờ người phụ trách cấu hình như đã hẹn. Endpoint WS /ws/dashboard đã lấy từ báo cáo, không còn câu hỏi chọn lại path.
+C02–C05/C08 đã có quyết định trong [project-clarifications](../project-clarifications.md), C09 giữ xác nhận trước đó. C06 provider và C07 thiết bị để sau. Cần triển khai snapshot email, target holder, text địa điểm, quote/hold/fence; realm/JWK/issuer/audience/S2S vẫn cần cấu hình.
+
+Message payment.compensated là bổ sung dự kiến theo [C05](../architecture/payment-refund-recovery.md): key orderId, Notification nhận kết quả bù khi không cung cấp vé/thu trùng, Analytics không cộng/trừ sales cho khoản chưa có order.paid. Envelope chuẩn kèm paymentId, compensationId, customerId/customerEmail, amount, currency, compensatedAt, reason. Topic/producer/consumer/template chưa có trong runtime hoặc bảng topic trên; triển khai sau adapter C06 đáp ứng query/idempotency.
 
 ## 7. Local
 

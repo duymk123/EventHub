@@ -41,6 +41,13 @@ erDiagram
     CHAR(36) id PK
     TIMESTAMP processed_at
   }
+  attendance_state {
+    CHAR(36) id PK
+    CHAR(36) ticket_id
+    CHAR(36) event_id
+    TIMESTAMP checked_in_at
+    TIMESTAMP checked_out_at
+  }
 ```
 
 Tạo lại bằng [render-erd.mjs](../render-erd.mjs); kiểm tra lệch nguồn với node docs/database/render-erd.mjs --check từ root. JPEG Order/Ticket tạo lại bằng [render-erd.ps1](../render-erd.ps1). Không đọc ảnh cũ để suy ra kiểu ID. Các bảng/cột kỹ thuật còn đề xuất trong [plans](../../plans/README.md) chỉ được thêm vào ERD sau khi có DDL/migration tương ứng. [Mapping và giới hạn](../README.md).

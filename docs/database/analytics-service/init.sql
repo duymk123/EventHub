@@ -1,5 +1,5 @@
--- Ban tham chieu dong bo tu migration V1; KHONG chay thu cong ben canh Flyway.
--- UUID IDs; schema managed by Flyway, never by Hibernate update.
+-- Schema tham chieu dong bo tu migration V1 + V2.
+-- UUID IDs; deployment schema mode follows the service configuration.
 CREATE TABLE sales_metrics (
   id CHAR(36) PRIMARY KEY,
   event_id CHAR(36) NOT NULL, ticket_type_id CHAR(36) NOT NULL,
@@ -29,3 +29,10 @@ CREATE TABLE attendance_logs (
 CREATE TABLE processed_events (
   id CHAR(36) PRIMARY KEY, -- messageId
   processed_at TIMESTAMP NOT NULL);
+
+CREATE TABLE attendance_state (
+  id CHAR(36) PRIMARY KEY,
+  ticket_id CHAR(36) NOT NULL UNIQUE,
+  event_id CHAR(36) NOT NULL,
+  checked_in_at TIMESTAMP NULL,
+  checked_out_at TIMESTAMP NULL);

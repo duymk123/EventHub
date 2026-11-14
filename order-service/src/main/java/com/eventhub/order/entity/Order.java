@@ -19,6 +19,8 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import com.eventhub.order.entity.enums.OrderStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;

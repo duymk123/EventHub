@@ -13,6 +13,10 @@ Không có quy tắc rằng mọi câu trong báo cáo tự động là yêu c�
 
 ## Những điểm đã có câu trả lời
 
+Bổ sung 2026-11-05 theo lượt chốt C02–C08: bảng dưới và [quyết định hiện hành](../project-clarifications.md) thay các đoạn “còn chờ” cũ về email, địa điểm, tỷ lệ hoàn và quota. C06/C07 chủ động để sau. C09 giữ xác nhận trước đó cùng ngày, không mở lại.
+
+Bổ sung xác nhận trực tiếp 2026-11-05 cho Notification/Analytics. Email gửi về người mua. Dashboard tổng cả sự kiện, báo cáo chia theo ngày. Phần triển khai sử dụng ngày Asia/Ho_Chi_Minh và tách doanh thu gộp/hoàn/thuần trong báo cáo, dashboard lưu tổng gộp. Nguồn snapshot email đã xác minh và công thức phân bổ refund vẫn cần producer cung cấp theo hợp đồng.
+
 | Chủ đề | Cơ sở | Kết luận dùng trong tài liệu hiện hành |
 |---|---|---|
 | ID | Chủ dự án xác nhận | UUID cho mọi PK/tham chiếu bảng EventHub, gồm gateId; Java UUID, JSON string/uuid, MySQL CHAR(36). Mã do payment provider cấp không phải PK EventHub. |
@@ -31,6 +35,13 @@ Không có quy tắc rằng mọi câu trong báo cáo tự động là yêu c�
 | Quét vé | Hình 2.55–2.56 | ISSUED → CHECKED_IN → CHECKED_OUT, không có nhánh tái nhập. Không cần hỏi lại có check-in lại hay không cho phạm vi này. |
 | Hoàn tiền | Hình 2.61/2.67–2.69 | Kiểm tra PAID, vé chưa dùng, còn ít nhất 48 giờ khi yêu cầu và khi duyệt. Provider lỗi thì không hủy vé. |
 | Dashboard | Hình 2.80–2.81 | Báo cáo theo ngày/hạng vé; WS /ws/dashboard, topic /topic/event/{id}/dashboard. Gateway cần route WS riêng. |
+| C02 email/owner | Chủ dự án chốt 2026-11-05 | Snapshot email buyer đã xác minh lúc tạo đơn; owner là buyer, holder là người dùng vé. Gửi vé tới holderEmail nếu có, thiếu thì về buyer; gom theo địa chỉ. Code buyer-only hiện tại cần cập nhật. |
+| C03 địa điểm | Chủ dự án chốt 2026-11-05 | Một địa điểm, text cấu hình chung cho email QR; chưa cần bảng/cột venue riêng trên Event. Chờ tên/địa chỉ thật. |
+| C04 hoàn khách | Chủ dự án chọn cả đơn/70%; Codex chọn quyền và cách tính | 70% snapshot giá mua, giữ 30%, không thêm phí; ADMIN duyệt, mọi vé chưa dùng, >=48 giờ lúc yêu cầu/duyệt. Quantity hủy là cả đơn. |
+| C05 phục hồi lỗi | Chủ dự án giao Codex thiết kế | Giữ quyền hủy vé trước refund; verify khi UNKNOWN, task bền vững, chỉ kết thúc sau tiền và hủy xong. Không cung cấp được vé sau thu tiền thì bù 100% thực thu chưa hoàn; [thiết kế](payment-refund-recovery.md). |
+| C08 quota/publish | Chủ dự án chốt quota 0 và giao chọn publish | Cấu hình Ticket sau tạo Event; submit không đòi đủ ba hạng. Publish cần ít nhất một ACTIVE có total_quota > 0; reserve kiểm tra tồn kho hiện tại. |
+| C06/C07 | Chủ dự án yêu cầu để sau | Chưa chọn provider hoặc quyền thiết bị cổng; không suy ra đã tích hợp từ quyết định nghiệp vụ. |
+| C09 chỉ số | Giữ xác nhận 2026-11-05 đã có trong tài liệu triển khai | Dashboard gộp cả sự kiện, sales tách hoàn/thuần, ngày Asia/Ho_Chi_Minh theo paidAt/refundedAt và giữ lịch sử. |
 
 ## Mâu thuẫn trong chính báo cáo và cách xử lý
 
