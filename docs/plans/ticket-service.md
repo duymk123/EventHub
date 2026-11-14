@@ -81,6 +81,7 @@ Prepare phải toàn bộ đơn hoặc rollback nếu một vé không hợp l�
 | POST `/api/v1/gate/check-in` | checkIn |
 | POST `/api/v1/gate/check-out` | checkOut |
 | POST `/internal/tickets/cancel-by-order/{orderId}` | cancelByOrder |
+| GET `/internal/ticket-types/capacity?eventIds=` (đề xuất C10) | getCapacityByEvents: `SELECT event_id, SUM(total_quota) FROM ticket_types WHERE event_id IN (...) GROUP BY event_id`, trả 0 cho id chưa có hạng vé. Caller là Analytics ([plan §8.4](analytics-service.md)). |
 
 `EventClient.getInternal(UUID): InternalEventResponse` cho owner/start/status; timeout map 503. Internal eligibility mới phải bổ sung OpenAPI trước client Order. `ReservationExpiryScheduler.expireDue(int batchSize)` chỉ gọi expire theo từng ID. `QrTokenGenerator.generate(): String` dùng nguồn ngẫu nhiên đủ mạnh, không dựa ticketId/timestamp; sinh PNG gửi mail thuộc Notification. `OutboxPublisher.publishDue` xử lý Kafka sau commit, không consumer order.paid để phát vé.
 

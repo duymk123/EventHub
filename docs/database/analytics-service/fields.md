@@ -92,3 +92,15 @@ Luồng thiết kế: order.paid cộng sales; order.refunded ghi phần hoàn; 
 | checked_out_at | TIMESTAMP NULL | Bằng chứng checkout, giữ khi chưa nhận check-in |
 
 Đóng góp hiện diện bằng 1 khi có check-in và chưa có checkout. Projection khóa dòng theo vé, cập nhật claim/log/snapshot cùng transaction. Migration ở [V2](../../../analytics-service/src/main/resources/db/migration/V2__attendance_state.sql).
+
+## 7. Index V3 cho thống kê toàn hệ thống (C10)
+
+Trang Phân tích của ADMIN và ORGANIZER đọc lại đúng các bảng trên, **không thêm bảng hay cột**. Các số liệu được tính khi đọc:
+
+| Số liệu API | Lấy từ |
+|---|---|
+| Doanh thu gộp / hoàn / vé bán / vé hoàn theo ngày hoặc tháng | `sales_metrics` lọc `metric_date` theo khoảng, gộp mọi `event_id` |
+| Khán giả tham gia theo ngày hoặc tháng | Đếm dòng `attendance_state` có `checked_in_at` trong khoảng (đổi sang ngày giờ Việt Nam) |
+| Vé hợp lệ và khán giả toàn thời gian của một sự kiện | `dashboard_snapshot.total_tickets_sold` trừ tổng `sales_metrics.tickets_refunded`; `dashboard_snapshot.total_checked_in` |
+
+Vì truy vấn theo khoảng ngày trên mọi sự kiện, migration V3 đề xuất chỉ thêm 4 index: `sales_metrics(metric_date, event_id)`, `sales_metrics(event_id, metric_date)`, `attendance_state(checked_in_at, event_id)`, `attendance_state(event_id, checked_in_at)`. Đã có migration `V3__platform_analytics_indexes.sql` và `@Index` cùng tên trên entity (để môi trường `ddl-auto: update` cũng tạo index); [init.sql](init.sql) đã đồng bộ. Sơ đồ quan hệ dữ liệu của C10: [ERD C10](erd-c10.md). Chi tiết: [plan Analytics §8](../../plans/analytics-service.md), [C10](../../project-clarifications.md).
