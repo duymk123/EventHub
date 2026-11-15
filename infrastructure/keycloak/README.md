@@ -2,26 +2,24 @@
 
 Keycloak giữ tài khoản, mật khẩu, phiên đăng nhập và role (CUSTOMER / ORGANIZER / ADMIN). Frontend và Postman **không gọi Keycloak trực tiếp**: auth-service có API `/api/v1/auth/*` và tự gọi Keycloak phía sau (client confidential `eventhub-auth-service`). auth-service lưu thêm hồ sơ nghiệp vụ (họ tên, SĐT, avatar) theo `keycloak_sub`. Các service khác chỉ kiểm tra token.
 
-Cấu hình realm nằm ở [`eventhub-realm.json`](eventhub-realm.json), dùng chung cho cả chạy local và Docker. Keycloak tự nạp file này khi khởi động; realm đã tồn tại thì **bỏ qua**, không ghi đè dữ liệu.
+Cấu hình realm nằm ở [`eventhub-realm.json`](eventhub-realm.json). Container Keycloak tự nạp file này khi khởi động (`--import-realm`); realm đã tồn tại thì **bỏ qua**, không ghi đè dữ liệu.
 
-## Chạy local không cần Docker
+## Chạy
 
-Cần: Java 21+, MySQL 8 cài trên máy (cổng 3306).
+Cần: Docker Desktop, MySQL 8 cài trên máy (cổng 3306, tài khoản root/root) cho auth-service.
 
-```powershell
-# Từ thư mục gốc repo. Lần đầu tự tải Keycloak (~170 MB) vào .local/ và tạo database `keycloak`.
-powershell -ExecutionPolicy Bypass -File infrastructure\keycloak\start-keycloak-local.ps1 -DbPassword <mat-khau-root-mysql>
+**Bước 1: Keycloak.** Ở thư mục gốc repo:
+
+```
+docker compose up -d keycloak-db keycloak
+docker logs -f eventhub-keycloak
 ```
 
-Có thể đặt biến môi trường `KC_LOCAL_DB_PASSWORD` thay cho `-DbPassword` (mặc định `root`). Chờ dòng `Listening on: http://localhost:8180`.
+Chờ dòng `Listening on: http://0.0.0.0:8080` (cổng máy là 8180), Ctrl+C để thoát xem log. Dữ liệu Keycloak nằm trong Postgres của container `eventhub-keycloak-db` (volume `keycloak_db_data`).
 
-Sau đó chạy auth-service với profile `local` (MySQL local, database `eventhub_auth` tự tạo):
+**Bước 2: auth-service.** Bấm Run `AuthServiceApplication` trong IntelliJ như bình thường. Không cần profile hay biến môi trường: `application.yml` mặc định dùng MySQL `localhost:3306` (root/root, tự tạo `eventhub_auth`) và Keycloak `localhost:8180`. Mật khẩu root MySQL khác `root` thì đặt biến `DB_PASSWORD` cho auth-service.
 
-```powershell
-$env:SPRING_PROFILES_ACTIVE = "local"; .\mvnw -pl auth-service spring-boot:run
-```
-
-Trong IntelliJ: Run Configuration → Active profiles: `local`. Đổi mật khẩu MySQL bằng biến `DB_PASSWORD`.
+Tắt: `docker compose stop keycloak keycloak-db` (giữ dữ liệu). Xóa sạch để nạp lại realm từ đầu: `docker compose rm -sf keycloak keycloak-db` rồi `docker volume rm eventhub_keycloak_db_data`.
 
 ## Địa chỉ và tài khoản dev
 
@@ -31,7 +29,7 @@ Trong IntelliJ: Run Configuration → Active profiles: `local`. Đổi mật kh�
 | Issuer (cấu hình service) | `http://localhost:8180/realms/eventhub` |
 | Client của auth-service | `eventhub-auth-service` (confidential, secret dev `eventhub-auth-service-dev-secret`; service account có quyền `manage-users`) |
 | Client của frontend | `eventhub-frontend` (public, dự phòng nếu sau này đăng nhập bằng trang Keycloak) |
-| Dữ liệu Keycloak | MySQL local, database `keycloak` (bảng `user_entity`, `user_role_mapping`, …) |
+| Dữ liệu Keycloak | Postgres trong container `eventhub-keycloak-db` (database `keycloak`) |
 | Hồ sơ nghiệp vụ | MySQL local, `eventhub_auth.user_profiles` |
 
 | Tài khoản test | Mật khẩu | Role |
@@ -46,7 +44,7 @@ Chỉ dành cho môi trường dev: mật khẩu ở trên công khai trong repo
 
 ## Thử bằng Postman
 
-Cần chạy **cả hai**: Keycloak (script ở trên) rồi auth-service. Body là JSON.
+Cần chạy **cả hai**: Keycloak (Docker, ở trên) rồi auth-service. Body là JSON.
 
 | Bước | Request | Body | Kết quả |
 |---|---|---|---|
@@ -61,11 +59,7 @@ Lỗi trả dạng `{code, message, timestamp, path}` với `code`: `VALIDATION_
 
 ## Sửa cấu hình realm
 
-Sửa `eventhub-realm.json` không tự áp dụng cho realm đã có. Muốn nạp lại trên máy local: vào trang quản trị xóa realm `eventhub` rồi khởi động lại Keycloak (mất toàn bộ user trong realm), hoặc sửa trực tiếp trên trang quản trị rồi export lại vào file. Hai lưu ý đã gặp khi dựng file này:
+Sửa `eventhub-realm.json` không tự áp dụng cho realm đã có. Muốn nạp lại: vào trang quản trị xóa realm `eventhub` rồi `docker compose restart keycloak` (mất toàn bộ user trong realm), hoặc sửa trực tiếp trên trang quản trị rồi export lại vào file. Hai lưu ý đã gặp khi dựng file này:
 
 - Role mặc định phải khai báo trong `roles.realm` kèm `composites`; Keycloak bỏ qua `composites` đặt trong khóa `defaultRole`.
 - Từ Keycloak 26.8, Admin REST API chỉ nhận token có audience do client scope `kc-admin-api` thêm vào. Client `eventhub-auth-service` phải có `kc-admin-api` trong `defaultClientScopes`, nếu không mọi lệnh tạo user trả 401 (auth-service báo `AUTH_PROVIDER_UNAVAILABLE`).
-
-## Chạy bằng Docker
-
-`docker compose up -d keycloak-db keycloak` dùng Postgres trong Docker và cũng nạp `eventhub-realm.json`. Dữ liệu hai cách chạy độc lập nhau (MySQL local và Postgres Docker).

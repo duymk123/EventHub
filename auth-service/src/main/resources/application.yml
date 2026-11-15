@@ -8,9 +8,11 @@ spring:
   application:
     name: auth-service
   datasource:
-    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:33101}/${DB_NAME:eventhub_auth}?serverTimezone=UTC}"
+    # Mặc định chạy thẳng từ IntelliJ: MySQL cài trên máy (cổng 3306, root/root), database tự tạo nếu chưa có.
+    # Docker Compose tự truyền DB_HOST/DB_PORT/DB_PASSWORD riêng nên không bị ảnh hưởng.
+    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_auth}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
     username: "${DB_USERNAME:root}"
-    password: "${DB_PASSWORD}"
+    password: "${DB_PASSWORD:root}"
   jpa:
     hibernate:
       ddl-auto: update
@@ -19,7 +21,7 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          # Keycloak local (start-keycloak-local.ps1) và Docker đều mở cổng 8180, realm eventhub.
+          # Keycloak chạy bằng Docker (docker compose up -d keycloak-db keycloak), cổng 8180, realm eventhub.
           issuer-uri: "${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/eventhub}"
 
 eventhub:

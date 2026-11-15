@@ -24,15 +24,15 @@ Hai giao diện chỉ mở cổng trên loopback. Redis Insight có màn hình �
 
 File hạ tầng dùng cùng project/network/volume Kafka với `docker-compose.yml` hiện tại. Không thêm `--remove-orphans` khi chạy file này nếu project còn các container khác.
 
-## Keycloak không cần Docker
+## Keycloak
 
-Keycloak lo đăng ký, đăng nhập và phân quyền. Chạy trực tiếp trên Windows, lưu dữ liệu vào MySQL local (database `keycloak`), cổng 8180:
+auth-service cung cấp API đăng ký/đăng nhập (`/api/v1/auth/*`) và gọi Keycloak phía sau; Keycloak quản lý user, mật khẩu và role. Keycloak chạy bằng Docker (Postgres riêng), cổng 8180:
 
-~~~powershell
-powershell -ExecutionPolicy Bypass -File infrastructurekeycloakstart-keycloak-local.ps1 -DbPassword <mat-khau-root-mysql>
-~~~
+```
+docker compose up -d keycloak-db keycloak
+```
 
-Chạy auth-service với profile `local` (MySQL local, `eventhub_auth` tự tạo). Tài khoản test, cách lấy token và cách sửa realm: [infrastructure/keycloak/README.md](../infrastructure/keycloak/README.md).
+Chờ `docker logs -f eventhub-keycloak` hiện `Listening on`. Sau đó chạy auth-service bằng Shift+F10 như các service khác (không cần profile). Tài khoản test, cách gọi API bằng Postman và cách sửa realm: [infrastructure/keycloak/README.md](../infrastructure/keycloak/README.md).
 
 ## Chạy API Gateway và 6 service bằng Shift+F10
 

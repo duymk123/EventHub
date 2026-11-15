@@ -93,6 +93,53 @@ services:
     networks:
       - eventhub
 
+  # Keycloak: tài khoản, mật khẩu, role. auth-service gọi http://localhost:8180, realm eventhub.
+  # Tên service, container và volume trùng docker-compose.yml nên hai file dùng chung một Keycloak và dữ liệu.
+  keycloak-db:
+    image: postgres:17-alpine
+    container_name: eventhub-keycloak-db
+    # Mở để xem dữ liệu bằng IntelliJ/DBeaver: localhost:5433, db/user keycloak, mật khẩu keycloak_dev_password.
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak_dev_password
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2
+    container_name: eventhub-keycloak
+    # --import-realm nạp realm eventhub (role, client, tài khoản test); realm đã có thì bỏ qua.
+    command: start-dev --import-realm
+    ports:
+      - "127.0.0.1:8180:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin_dev_password
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak_dev_password
+    volumes:
+      - ./infrastructure/keycloak/eventhub-realm.json:/opt/keycloak/data/import/eventhub-realm.json:ro
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - eventhub
+
 networks:
   eventhub:
     driver: bridge
@@ -101,3 +148,4 @@ volumes:
   kafka_data:
   redis_data:
   redisinsight_data:
+  keycloak_db_data:
