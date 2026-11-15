@@ -2,7 +2,8 @@ package com.eventhub.order.controller;
 
 import com.eventhub.order.dto.OrderPageResponse;
 import com.eventhub.order.dto.OrderResponse;
-import com.eventhub.order.repository.OrderRepository;
+import com.eventhub.order.dto.CreateOrderRequest;
+import com.eventhub.order.service.OrderService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,10 +26,10 @@ public class OrderController {
 
     private static final String USER_ID_HEADER = "X-User-Id";
 
-    private final OrderRepository orderRepository;
+    private final OrderService orderService;
 
-    public OrderController(OrderRepository orderRepository) {
-        this.orderRepository = orderRepository;
+    public OrderController(OrderService orderService) {
+        this.orderService = orderService;
     }
 
     @GetMapping("/me")
@@ -44,7 +46,7 @@ public class OrderController {
                 Sort.Order.desc("createdAt"),
                 Sort.Order.desc("id")
         ));
-        var orders = orderRepository.findByCustomerIdOrderByCreatedAtDescIdDesc(customerId, pageable)
+        var orders = orderService.getCustomerOrders(customerId, pageable)
                 .map(OrderResponse::from);
         return OrderPageResponse.from(orders);
     }
@@ -54,16 +56,15 @@ public class OrderController {
             @RequestHeader(USER_ID_HEADER) UUID customerId,
             @PathVariable UUID id
     ) {
-        return orderRepository.findByIdAndCustomerId(id, customerId)
-                .map(OrderResponse::from)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
+        return OrderResponse.from(orderService.getCustomerOrder(customerId, id));
     }
 
     @PostMapping
-    public ResponseEntity<Void> createOrder() {
-        throw new ResponseStatusException(
-                HttpStatus.NOT_IMPLEMENTED,
-                "Order creation requires Ticket service reservation and server-side pricing"
-        );
+    public ResponseEntity<OrderResponse> createOrder(
+            @RequestHeader(USER_ID_HEADER) UUID customerId,
+            @RequestBody CreateOrderRequest request
+    ) {
+        return ResponseEntity.status(201)
+                .body(OrderResponse.from(orderService.createOrder(customerId, request)));
     }
 }

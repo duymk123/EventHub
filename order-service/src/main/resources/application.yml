@@ -16,3 +16,6 @@ spring:
 
 server:
   port: "${SERVER_PORT:8084}"
+
+ticket-service:
+  base-url: "${TICKET_SERVICE_URL:http://localhost:8083}"

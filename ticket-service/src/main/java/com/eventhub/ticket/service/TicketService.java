@@ -10,6 +10,7 @@ import com.eventhub.ticket.entity.enums.ScanType;
 import com.eventhub.ticket.entity.enums.TicketStatus;
 import com.eventhub.ticket.entity.enums.TicketTypeName;
 import com.eventhub.ticket.entity.enums.TicketTypeStatus;
+import com.eventhub.ticket.dto.Holder;
 import com.eventhub.ticket.repository.ReservationRepository;
 import com.eventhub.ticket.repository.TicketRepository;
 import com.eventhub.ticket.repository.TicketScanRepository;
@@ -104,14 +105,17 @@ public class TicketService {
     @Transactional
     public Reservation reserve(
             UUID orderId,
+            UUID eventId,
             List<ReservationRequestItem> requestedItems,
-            Duration holdDuration
+            Instant requestedExpiry
     ) {
-        if (orderId == null || requestedItems == null || requestedItems.isEmpty()) {
-            throw new IllegalArgumentException("orderId and reservation items are required");
+        if (orderId == null || eventId == null || requestedItems == null || requestedItems.isEmpty()) {
+            throw new IllegalArgumentException("orderId, eventId and reservation items are required");
         }
-        if (holdDuration == null || holdDuration.isZero() || holdDuration.isNegative()) {
-            throw new IllegalArgumentException("holdDuration must be positive");
+        Instant now = Instant.now();
+        Instant expiresAt = requestedExpiry == null ? now.plus(Duration.ofMinutes(3)) : requestedExpiry;
+        if (!expiresAt.isAfter(now) || expiresAt.isAfter(now.plus(Duration.ofMinutes(3)))) {
+            throw new IllegalArgumentException("Reservation expiry must be within three minutes");
         }
         if (reservationRepository.findByOrderId(orderId).isPresent()) {
             throw new IllegalStateException("A reservation already exists for order: " + orderId);
@@ -120,15 +124,18 @@ public class TicketService {
         Reservation reservation = new Reservation();
         reservation.setOrderId(orderId);
         reservation.setStatus(ReservationStatus.RESERVED);
-        reservation.setCreatedAt(Instant.now());
-        reservation.setExpiresAt(Instant.now().plus(holdDuration));
+        reservation.setCreatedAt(now);
+        reservation.setExpiresAt(expiresAt);
 
+        List<UUID> requestedTypeIds = new ArrayList<>();
         for (ReservationRequestItem requested : requestedItems) {
-            if (requested.quantity() < 1) {
+            if (requested == null || requested.ticketTypeId() == null || requested.quantity() < 1
+                    || !requestedTypeIds.add(requested.ticketTypeId())) {
                 throw new IllegalArgumentException("Reservation quantity must be positive");
             }
             TicketType ticketType = getTicketTypeForUpdate(requested.ticketTypeId());
-            if (ticketType.getStatus() != TicketTypeStatus.ACTIVE
+            if (!eventId.equals(ticketType.getEventId())
+                    || ticketType.getStatus() != TicketTypeStatus.ACTIVE
                     || ticketType.getAvailableQuantity() < requested.quantity()) {
                 throw new IllegalStateException("Insufficient tickets for type: " + requested.ticketTypeId());
             }
@@ -147,6 +154,15 @@ public class TicketService {
     }
 
     @Transactional
+    public Reservation reserve(UUID orderId, List<ReservationRequestItem> requestedItems, Duration holdDuration) {
+        Instant expiry = holdDuration == null ? null : Instant.now().plus(holdDuration);
+        UUID eventId = requestedItems == null || requestedItems.isEmpty()
+                ? null
+                : getTicketTypeForUpdate(requestedItems.get(0).ticketTypeId()).getEventId();
+        return reserve(orderId, eventId, requestedItems, expiry);
+    }
+
+    @Transactional
     public Reservation releaseReservation(UUID reservationId) {
         Reservation reservation = getReservationForUpdate(reservationId);
         if (reservation.getStatus() != ReservationStatus.RESERVED) {
@@ -158,7 +174,7 @@ public class TicketService {
         return reservation;
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = ReservationExpiredException.class)
     public List<Ticket> confirmReservation(UUID reservationId, UUID ownerUserId) {
         if (ownerUserId == null) {
             throw new IllegalArgumentException("ownerUserId is required");
@@ -170,7 +186,7 @@ public class TicketService {
         if (!reservation.getExpiresAt().isAfter(Instant.now())) {
             releaseReservedQuantities(reservation);
             reservation.setStatus(ReservationStatus.EXPIRED);
-            throw new IllegalStateException("Reservation has expired");
+            throw new ReservationExpiredException(reservationId);
         }
 
         List<Ticket> tickets = new ArrayList<>();
@@ -184,6 +200,62 @@ public class TicketService {
                 ticket.setOrderId(reservation.getOrderId());
                 ticket.setTicketType(ticketType);
                 ticket.setOwnerUserId(ownerUserId);
+                ticket.setQrCodeValue(UUID.randomUUID().toString());
+                ticket.setStatus(TicketStatus.ISSUED);
+                ticket.setIssuedAt(Instant.now());
+                tickets.add(ticket);
+            }
+        }
+        reservation.setStatus(ReservationStatus.CONFIRMED);
+        reservation.setConfirmedAt(Instant.now());
+        return ticketRepository.saveAll(tickets);
+    }
+
+    @Transactional(noRollbackFor = ReservationExpiredException.class)
+    public List<Ticket> confirmReservation(UUID reservationId, List<Holder> holders) {
+        Reservation reservation = getReservationForUpdate(reservationId);
+        if (reservation.getStatus() == ReservationStatus.CONFIRMED) {
+            return ticketRepository.findByReservationIdOrderByIdAsc(reservationId);
+        }
+        if (reservation.getStatus() != ReservationStatus.RESERVED) {
+            throw new IllegalStateException("Only reserved reservations can be confirmed");
+        }
+        if (!reservation.getExpiresAt().isAfter(Instant.now())) {
+            releaseReservedQuantities(reservation);
+            reservation.setStatus(ReservationStatus.EXPIRED);
+            throw new ReservationExpiredException(reservationId);
+        }
+        if (holders == null || holders.isEmpty()) {
+            throw new IllegalArgumentException("holders are required");
+        }
+        int expected = reservation.getItems().stream().mapToInt(ReservationItem::getQuantity).sum();
+        if (holders.size() != expected) {
+            throw new IllegalArgumentException("Holder count must match reservation quantity");
+        }
+        for (Holder holder : holders) {
+            if (holder == null || holder.ticketTypeId() == null || holder.ownerUserId() == null
+                    || holder.holderName() == null || holder.holderName().isBlank()) {
+                throw new IllegalArgumentException("Each holder requires ticket type, name and owner");
+            }
+        }
+        List<Ticket> tickets = new ArrayList<>();
+        for (ReservationItem item : reservation.getItems()) {
+            List<Holder> itemHolders = holders.stream()
+                    .filter(holder -> item.getTicketType().getId().equals(holder.ticketTypeId()))
+                    .toList();
+            if (itemHolders.size() != item.getQuantity()) {
+                throw new IllegalArgumentException("Holder count does not match ticket type quantity");
+            }
+            TicketType ticketType = getTicketTypeForUpdate(item.getTicketType().getId());
+            ticketType.setReservedQuantity(ticketType.getReservedQuantity() - item.getQuantity());
+            ticketType.setSoldQuantity(ticketType.getSoldQuantity() + item.getQuantity());
+            for (Holder holder : itemHolders) {
+                Ticket ticket = new Ticket();
+                ticket.setReservation(reservation);
+                ticket.setOrderId(reservation.getOrderId());
+                ticket.setTicketType(ticketType);
+                ticket.setOwnerUserId(holder.ownerUserId());
+                ticket.setHolderName(holder.holderName());
                 ticket.setQrCodeValue(UUID.randomUUID().toString());
                 ticket.setStatus(TicketStatus.ISSUED);
                 ticket.setIssuedAt(Instant.now());
@@ -238,6 +310,46 @@ public class TicketService {
         return scan;
     }
 
+    @Transactional
+    public TicketScan scanByQr(String qrCodeValue, UUID eventId, UUID gateId, ScanType scanType) {
+        if (qrCodeValue == null || qrCodeValue.isBlank() || eventId == null) {
+            throw new IllegalArgumentException("qrCodeValue and eventId are required");
+        }
+        Ticket ticket = ticketRepository.findByQrCodeValue(qrCodeValue)
+                .orElseThrow(() -> new TicketNotFoundException(null));
+        if (!eventId.equals(ticket.getTicketType().getEventId())) {
+            throw new IllegalStateException("Ticket belongs to another event");
+        }
+        return scan(ticket.getId(), gateId, scanType);
+    }
+
+    @Transactional(readOnly = true)
+    public Ticket getTicketForOwner(UUID ticketId, UUID ownerUserId) {
+        return ticketRepository.findByIdAndOwnerUserId(ticketId, ownerUserId)
+                .orElseThrow(() -> new TicketNotFoundException(ticketId));
+    }
+
+    @Transactional
+    public int cancelByOrder(UUID orderId) {
+        List<Ticket> tickets = ticketRepository.findByOrderIdOrderByIdAsc(orderId);
+        int cancelled = 0;
+        for (Ticket ticket : tickets) {
+            if (ticket.getStatus() == TicketStatus.CANCELLED) {
+                continue;
+            }
+            if (ticket.getStatus() != TicketStatus.ISSUED) {
+                throw new IllegalStateException("Only unused tickets can be cancelled");
+            }
+            TicketType type = getTicketTypeForUpdate(ticket.getTicketType().getId());
+            type.setSoldQuantity(type.getSoldQuantity() - 1);
+            type.setAvailableQuantity(type.getAvailableQuantity() + 1);
+            ticket.setStatus(TicketStatus.CANCELLED);
+            ticket.setCancelledAt(Instant.now());
+            cancelled++;
+        }
+        return cancelled;
+    }
+
     private TicketType getTicketTypeForUpdate(UUID ticketTypeId) {
         return ticketTypeRepository.findByIdForUpdate(ticketTypeId)
                 .orElseThrow(() -> new TicketTypeNotFoundException(ticketTypeId));
@@ -284,6 +396,12 @@ public class TicketService {
     public static final class TicketNotFoundException extends RuntimeException {
         public TicketNotFoundException(UUID id) {
             super("Ticket not found: " + id);
+        }
+    }
+
+    public static final class ReservationExpiredException extends RuntimeException {
+        public ReservationExpiredException(UUID id) {
+            super("Reservation has expired: " + id);
         }
     }
 }
