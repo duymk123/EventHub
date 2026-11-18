@@ -1,6 +1,6 @@
 # Plan code ticket-service
 
-Ngày 2026-10-28. Nguồn: [quy ước chung](00-cross-service-contracts.md), [OpenAPI Ticket](../api/ticket-service-openapi.yaml), [DDL](../database/ticket-service/init.sql), [ERD UUID](../database/ticket-service/erd.md), [Kafka](../kafka/events.md). Đây là owner vé, reservation và tồn kho; hiện chưa có code nghiệp vụ.
+Ngày 2026-10-28. Nguồn: [quy ước chung](00-cross-service-contracts.md), [OpenAPI Ticket](../api/ticket-service-openapi.yaml), [DDL](../database/ticket-service/init.sql), [ERD UUID](../database/ticket-service/erd.md), [Kafka](../kafka/events.md). Đây là owner vé, reservation và tồn kho; trạng thái code ở [mục 7](#7-trạng-thái-triển-khai-2026-11-19).
 
 ## 1. Entity và invariant
 
@@ -92,3 +92,26 @@ Tạo Flyway initial schema theo DDL, entity đầy đủ, ddl-auto validate. Th
 ErrorCode: INSUFFICIENT_TICKETS 409, RESERVATION_EXPIRED/RESERVATION_ALREADY_CONFIRMED/INVALID_TICKET_STATE 409, TICKET_NOT_FOUND/EVENT_NOT_FOUND 404, FORBIDDEN_NOT_OWNER 403, EVENT_SERVICE_UNAVAILABLE 503, VALIDATION_ERROR 400; code không được thay cả lỗi mạng bằng business permanent error.
 
 MySQL integration test: 100 reserve tranh quota không oversell; reserve lặp/khác payload; giá đổi không đổi snapshot; confirm đua expire/release; confirm quá hạn vẫn trả quota đã commit; confirm lặp không thêm QR; hai cổng cùng QR chỉ một scan/outbox; checkout trước checkin ở Ticket bị chặn; cancel lặp/đã dùng/48h biên và rollback cả đơn; outbox crash/retry giữ messageId. WebMvcTest cho owner/service/gate. C02/C05/C08 đã có quyết định; cần triển khai buyer ownership, hold/fence và quota 0/publish preflight. C07 thiết bị để sau.
+
+## 7. Trạng thái triển khai (2026-11-19)
+
+Đã có đủ 12 operation ở §5 (public dưới `/api/v1`, nội bộ dưới `/internal`), gồm cả capacity C10. Service chia theo §2: `TicketTypeService`, `ReservationService`, `TicketQueryService`, `GateService`, `TicketCancellationService` (+ `impl/`), lỗi trả `ErrorResponse` với code ở `common/ErrorCode`.
+
+| Mục plan | Cách làm |
+|---|---|
+| Actor/ServiceActor | JWT Keycloak (issuer + JWK; audience chỉ kiểm khi cấu hình). Token người dùng → `Actor` đúng một business role; token `client_credentials` có `azp` thuộc `eventhub.security.internal-clients` → `ServiceCaller`, chỉ vào được `/internal/**`. Không còn header `X-User-Id`. |
+| Khóa tồn kho | `findAllByIdsForUpdate` ORDER BY id cho mọi thao tác nhiều hạng; đổi counter trên entity dưới khóa, không trộn UPDATE native. |
+| Reserve idempotent | Cùng orderId: so sự kiện + hạng/số lượng (gộp dòng trùng), cùng thì trả reservation cũ kể cả EXPIRED, khác thì 409 `RESERVATION_PAYLOAD_MISMATCH`. Thua UNIQUE(order_id) thì đọc lại ở transaction mới. Hạn không so (Ticket tự kẹp ≤ 3 phút). |
+| Confirm quá hạn | Transaction commit EXPIRED + hoàn quota, trả outcome; lỗi 409 `RESERVATION_RELEASED_OR_EXPIRED` ném sau commit. |
+| Owner vé (C02) | Mọi holder phải cùng `ownerUserId` (buyer). `holderEmail` không lưu bảng tickets, chỉ vào outbox `ticket.issued`. |
+| Gate | CAS `compareAndSetStatus` + `ticket_scans` + outbox cùng transaction. Tạm cho ORGANIZER chủ sự kiện và ADMIN quét bằng Bearer JWT tới khi C07 chốt thiết bị. |
+| Outbox | `OutboxWriter` (propagation MANDATORY, id = messageId, aggregate_id = Kafka key), `OutboxPublisher` gửi theo created_at, đánh PUBLISHED sau ACK, Kafka lỗi thì thử lại sau 30 giây. Một instance; lease/attempts (§3 plan chung) bổ sung khi chạy nhiều instance. |
+| QR | 32 byte `SecureRandom`, base64url, sinh một lần lúc confirm. |
+
+Chưa làm / khác plan:
+
+- **Phụ thuộc Event INT-01** `GET /internal/events/{id}` chưa có ở event-service: tạo/sửa/xem hạng vé, reserve, confirm và quét vé của ORGANIZER hiện trả 503 `EVENT_SERVICE_UNAVAILABLE` cho tới khi event-service triển khai (chỉ kiểm thử được bằng stub).
+- Hold/token hoàn tiền C05 chưa có: `cancel-by-order` hủy thẳng cả đơn (vé đã dùng thì 409 cả đơn), không kiểm mốc 48 giờ.
+- `GET /internal/events/{eventId}/ticket-types/configuration` (preflight publish C08) và refund-eligibility chưa làm vì chưa có trong OpenAPI.
+- Schema vẫn `ddl-auto: update` như các service khác, chưa Flyway/validate.
+- Không thêm file test theo yêu cầu chủ dự án; đã kiểm bằng script HTTP trên MySQL thật (93 kiểm tra: phân quyền, idempotency, 20 đơn tranh 5 vé không bán vượt, 8 cổng quét cùng QR chỉ 1 thắng, confirm quá hạn, worker hết hạn, hủy lặp, bất biến tồn kho).

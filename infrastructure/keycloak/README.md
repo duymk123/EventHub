@@ -29,6 +29,7 @@ Tắt: `docker compose stop keycloak keycloak-db` (giữ dữ liệu). Xóa sạ
 | Issuer (cấu hình service) | `http://localhost:8180/realms/eventhub` |
 | Client của auth-service | `eventhub-auth-service` (confidential, secret dev `eventhub-auth-service-dev-secret`; service account có quyền `manage-users`) |
 | Client của frontend | `eventhub-frontend` (public, dự phòng nếu sau này đăng nhập bằng trang Keycloak) |
+| Client service-to-service | `eventhub-order-service` (Order → Ticket), `eventhub-ticket-service` (Ticket → Event), `eventhub-analytics-service` (Analytics → Event/Ticket); confidential, chỉ `client_credentials`, secret dev `<clientId>-dev-secret`. Service nhận lời gọi `/internal/**` kiểm claim `azp` thuộc danh sách cho phép |
 | Dữ liệu Keycloak | Postgres trong container `eventhub-keycloak-db` (database `keycloak`) |
 | Hồ sơ nghiệp vụ | MySQL local, `eventhub_auth.user_profiles` |
 
@@ -59,7 +60,7 @@ Lỗi trả dạng `{code, message, timestamp, path}` với `code`: `VALIDATION_
 
 ## Sửa cấu hình realm
 
-Sửa `eventhub-realm.json` không tự áp dụng cho realm đã có. Muốn nạp lại: vào trang quản trị xóa realm `eventhub` rồi `docker compose restart keycloak` (mất toàn bộ user trong realm), hoặc sửa trực tiếp trên trang quản trị rồi export lại vào file. Hai lưu ý đã gặp khi dựng file này:
+Sửa `eventhub-realm.json` không tự áp dụng cho realm đã có. Ví dụ ba client service-to-service thêm ngày 2026-11-19: Keycloak đã nạp realm trước ngày đó sẽ chưa có, order-service gọi ticket-service sẽ nhận `TICKET_SERVICE_UNAVAILABLE`. Muốn nạp lại: vào trang quản trị xóa realm `eventhub` rồi `docker compose restart keycloak` (mất toàn bộ user trong realm), hoặc sửa trực tiếp trên trang quản trị rồi export lại vào file. Hai lưu ý đã gặp khi dựng file này:
 
 - Role mặc định phải khai báo trong `roles.realm` kèm `composites`; Keycloak bỏ qua `composites` đặt trong khóa `defaultRole`.
 - Từ Keycloak 26.8, Admin REST API chỉ nhận token có audience do client scope `kc-admin-api` thêm vào. Client `eventhub-auth-service` phải có `kc-admin-api` trong `defaultClientScopes`, nếu không mọi lệnh tạo user trả 401 (auth-service báo `AUTH_PROVIDER_UNAVAILABLE`).

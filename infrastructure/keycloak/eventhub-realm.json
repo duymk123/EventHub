@@ -122,6 +122,69 @@
       "optionalClientScopes": [
         "offline_access"
       ]
+    },
+    {
+      "clientId": "eventhub-order-service",
+      "name": "EventHub Order Service",
+      "description": "Service account của order-service gọi /internal/** của ticket-service (reserve/confirm/release/cancel). Secret chỉ dành cho dev.",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "eventhub-order-service-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "web-origins",
+        "acr"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "eventhub-ticket-service",
+      "name": "EventHub Ticket Service",
+      "description": "Service account của ticket-service gọi GET /internal/events/{id} của event-service. Secret chỉ dành cho dev.",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "eventhub-ticket-service-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "web-origins",
+        "acr"
+      ],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "eventhub-analytics-service",
+      "name": "EventHub Analytics Service",
+      "description": "Service account của analytics-service gọi /internal/** của event-service và ticket-service (C10). Secret chỉ dành cho dev.",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "eventhub-analytics-service-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "web-origins",
+        "acr"
+      ],
+      "optionalClientScopes": []
     }
   ],
   "users": [
@@ -197,6 +260,30 @@
           "query-users"
         ]
       }
+    },
+    {
+      "username": "service-account-eventhub-order-service",
+      "enabled": true,
+      "serviceAccountClientId": "eventhub-order-service",
+      "realmRoles": [
+        "offline_access"
+      ]
+    },
+    {
+      "username": "service-account-eventhub-ticket-service",
+      "enabled": true,
+      "serviceAccountClientId": "eventhub-ticket-service",
+      "realmRoles": [
+        "offline_access"
+      ]
+    },
+    {
+      "username": "service-account-eventhub-analytics-service",
+      "enabled": true,
+      "serviceAccountClientId": "eventhub-analytics-service",
+      "realmRoles": [
+        "offline_access"
+      ]
     }
   ]
 }

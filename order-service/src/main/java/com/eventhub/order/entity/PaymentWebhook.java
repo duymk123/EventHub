@@ -20,7 +20,6 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-import com.eventhub.order.entity.enums.WebhookStatus;
 
 import java.time.Instant;
 import java.util.UUID;

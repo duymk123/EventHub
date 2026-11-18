@@ -2,7 +2,7 @@ spring:
   application:
     name: order-service
   datasource:
-    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_order}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
+    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_order}?serverTimezone=UTC&forceConnectionTimeZoneToSession=true&createDatabaseIfNotExist=true}"
     username: "${DB_USERNAME:root}"
     password: "${DB_PASSWORD:root}"
   jpa:
@@ -10,9 +10,49 @@ spring:
       ddl-auto: update
     open-in-view: false
     properties:
-      hibernate:
-        type:
-          preferred_uuid_jdbc_type: CHAR
+      hibernate.jdbc.time_zone: UTC
+      hibernate.type.preferred_uuid_jdbc_type: CHAR
+  data:
+    web:
+      pageable:
+        # Quy ước chung: Page trả JSON {content, page{size, number, totalElements, totalPages}}.
+        serialization-mode: via-dto
+        max-page-size: 100
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        max.block.ms: 5000
+        delivery.timeout.ms: 15000
+        request.timeout.ms: 10000
+
+logging:
+  level:
+    # Kafka chưa chạy: client chỉ báo lỗi, không cảnh báo kết nối lại mỗi giây (OutboxPublisher tự log một lần).
+    org.apache.kafka.clients.NetworkClient: ERROR
+    org.springframework.kafka.support.LoggingProducerListener: "OFF"
 
 server:
   port: "${SERVER_PORT:8084}"
+
+eventhub:
+  security:
+    issuer: ${KEYCLOAK_ISSUER:http://localhost:8180/realms/eventhub}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/certs}
+    audience: ${EVENTHUB_JWT_AUDIENCE:}
+    role-claim: ${EVENTHUB_ROLE_CLAIM:realm_access.roles}
+  s2s:
+    # Credential của Order để gọi /internal/** của ticket-service.
+    token-uri: ${KEYCLOAK_SERVICE_TOKEN_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/token}
+    client-id: ${ORDER_SERVICE_CLIENT_ID:eventhub-order-service}
+    client-secret: ${ORDER_SERVICE_CLIENT_SECRET:eventhub-order-service-dev-secret}
+  ticket-service:
+    base-url: ${TICKET_SERVICE_URL:http://localhost:8083}
+  order:
+    # Hạn thanh toán đề xuất cho Ticket; Ticket không cấp quá 3 phút và trả hạn chính thức.
+    payment-ttl: PT3M
+    expiry-delay-ms: 10000
+    outbox-delay-ms: 1000
