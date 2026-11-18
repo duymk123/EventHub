@@ -3,7 +3,7 @@ info:
   title: EventHub - Order Service API
   version: 2.0.0-draft
   description: |-
-    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Mã nguồn hiện là scaffold, chưa có endpoint nghiệp vụ.
+    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Đã triển khai (2026-11-19) POST /orders, GET /orders/me, GET /orders/{id} và worker hết hạn đơn; payment/webhook/refund chờ provider C06 (trạng thái ở docs/plans/order-service.md).
     UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
     Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
     Order sinh ID, snapshot buyer email đã xác minh theo C02, reserve rồi lưu; reservationId NOT NULL. C04 hoàn khách cả đơn 70% giá mua, giữ 30%, ADMIN duyệt; C05 hold trước provider, bù lỗi cung cấp vé 100%. Provider C06 để sau; storage/API điều phối mới cần triển khai.
@@ -42,8 +42,26 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: FORBIDDEN (không phải CUSTOMER) hoặc EMAIL_NOT_VERIFIED (token không có email đã xác minh để snapshot theo C02)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: EVENT_NOT_FOUND hoặc TICKET_TYPE_NOT_FOUND (giữ nguyên mã của Ticket)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: INSUFFICIENT_TICKETS
+          description: INSUFFICIENT_TICKETS hoặc TICKET_TYPE_NOT_ON_SALE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: TICKET_SERVICE_UNAVAILABLE hoặc EVENT_SERVICE_UNAVAILABLE (lỗi tạm thời, thử lại được)
           content:
             application/json:
               schema:
@@ -714,5 +732,5 @@ components:
           type: string
           nullable: true
 x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
-x-implementation-status: scaffold-only
+x-implementation-status: partial-2026-11-19
 x-open-decisions: ../project-clarifications.md

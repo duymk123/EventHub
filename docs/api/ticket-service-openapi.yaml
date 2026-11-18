@@ -3,7 +3,7 @@ info:
   title: EventHub - Ticket Service API
   version: 2.0.0-draft
   description: |-
-    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Mã nguồn hiện là scaffold, chưa có endpoint nghiệp vụ.
+    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Đã triển khai mọi operation dưới đây (2026-11-19, trạng thái chi tiết ở docs/plans/ticket-service.md); hold/token hoàn tiền C05 và xác thực thiết bị cổng C07 vẫn chờ.
     UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
     Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
     Tồn kho gộp ticket_types; không có ticket_inventory hoặc events cục bộ. Reservation RESERVED/CONFIRMED/RELEASED/EXPIRED. Quét một lần vào, một lần ra; không tái nhập. gateId UUID, owner cổng/xác thực thiết bị còn C07.
@@ -21,10 +21,11 @@ paths:
       tags:
       - Ticket Type
       operationId: createTicketTypes
-      summary: Khởi tạo 3 Ticket Type cho Event
+      summary: Khởi tạo 1..3 Ticket Type cho Event
       description: |
         Role ORGANIZER (owner của Event, kiểm tra qua `GET /internal/events/{id}` của event-service).
-        `name` chỉ nhận VIP / PREMIUM / STANDARD, mỗi loại đúng một lần.
+        `name` chỉ nhận VIP / PREMIUM / STANDARD, không trùng trong request và với hạng đã có (C08: không bắt buộc đủ ba hạng, quota được bằng 0).
+        Event Service không phản hồi → 503 EVENT_SERVICE_UNAVAILABLE.
       security:
       - bearerAuth: []
       requestBody:
@@ -35,7 +36,7 @@ paths:
               $ref: '#/components/schemas/CreateTicketTypesRequest'
       responses:
         '201':
-          description: Đã tạo 3 Ticket Type
+          description: Các Ticket Type vừa tạo, thứ tự VIP, PREMIUM, STANDARD
           content:
             application/json:
               schema:
@@ -294,7 +295,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: INSUFFICIENT_TICKETS hoặc TICKET_TYPE_NOT_ON_SALE
+          description: INSUFFICIENT_TICKETS, TICKET_TYPE_NOT_ON_SALE (hạng INACTIVE hoặc sự kiện chưa PUBLISHED) hoặc RESERVATION_PAYLOAD_MISMATCH (cùng orderId khác hạng vé/số lượng)
           content:
             application/json:
               schema:
@@ -303,7 +304,7 @@ paths:
       - serviceAuth: []
     servers:
     - url: http://localhost:8083
-      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
+      description: Gọi trực tiếp service, không qua public Gateway; Bearer token client_credentials (serviceAuth)
   /internal/reservations/{id}/confirm:
     post:
       tags:
@@ -350,7 +351,7 @@ paths:
       - serviceAuth: []
     servers:
     - url: http://localhost:8083
-      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
+      description: Gọi trực tiếp service, không qua public Gateway; Bearer token client_credentials (serviceAuth)
   /internal/reservations/{id}/release:
     post:
       tags:
@@ -391,7 +392,7 @@ paths:
       - serviceAuth: []
     servers:
     - url: http://localhost:8083
-      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
+      description: Gọi trực tiếp service, không qua public Gateway; Bearer token client_credentials (serviceAuth)
   /internal/tickets/cancel-by-order/{orderId}:
     post:
       tags:
@@ -449,7 +450,7 @@ paths:
       - serviceAuth: []
     servers:
     - url: http://localhost:8083
-      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
+      description: Gọi trực tiếp service, không qua public Gateway; Bearer token client_credentials (serviceAuth)
   /internal/ticket-types/capacity:
     get:
       tags:
@@ -457,7 +458,7 @@ paths:
       operationId: getCapacityByEvents
       summary: Tổng sức chứa theo sự kiện (đề xuất C10)
       description: |
-        Đề xuất 2026-11-13, CHƯA triển khai ở Ticket Service (client phía Analytics đã có từ 2026-11-14). Analytics gọi để hiển thị "vé bán / sức chứa" trong bảng thống kê theo sự kiện.
+        Đề xuất 2026-11-13, đã triển khai ở Ticket Service 2026-11-19 (client phía Analytics có từ 2026-11-14). Analytics gọi để hiển thị "vé bán / sức chứa" trong bảng thống kê theo sự kiện.
         capacity = SUM(total_quota) mọi hạng của sự kiện, kể cả hạng INACTIVE (sức chứa đã cấu hình), không phải số còn bán.
         Sự kiện chưa cấu hình hạng vé trả capacity=0. Không lộ giá/quota từng hạng ở operation này.
       parameters:
@@ -505,7 +506,7 @@ paths:
       - serviceAuth: []
     servers:
     - url: http://localhost:8083
-      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
+      description: Gọi trực tiếp service, không qua public Gateway; Bearer token client_credentials (serviceAuth)
 components:
   securitySchemes:
     bearerAuth:
@@ -517,12 +518,12 @@ components:
       type: apiKey
       in: header
       name: X-Gate-Token
-      description: X-Gate-Token là placeholder đề xuất của API draft, không phải cơ chế thiết bị đã được chốt. gateId UUID; owner/quyền thiết bị còn C07.
+      description: X-Gate-Token là placeholder đề xuất của API draft, không phải cơ chế thiết bị đã được chốt. gateId UUID; owner/quyền thiết bị còn C07. Runtime tạm thời (2026-11-19) dùng Bearer JWT của ORGANIZER chủ sự kiện hoặc ADMIN.
       x-contract-status: pending-C07
     serviceAuth:
       type: http
       scheme: bearer
-      description: 'Placeholder hợp đồng draft: internal bắt buộc xác thực service. Bearer là đề xuất thể hiện yêu cầu, không phải cơ chế S2S đã được chốt; thay khi có cấu hình Keycloak/S2S.'
+      description: 'Bearer access token client_credentials của Keycloak. Ticket chỉ nhận token có azp thuộc danh sách eventhub.security.internal-clients (mặc định eventhub-order-service, eventhub-analytics-service); token người dùng bị 403.'
       x-contract-status: pending-s2s-mechanism
   parameters:
     ReservationId:
@@ -929,5 +930,5 @@ components:
           type: string
           description: Đường dẫn HTTP của request gây lỗi
 x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
-x-implementation-status: scaffold-only
+x-implementation-status: implemented-2026-11-19
 x-open-decisions: ../project-clarifications.md

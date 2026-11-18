@@ -5,6 +5,7 @@
 CREATE TABLE orders (
   id CHAR(36) PRIMARY KEY,
   customer_id CHAR(36) NOT NULL,
+  customer_email VARCHAR(255) NOT NULL,
   event_id CHAR(36) NOT NULL,
   reservation_id CHAR(36) NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'PENDING_PAYMENT',

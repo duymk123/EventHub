@@ -113,3 +113,19 @@ API chỉ nhận reason, không ticketIds hoặc amount tự chọn; C04 chốt 
 4. RefundPolicy/review/hold/fence/worker theo C04/C05 đã chốt; chưa bật luồng tiền thật khi provider C06 và khả năng query/idempotency chưa có.
 
 Test bắt buộc: price tamper; quantity/holders mismatch; reserve thành công rồi DB save lỗi; payment request lặp và timeout sau provider đã nhận; webhook duplicate/cùng key khác hash/sai chữ ký/sai amount; webhook đua expiry chỉ một nhánh thắng; crash sau PAID/task commit trước confirm; PAID nhưng reservation expired đi reconcile; confirm thành công rồi worker crash không thêm vé/order.paid; refund/reject/approve races; provider refund thành công nhưng cancel 409; hoàn lặp không gọi provider/cộng analytics hai lần. Chỉ business error đúng code mới là non-retryable; timeout/503 còn retry/verify.
+
+## 8. Trạng thái triển khai (2026-11-19)
+
+Đã có `POST /api/v1/orders`, `GET /api/v1/orders/me`, `GET /api/v1/orders/{id}` và worker hết hạn đơn. Thanh toán, webhook, hoàn tiền và gọi Ticket confirm chưa làm (chờ provider C06).
+
+| Mục plan | Cách làm |
+|---|---|
+| Actor | JWT Keycloak, CUSTOMER; `customerId` từ `sub`, email chỉ lấy khi `email_verified` (C02). Thiếu email đã xác minh → 403 `EMAIL_NOT_VERIFIED`. |
+| create | Validate holders = quantity, sinh orderId → `TicketClient.reserve` **ngoài** transaction (lỗi tạm thời thử lại một lần cùng orderId) → lưu orders/items/holders bằng giá và hạn Ticket trả về trong transaction ngắn; lưu lỗi thì release bù trừ. `Order.id` gán sẵn (bỏ `@GeneratedValue`). |
+| Snapshot email | Cột mới `orders.customer_email` (DDL đã cập nhật). |
+| getMine | Page đơn không fetch collection, rồi nạp item + holder của cả trang bằng một truy vấn; JSON `{content, page}` theo via-dto; sort chỉ nhận createdAt, id, totalAmount, status, expiresAt. |
+| Expiry | Lô ID quá hạn, mỗi đơn một transaction: khóa đơn, PENDING_PAYMENT → EXPIRED + outbox `order.failed` reason EXPIRED; sau commit gọi Ticket release (lỗi thì reservation cùng hạn tự hết ở Ticket). |
+| TicketClient | Token `client_credentials` của `eventhub-order-service`; giữ nguyên code nghiệp vụ của Ticket (INSUFFICIENT_TICKETS…), timeout/5xx → 503 `TICKET_SERVICE_UNAVAILABLE`. |
+| Outbox | Giống Ticket (`OutboxWriter`, `OutboxPublisher`). |
+
+Chưa làm: IdempotencyContext cho POST /orders (retry của client tạo đơn mới), bảng `PendingOperation` cho task RELEASE/CONFIRM bền vững, PaymentService/Webhook/Refund (§3–§4), Flyway. Đã bỏ code thừa của PR #25 (`markPaid` cho khách tự đánh dấu đã trả tiền, `createPendingOrder`).
