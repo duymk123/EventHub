@@ -64,11 +64,11 @@ server:
 
 eventhub:
   security:
-    # Điền theo Keycloak của nhóm, role-claim là đường dẫn claim, ví dụ realm_access.roles.
-    issuer: ${KEYCLOAK_ISSUER:}
-    audience: ${EVENTHUB_JWT_AUDIENCE:}
-    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:}
-    role-claim: ${EVENTHUB_ROLE_CLAIM:}
+    # Mặc định khớp Keycloak local cổng 8180 (infrastructure/keycloak); Docker Compose truyền giá trị riêng.
+    issuer: ${KEYCLOAK_ISSUER:http://localhost:8180/realms/eventhub}
+    audience: ${EVENTHUB_JWT_AUDIENCE:eventhub-api}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/certs}
+    role-claim: ${EVENTHUB_ROLE_CLAIM:realm_access.roles}
     algorithm: ${EVENTHUB_JWT_ALGORITHM:RS256}
   notification:
     mail-from: ${MAIL_FROM:noreply@eventhub.local}

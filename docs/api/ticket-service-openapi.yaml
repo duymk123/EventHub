@@ -507,6 +507,46 @@ paths:
     servers:
     - url: http://localhost:8083
       description: Gọi trực tiếp service, không qua public Gateway; Bearer token client_credentials (serviceAuth)
+  /internal/events/{eventId}/ticket-types/configuration:
+    get:
+      tags:
+      - Internal
+      operationId: getTicketConfiguration
+      summary: Preflight publish C08 (Event Service gọi)
+      description: |
+        Triển khai 2026-11-19. Chỉ client eventhub-event-service. readyToPublish = có ít nhất một hạng ACTIVE với
+        total_quota > 0 (không buộc đủ ba hạng). Sự kiện chưa có hạng vé trả readyToPublish=false, không 404.
+      parameters:
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Cấu hình vé hiện tại của sự kiện
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketConfigurationResponse'
+        '401':
+          description: Service credential thiếu/không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Service không có quyền gọi operation (chỉ Event Service)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+      - serviceAuth: []
+    servers:
+    - url: http://localhost:8083
+      description: Gọi trực tiếp service, không qua public Gateway; Bearer token client_credentials (serviceAuth)
 components:
   securitySchemes:
     bearerAuth:
@@ -561,6 +601,28 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
   schemas:
+    TicketConfigurationResponse:
+      type: object
+      required:
+      - eventId
+      - activeTypeCount
+      - activeCapacity
+      - readyToPublish
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        activeTypeCount:
+          type: integer
+          minimum: 0
+          description: Số hạng ACTIVE có total_quota > 0
+        activeCapacity:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Tổng total_quota của các hạng đó
+        readyToPublish:
+          type: boolean
     EventCapacityResponse:
       type: object
       description: Đề xuất C10. Một phần tử cho mỗi eventId được yêu cầu.

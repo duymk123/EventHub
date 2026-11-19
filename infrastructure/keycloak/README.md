@@ -26,10 +26,12 @@ Tắt: `docker compose stop keycloak keycloak-db` (giữ dữ liệu). Xóa sạ
 | Mục | Giá trị |
 |---|---|
 | Trang quản trị Keycloak | http://localhost:8180/admin — `admin` / `admin_dev_password` |
-| Issuer (cấu hình service) | `http://localhost:8180/realms/eventhub` |
+| Issuer (cấu hình service) | `http://localhost:8180/realms/eventhub` (cố định bằng `KC_HOSTNAME`, kể cả khi service trong Docker gọi `keycloak:8080`) |
+| Audience | `eventhub-api`: mapper `eventhub-api-audience` trên mọi client thêm vào access token; mọi service kiểm tra (`EVENTHUB_JWT_AUDIENCE`, để trống thì bỏ qua) |
+| Mail | Keycloak gửi mail xác minh qua Mailpit (`mailpit:1025`); xem mail tại http://localhost:8025 (`docker compose up -d mailpit`) |
 | Client của auth-service | `eventhub-auth-service` (confidential, secret dev `eventhub-auth-service-dev-secret`; service account có quyền `manage-users`) |
 | Client của frontend | `eventhub-frontend` (public, dự phòng nếu sau này đăng nhập bằng trang Keycloak) |
-| Client service-to-service | `eventhub-order-service` (Order → Ticket), `eventhub-ticket-service` (Ticket → Event), `eventhub-analytics-service` (Analytics → Event/Ticket); confidential, chỉ `client_credentials`, secret dev `<clientId>-dev-secret`. Service nhận lời gọi `/internal/**` kiểm claim `azp` thuộc danh sách cho phép |
+| Client service-to-service | `eventhub-order-service` (Order → Ticket), `eventhub-ticket-service` (Ticket → Event), `eventhub-analytics-service` (Analytics → Event/Ticket), `eventhub-event-service` (Event → Ticket, kiểm tra cấu hình vé trước publish); confidential, chỉ `client_credentials`, secret dev `<clientId>-dev-secret`. Service nhận lời gọi `/internal/**` đổi claim `azp` thành role riêng của từng service và chỉ mở đúng API service đó cần (vd analytics không gọi được reserve/confirm của ticket) |
 | Dữ liệu Keycloak | Postgres trong container `eventhub-keycloak-db` (database `keycloak`) |
 | Hồ sơ nghiệp vụ | MySQL local, `eventhub_auth.user_profiles` |
 
@@ -39,7 +41,9 @@ Tắt: `docker compose stop keycloak keycloak-db` (giữ dữ liệu). Xóa sạ
 | `organizer@eventhub.local` | `Organizer@123` | ORGANIZER |
 | `customer@eventhub.local` | `Customer@123` | CUSTOMER |
 
-User đăng ký qua `POST /api/v1/auth/register` tự nhận **CUSTOMER** (role mặc định `default-roles-eventhub`). Mỗi user chỉ mang **một** business role: analytics-service từ chối token có hai role nghiệp vụ.
+User đăng ký qua `POST /api/v1/auth/register` được auth-service gán **CUSTOMER trực tiếp**. Role mặc định `default-roles-eventhub` **không** chứa business role nào, nên khi ADMIN đổi role (`PATCH /api/v1/admin/users/{id}/role`) chỉ cần thay một mapping. Mỗi user chỉ mang **một** business role: mọi service từ chối (401) token có hai role nghiệp vụ.
+
+User mới có `emailVerified=false` và nhận mail xác minh. Chưa xác minh vẫn đăng nhập được, nhưng order-service trả `EMAIL_NOT_VERIFIED` khi đặt vé. Sau khi bấm link, gọi `/auth/refresh` để lấy token có `email_verified=true`. Gửi lại mail: `POST /api/v1/auth/verify-email/resend`.
 
 Chỉ dành cho môi trường dev: mật khẩu ở trên công khai trong repo.
 
@@ -51,16 +55,20 @@ Cần chạy **cả hai**: Keycloak (Docker, ở trên) rồi auth-service. Body
 |---|---|---|---|
 | Đăng ký | `POST http://localhost:8081/api/v1/auth/register` | `{"email":"a@gmail.com","password":"Matkhau@123","fullName":"Nguyễn Văn A","phoneNumber":"0901234567"}` (`phoneNumber` không bắt buộc) | 201: user mới role CUSTOMER, tự tạo hồ sơ |
 | Đăng nhập | `POST http://localhost:8081/api/v1/auth/login` | `{"email":"a@gmail.com","password":"Matkhau@123"}` | `accessToken` (5 phút), `refreshToken` |
-| Xem tài khoản | `GET http://localhost:8081/api/v1/auth/me` | Authorization: Bearer `accessToken` | id, email, fullName, role, status |
-| Hồ sơ | `GET / PATCH http://localhost:8081/api/v1/me/profile` | Bearer token; PATCH `{"fullName":"..."}` | |
+| Xem tài khoản | `GET http://localhost:8081/api/v1/auth/me` | Authorization: Bearer `accessToken` | id, email, fullName, role, status, emailVerified |
+| Hồ sơ | `GET / PATCH http://localhost:8081/api/v1/me/profile` | Bearer token; PATCH `{"fullName":"..."}` | Tài khoản test nạp từ realm chưa có hồ sơ: tạo bằng `PUT` cùng đường dẫn, body `{"fullName":"..."}` |
+| Gửi lại mail xác minh | `POST http://localhost:8081/api/v1/auth/verify-email/resend` | Bearer token | 204; đã xác minh → 409 `EMAIL_ALREADY_VERIFIED` |
+| Đổi mật khẩu | `POST http://localhost:8081/api/v1/auth/change-password` | `{"currentPassword":"...","newPassword":"..."}` | 204; sai mật khẩu cũ → 400 `CURRENT_PASSWORD_INCORRECT` |
+| Khóa / mở khóa (ADMIN) | `PATCH http://localhost:8081/api/v1/admin/users/{userId}/lock` hoặc `/unlock` | Bearer token ADMIN | 204; khóa thì thu hồi luôn refresh token |
+| Đổi role (ADMIN) | `PATCH http://localhost:8081/api/v1/admin/users/{userId}/role` | `{"role":"ORGANIZER"}` | 204; người dùng nhận role mới ở lần refresh tiếp theo |
 | Làm mới token | `POST http://localhost:8081/api/v1/auth/refresh` | `{"refreshToken":"..."}` | Cặp token mới; refresh token cũ **mất hiệu lực** |
 | Đăng xuất | `POST http://localhost:8081/api/v1/auth/logout` | `{"refreshToken":"..."}` | 204 |
 
-Lỗi trả dạng `{code, message, timestamp, path}` với `code`: `VALIDATION_ERROR` (400), `EMAIL_ALREADY_EXISTS` / `PHONE_ALREADY_EXISTS` (409), `INVALID_CREDENTIALS` (401), `ACCOUNT_LOCKED` (403), `INVALID_REFRESH_TOKEN` / `REFRESH_TOKEN_EXPIRED` / `REFRESH_TOKEN_REUSED` (401), `AUTH_PROVIDER_UNAVAILABLE` (503: Keycloak chưa chạy hoặc cấu hình client sai).
+Lỗi trả dạng `{code, message, timestamp, path}` với `code`: `VALIDATION_ERROR` (400), `EMAIL_ALREADY_EXISTS` / `PHONE_ALREADY_EXISTS` (409), `INVALID_CREDENTIALS` (401), `ACCOUNT_LOCKED` (403), `INVALID_REFRESH_TOKEN` / `REFRESH_TOKEN_EXPIRED` / `REFRESH_TOKEN_REUSED` (401), `CURRENT_PASSWORD_INCORRECT` (400), `PROFILE_NOT_FOUND` (404), `PROFILE_ALREADY_EXISTS` / `EMAIL_ALREADY_VERIFIED` / `ACCOUNT_ALREADY_LOCKED` / `ACCOUNT_ALREADY_ACTIVE` / `CANNOT_MODIFY_OWN_ACCOUNT` / `ROLE_MAPPING_CONFLICT` (409), `AUTH_PROVIDER_UNAVAILABLE` (503: Keycloak chưa chạy hoặc cấu hình client sai).
 
 ## Sửa cấu hình realm
 
-Sửa `eventhub-realm.json` không tự áp dụng cho realm đã có. Ví dụ ba client service-to-service thêm ngày 2026-11-19: Keycloak đã nạp realm trước ngày đó sẽ chưa có, order-service gọi ticket-service sẽ nhận `TICKET_SERVICE_UNAVAILABLE`. Muốn nạp lại: vào trang quản trị xóa realm `eventhub` rồi `docker compose restart keycloak` (mất toàn bộ user trong realm), hoặc sửa trực tiếp trên trang quản trị rồi export lại vào file. Hai lưu ý đã gặp khi dựng file này:
+Sửa `eventhub-realm.json` không tự áp dụng cho realm đã có. **Bản sửa phân quyền ngày 2026-11-19 bắt buộc nạp lại realm** vì nó thêm audience `eventhub-api`, tách CUSTOMER khỏi role mặc định, thêm client `eventhub-event-service` và SMTP Mailpit, và tắt tự đăng ký trên trang Keycloak. Với realm cũ, mọi service trả 401 vì token thiếu audience; user cũ mang CUSTOMER qua role mặc định nên đổi role sẽ báo `ROLE_MAPPING_CONFLICT`. Muốn nạp lại: vào trang quản trị xóa realm `eventhub` rồi `docker compose restart keycloak` (mất toàn bộ user trong realm), hoặc sửa trực tiếp trên trang quản trị rồi export lại vào file. Hai lưu ý đã gặp khi dựng file này:
 
 - Role mặc định phải khai báo trong `roles.realm` kèm `composites`; Keycloak bỏ qua `composites` đặt trong khóa `defaultRole`.
 - Từ Keycloak 26.8, Admin REST API chỉ nhận token có audience do client scope `kc-admin-api` thêm vào. Client `eventhub-auth-service` phải có `kc-admin-api` trong `defaultClientScopes`, nếu không mọi lệnh tạo user trả 401 (auth-service báo `AUTH_PROVIDER_UNAVAILABLE`).

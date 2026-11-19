@@ -3,7 +3,7 @@
   "displayName": "EventHub",
   "enabled": true,
   "sslRequired": "external",
-  "registrationAllowed": true,
+  "registrationAllowed": false,
   "registrationEmailAsUsername": true,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
@@ -23,11 +23,20 @@
   "refreshTokenMaxReuse": 0,
   "bruteForceProtected": true,
   "failureFactor": 5,
+  "smtpServer": {
+    "host": "mailpit",
+    "port": "1025",
+    "from": "noreply@eventhub.local",
+    "fromDisplayName": "EventHub",
+    "auth": "false",
+    "ssl": "false",
+    "starttls": "false"
+  },
   "roles": {
     "realm": [
       {
         "name": "CUSTOMER",
-        "description": "Khách hàng mua vé (gán mặc định khi đăng ký)"
+        "description": "Khách hàng mua vé (auth-service gán trực tiếp khi đăng ký)"
       },
       {
         "name": "ORGANIZER",
@@ -51,7 +60,6 @@
         "composite": true,
         "composites": {
           "realm": [
-            "CUSTOMER",
             "offline_access",
             "uma_authorization"
           ],
@@ -95,7 +103,21 @@
       "attributes": {
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "http://localhost:3000/*##http://127.0.0.1:3000/*"
-      }
+      },
+      "protocolMappers": [
+        {
+          "name": "eventhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "eventhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
     },
     {
       "clientId": "eventhub-auth-service",
@@ -121,6 +143,20 @@
       ],
       "optionalClientScopes": [
         "offline_access"
+      ],
+      "protocolMappers": [
+        {
+          "name": "eventhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "eventhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
       ]
     },
     {
@@ -142,7 +178,21 @@
         "web-origins",
         "acr"
       ],
-      "optionalClientScopes": []
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "eventhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "eventhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
     },
     {
       "clientId": "eventhub-ticket-service",
@@ -163,7 +213,21 @@
         "web-origins",
         "acr"
       ],
-      "optionalClientScopes": []
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "eventhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "eventhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
     },
     {
       "clientId": "eventhub-analytics-service",
@@ -184,7 +248,56 @@
         "web-origins",
         "acr"
       ],
-      "optionalClientScopes": []
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "eventhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "eventhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "eventhub-event-service",
+      "name": "EventHub Event Service",
+      "description": "Service account của event-service gọi GET /internal/events/{id}/ticket-types/configuration của ticket-service (preflight publish C08). Secret chỉ dành cho dev.",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "eventhub-event-service-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "web-origins",
+        "acr"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "eventhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "eventhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "users": [
@@ -203,9 +316,8 @@
         }
       ],
       "realmRoles": [
-        "ADMIN",
-        "offline_access",
-        "uma_authorization"
+        "default-roles-eventhub",
+        "ADMIN"
       ]
     },
     {
@@ -223,9 +335,8 @@
         }
       ],
       "realmRoles": [
-        "ORGANIZER",
-        "offline_access",
-        "uma_authorization"
+        "default-roles-eventhub",
+        "ORGANIZER"
       ]
     },
     {
@@ -243,7 +354,8 @@
         }
       ],
       "realmRoles": [
-        "default-roles-eventhub"
+        "default-roles-eventhub",
+        "CUSTOMER"
       ]
     },
     {
@@ -281,6 +393,14 @@
       "username": "service-account-eventhub-analytics-service",
       "enabled": true,
       "serviceAccountClientId": "eventhub-analytics-service",
+      "realmRoles": [
+        "offline_access"
+      ]
+    },
+    {
+      "username": "service-account-eventhub-event-service",
+      "enabled": true,
+      "serviceAccountClientId": "eventhub-event-service",
       "realmRoles": [
         "offline_access"
       ]

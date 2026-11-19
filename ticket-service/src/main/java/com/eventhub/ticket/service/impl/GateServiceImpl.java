@@ -44,14 +44,15 @@ public class GateServiceImpl implements GateService {
 
     @Override
     public GateScanResponse scan(Actor scanner, GateScanRequest request, ScanType scanType) {
+        // Kiểm tra quyền trên sự kiện trước khi tra QR: organizer khác không dò được QR nào hợp lệ/thuộc sự kiện nào.
+        if (scanner.role() == BusinessRole.ORGANIZER
+                && !eventClient.getInternal(request.eventId()).organizerId().equals(scanner.userId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_NOT_OWNER, "Event belongs to another organizer");
+        }
         Ticket ticket = tickets.findByQrCodeValue(request.qrCodeValue().trim())
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_QR, "QR code is not valid"));
         if (!ticket.getTicketType().getEventId().equals(request.eventId())) {
             throw new BusinessException(ErrorCode.TICKET_WRONG_EVENT, "Ticket belongs to another event");
-        }
-        if (scanner.role() == BusinessRole.ORGANIZER
-                && !eventClient.getInternal(request.eventId()).organizerId().equals(scanner.userId())) {
-            throw new BusinessException(ErrorCode.FORBIDDEN_NOT_OWNER, "Event belongs to another organizer");
         }
         TicketStatus from = scanType == ScanType.CHECK_IN ? TicketStatus.ISSUED : TicketStatus.CHECKED_IN;
         TicketStatus to = scanType == ScanType.CHECK_IN ? TicketStatus.CHECKED_IN : TicketStatus.CHECKED_OUT;

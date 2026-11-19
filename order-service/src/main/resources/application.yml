@@ -42,7 +42,8 @@ eventhub:
   security:
     issuer: ${KEYCLOAK_ISSUER:http://localhost:8180/realms/eventhub}
     jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/certs}
-    audience: ${EVENTHUB_JWT_AUDIENCE:}
+    # Mapper eventhub-api-audience của realm thêm aud này vào mọi token; để trống thì không kiểm tra.
+    audience: ${EVENTHUB_JWT_AUDIENCE:eventhub-api}
     role-claim: ${EVENTHUB_ROLE_CLAIM:realm_access.roles}
   s2s:
     # Credential của Order để gọi /internal/** của ticket-service.

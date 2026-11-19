@@ -40,18 +40,22 @@ public class SecurityConfig {
         String issuer = environment.getProperty("eventhub.security.issuer", "");
         String audience = environment.getProperty("eventhub.security.audience", "");
         String jwks = environment.getProperty("eventhub.security.jwk-set-uri", "");
-        if (issuer.isBlank() || audience.isBlank() || jwks.isBlank()) {
+        if (issuer.isBlank() || jwks.isBlank()) {
             return token -> { throw new BadJwtException("Identity configuration is incomplete"); };
         }
         String algorithm = environment.getProperty("eventhub.security.algorithm", "RS256");
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwks)
                 .jwsAlgorithm(SignatureAlgorithm.from(algorithm)).build();
-        OAuth2TokenValidator<Jwt> audienceValidator = jwt ->
-                jwt.getAudience().contains(audience)
-                        ? OAuth2TokenValidatorResult.success()
-                        : OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Invalid audience", null));
-        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-                JwtValidators.createDefaultWithIssuer(issuer), audienceValidator));
+        OAuth2TokenValidator<Jwt> validator = JwtValidators.createDefaultWithIssuer(issuer);
+        // Audience để trống thì bỏ qua (giống ticket/order); token thiếu claim aud bị từ chối, không ném NPE.
+        if (!audience.isBlank()) {
+            OAuth2TokenValidator<Jwt> audienceValidator = jwt -> jwt.getAudience() != null
+                    && jwt.getAudience().contains(audience)
+                    ? OAuth2TokenValidatorResult.success()
+                    : OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Invalid audience", null));
+            validator = new DelegatingOAuth2TokenValidator<>(validator, audienceValidator);
+        }
+        decoder.setJwtValidator(validator);
         return decoder;
     }
 

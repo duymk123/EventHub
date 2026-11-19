@@ -4,6 +4,7 @@ import com.eventhub.ticket.common.Actor;
 import com.eventhub.ticket.dto.request.CreateTicketTypesRequest;
 import com.eventhub.ticket.dto.request.UpdateTicketTypeRequest;
 import com.eventhub.ticket.dto.response.EventCapacityResponse;
+import com.eventhub.ticket.dto.response.TicketConfigurationResponse;
 import com.eventhub.ticket.dto.response.TicketTypeResponse;
 
 import java.util.List;
@@ -25,4 +26,7 @@ public interface TicketTypeService {
 
     /** C10: sức chứa theo sự kiện cho Analytics, 1..100 id, id chưa có hạng vé trả 0. */
     List<EventCapacityResponse> getCapacityByEvents(List<UUID> eventIds);
+
+    /** C08: Event Service kiểm tra trước publish; sự kiện chưa có hạng vé trả readyToPublish=false. */
+    TicketConfigurationResponse getConfiguration(UUID eventId);
 }
