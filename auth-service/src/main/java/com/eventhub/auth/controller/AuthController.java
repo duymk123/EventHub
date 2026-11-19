@@ -1,5 +1,6 @@
 package com.eventhub.auth.controller;
 
+import com.eventhub.auth.dto.request.ChangePasswordRequest;
 import com.eventhub.auth.dto.request.LoginRequest;
 import com.eventhub.auth.dto.request.RefreshRequest;
 import com.eventhub.auth.dto.request.RegisterRequest;
@@ -20,8 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 /**
- * AUTH-UC01..UC05 theo docs/api/auth-service-openapi.yaml. register/login/refresh/logout không cần token;
- * /me cần access token hợp lệ.
+ * AUTH-UC01..UC06 theo docs/api/auth-service-openapi.yaml. register/login/refresh/logout không cần token;
+ * các API còn lại cần access token hợp lệ, userId lấy từ sub của JWT.
  */
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -33,7 +34,7 @@ public class AuthController {
         this.authService = authService;
     }
 
-    /** POST /api/v1/auth/register → 201, tài khoản mới có role CUSTOMER. */
+    /** POST /api/v1/auth/register → 201, tài khoản mới có role CUSTOMER, mail xác minh được gửi. */
     @PostMapping("/register")
     public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
@@ -62,5 +63,23 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<UserResponse> me(@AuthenticationPrincipal Jwt jwt) {
         return ResponseEntity.ok(authService.getMe(UUID.fromString(jwt.getSubject())));
+    }
+
+    /** POST /api/v1/auth/change-password → 204. */
+    @PostMapping("/change-password")
+    public ResponseEntity<Void> changePassword(@AuthenticationPrincipal Jwt jwt,
+                                               @Valid @RequestBody ChangePasswordRequest request) {
+        authService.changePassword(UUID.fromString(jwt.getSubject()), request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * POST /api/v1/auth/verify-email/resend → 204, gửi lại mail xác minh. Sau khi bấm link, client gọi
+     * /auth/refresh để nhận token có email_verified=true.
+     */
+    @PostMapping("/verify-email/resend")
+    public ResponseEntity<Void> resendVerificationEmail(@AuthenticationPrincipal Jwt jwt) {
+        authService.resendVerificationEmail(UUID.fromString(jwt.getSubject()));
+        return ResponseEntity.noContent().build();
     }
 }

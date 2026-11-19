@@ -151,6 +151,121 @@ paths:
           $ref: '#/components/responses/Unauthorized'
       x-contract-status: target-facade-keycloak-integration-pending
       description: Facade EventHub → Keycloak. Đọc identity/profile đã xác minh từ Keycloak/adapter; không giả định claim roles phẳng hoặc có DB users local.
+  /auth/verify-email/resend:
+    post:
+      tags:
+      - Auth
+      operationId: resendVerificationEmail
+      summary: Gửi lại mail xác minh email
+      description: Keycloak gửi mail (dev qua Mailpit). Sau khi bấm link, client gọi /auth/refresh để nhận token có email_verified=true; Order chỉ cho đặt vé khi email đã xác minh.
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Đã gửi
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: EMAIL_ALREADY_VERIFIED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: AUTH_PROVIDER_UNAVAILABLE (Keycloak hoặc SMTP lỗi)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /me/profile:
+    get:
+      tags:
+      - Auth
+      operationId: getMyProfile
+      summary: Hồ sơ nghiệp vụ của tôi
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Hồ sơ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: PROFILE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+      - Auth
+      operationId: initializeMyProfile
+      summary: Tạo hồ sơ cho tài khoản chưa có (tài khoản tạo ngoài /auth/register)
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserProfileRequest'
+      responses:
+        '201':
+          description: Đã tạo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: PROFILE_ALREADY_EXISTS hoặc PHONE_ALREADY_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      tags:
+      - Auth
+      operationId: updateMyProfile
+      summary: Cập nhật hồ sơ (chỉ trường được gửi; phoneNumber rỗng để xóa)
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserProfileRequest'
+      responses:
+        '200':
+          description: Hồ sơ sau cập nhật
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: PROFILE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: PHONE_ALREADY_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /auth/change-password:
     post:
       tags:
@@ -170,7 +285,7 @@ paths:
         '204':
           description: Đổi mật khẩu thành công
         '400':
-          description: VALIDATION_ERROR hoặc CURRENT_PASSWORD_INCORRECT
+          description: VALIDATION_ERROR (gồm mật khẩu mới không đạt chính sách realm) hoặc CURRENT_PASSWORD_INCORRECT
           content:
             application/json:
               schema:
@@ -199,7 +314,7 @@ paths:
         '404':
           $ref: '#/components/responses/UserNotFound'
         '409':
-          description: ACCOUNT_ALREADY_LOCKED
+          description: ACCOUNT_ALREADY_LOCKED hoặc CANNOT_MODIFY_OWN_ACCOUNT
           content:
             application/json:
               schema:
@@ -226,7 +341,7 @@ paths:
         '404':
           $ref: '#/components/responses/UserNotFound'
         '409':
-          description: ACCOUNT_ALREADY_ACTIVE
+          description: ACCOUNT_ALREADY_ACTIVE hoặc CANNOT_MODIFY_OWN_ACCOUNT
           content:
             application/json:
               schema:
@@ -251,7 +366,7 @@ paths:
               $ref: '#/components/schemas/AssignRoleRequest'
       responses:
         '204':
-          description: Đã cập nhật role
+          description: Đã cập nhật role (gỡ business role cũ, gán role mới; người dùng nhận role mới ở lần refresh tiếp theo)
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -260,6 +375,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/UserNotFound'
+        '409':
+          description: CANNOT_MODIFY_OWN_ACCOUNT (ADMIN tự đổi role mình) hoặc ROLE_MAPPING_CONFLICT (user vẫn thừa kế business role khác từ composite role của realm)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
       x-contract-status: target-facade-keycloak-integration-pending
 components:
   securitySchemes:
@@ -404,10 +525,45 @@ components:
           $ref: '#/components/schemas/Role'
         status:
           $ref: '#/components/schemas/UserStatus'
+        emailVerified:
+          type: boolean
+          description: false tới khi người dùng bấm link trong mail xác minh; Order chỉ cho đặt vé khi true.
         createdAt:
           type: string
           format: date-time
       description: DTO facade; id UUID nghiệp vụ đề xuất map Keycloak sub. role/status là mapping của Keycloak, không là bảng users local.
+    UserProfileRequest:
+      type: object
+      properties:
+        fullName:
+          type: string
+          maxLength: 100
+          description: Bắt buộc với PUT
+        phoneNumber:
+          type: string
+          maxLength: 20
+          nullable: true
+        avatarUrl:
+          type: string
+          maxLength: 255
+          nullable: true
+    UserProfileResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        keycloakSub:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        phoneNumber:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
     ErrorResponse:
       type: object
       required:

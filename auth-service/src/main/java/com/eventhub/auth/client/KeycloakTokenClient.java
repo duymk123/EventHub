@@ -111,6 +111,32 @@ public class KeycloakTokenClient {
     }
 
     /**
+     * Kiểm tra mật khẩu hiện tại cho đổi mật khẩu: thử password grant rồi đóng ngay phiên vừa tạo. Sai mật khẩu
+     * tính vào brute-force của realm như đăng nhập thường.
+     *
+     * @return true nếu Keycloak chấp nhận mật khẩu.
+     */
+    public boolean verifyPassword(String username, String password) {
+        MultiValueMap<String, String> form = clientForm("password");
+        form.add("username", username);
+        form.add("password", password);
+        KeycloakToken token;
+        try {
+            token = postToken(form);
+        } catch (HttpClientErrorException error) {
+            return false;
+        }
+        if (token.refreshToken() != null) {
+            try {
+                logout(token.refreshToken());
+            } catch (BusinessException ignored) {
+                // Phiên kiểm tra tự hết hạn theo SSO idle; không chặn đổi mật khẩu vì lỗi đóng phiên.
+            }
+        }
+        return true;
+    }
+
+    /**
      * Token quản trị (client_credentials của service account), cache tới 30 giây trước khi hết hạn.
      */
     public synchronized String adminToken() {

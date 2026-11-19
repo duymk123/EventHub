@@ -16,15 +16,16 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    open-in-view: false    
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          # Keycloak chạy bằng Docker (docker compose up -d keycloak-db keycloak), cổng 8180, realm eventhub.
-          issuer-uri: "${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/eventhub}"
+    open-in-view: false
 
 eventhub:
+  security:
+    # Keycloak chạy bằng Docker (docker compose up -d keycloak-db keycloak), cổng 8180, realm eventhub.
+    # issuer là địa chỉ công khai (KC_HOSTNAME); jwk-set-uri có thể là địa chỉ nội bộ (keycloak:8080 trong Docker).
+    issuer: "${KEYCLOAK_ISSUER:http://localhost:8180/realms/eventhub}"
+    jwk-set-uri: "${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/certs}"
+    # Audience do mapper eventhub-api-audience của realm thêm vào mọi token; để trống thì không kiểm tra.
+    audience: "${EVENTHUB_JWT_AUDIENCE:eventhub-api}"
   keycloak:
     # Auth Service gọi Keycloak (Admin API + token endpoint) bằng client confidential eventhub-auth-service.
     # Secret dưới đây chỉ dành cho dev, khớp infrastructure/keycloak/eventhub-realm.json; môi trường thật đặt qua biến.
