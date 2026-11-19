@@ -8,7 +8,7 @@ Bộ tài liệu cập nhật 2026-10-29 dành cho việc đọc hiểu database
 
 | Service | Tài liệu | Những điểm được giải thích |
 |---|---|---|
-| Auth | [Giải thích trường Auth](auth-service/fields.md) | User local trong code, audit và ranh giới Keycloak; chưa có DDL Auth được duyệt. |
+| Auth | [Giải thích trường Auth](auth-service/fields.md) | Không có User entity local; Keycloak sở hữu identity; `user_profiles` optional projection đã implement; audit và ranh giới Keycloak. |
 | Event | [Giải thích trường Event](event-service/fields.md) | Danh mục, người tổ chức, duyệt/công bố, thời gian sự kiện và khác biệt audit của entity. |
 | Ticket | [Giải thích trường Ticket](ticket-service/fields.md) | Giá/quota, available/reserved/sold, giữ chỗ, vé QR, quét vào/ra và outbox. |
 | Order | [Giải thích trường Order](order-service/fields.md) | Đơn, dòng mua, từng người dùng vé, thanh toán, webhook và yêu cầu hoàn. |
@@ -61,7 +61,7 @@ Phân biệt ID: **eventId là sự kiện khách tham dự; messageId là một
 
 | Service | Ảnh SVG và mô tả đầy đủ cột |
 |---|---|
-| Auth | [Sơ đồ ranh giới Keycloak](auth-service/erd.md); mapping User local hiện có được giải thích trong [từ điển trường](auth-service/fields.md), chưa có DDL local được duyệt |
+| Auth | [Sơ đồ ranh giới Keycloak](auth-service/erd.md); không có User entity local; `user_profiles` optional projection đã implement; xem [từ điển trường](auth-service/fields.md) |
 | Event | [ERD](event-service/erd.md) |
 | Ticket | [ERD](ticket-service/erd.md) |
 | Order | [ERD](order-service/erd.md) |
@@ -76,7 +76,7 @@ Phần bảng/cột bổ sung còn đề xuất trong [plan](../plans/README.md)
 
 | Nguồn dữ liệu | Bảng chính | ID sang service khác |
 |---|---|---|
-| [Auth/Keycloak](auth-service/README.md) | Keycloak quản lý identity; local User đã có trong code Auth, chưa có DDL local được duyệt; xem [trường hiện có](auth-service/fields.md) | userId/sub mapping cần cấu hình/đồng bộ |
+| [Auth/Keycloak](auth-service/README.md) | Keycloak quản lý identity (credentials, session, token, role); Auth facade gọi Admin REST/OIDC; `user_profiles` optional projection đã implement; xem [trường hiện có](auth-service/fields.md) | userId = Keycloak `sub` (UUID), mapping 1-1 |
 | [Event](event-service/init.sql) | categories, events | organizer_id |
 | [Ticket](ticket-service/init.sql) | ticket_types, reservations/items, tickets, ticket_scans; outbox kỹ thuật | event_id, order_id, owner_user_id, gate_id |
 | [Order](order-service/init.sql) | orders/items/holders, payments, refund_requests, payment_webhooks; outbox kỹ thuật | customer_id, event_id, reservation_id, ticket_type_id, requested_by, approved_by |

@@ -35,7 +35,7 @@ Tiến độ riêng Notification/Analytics ngày 2026-11-05 đã có REST securi
 
 | Service | Đã có | Cần xây |
 |---|---|---|
-| Auth | Application | Facade + Keycloak clients, mapping identity/role và security |
+| Auth | Application, UserProfile entity/controller, SecurityConfig | Facade + Keycloak clients (TokenClient, UserClient), IdentityMapper, AdminUserController, mapping identity/role và security |
 | Event | Application | Toàn bộ nghiệp vụ, entity/repository/Flyway |
 | Ticket | Application | Toàn bộ nghiệp vụ, entity/repository/Flyway/outbox |
 | Order | BaseEntity UUID, Order/OrderItem/Payment/Refund | Refactor model còn lệch hợp đồng; các tầng nghiệp vụ/worker/migration |
@@ -57,7 +57,7 @@ API Gateway là phần phụ thuộc chung, có [plan riêng](api-gateway.md), k
 
 | Service | Ảnh đọc được bằng mã | Mô tả |
 |---|---|---|
-| Auth | [Sơ đồ ranh giới](../database/auth-service/erd.svg) | Chưa có bảng profile local được yêu cầu; không bịa schema nội bộ Keycloak |
+| Auth | [Sơ đồ ranh giới](../database/auth-service/erd.svg) | `user_profiles` optional projection đã implement; không bịa schema nội bộ Keycloak |
 | Event | [ERD](../database/event-service/erd.svg) | categories/events |
 | Ticket | [ERD](../database/ticket-service/erd.svg) | Sáu bảng, tồn kho gộp ticket_types |
 | Order | [ERD](../database/order-service/erd.svg) | Bảy bảng tham chiếu, gồm holders/webhooks/outbox |

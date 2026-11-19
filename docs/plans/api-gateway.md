@@ -20,10 +20,17 @@ Giữ nguyên `/api/v1`, body/query/status và schema phân trang của owner. K
 
 | Route ID đề xuất | Method + path | Owner | Chính sách đầu vào |
 |---|---|---|---|
-| auth-public | POST `/api/v1/auth/register`, `/login`, `/refresh`, `/logout` dưới cùng `/api/v1/auth` | Auth | Không yêu cầu access JWT; Auth vẫn kiểm tra dữ liệu/refresh token/session. |
+| auth-public | POST `/api/v1/auth/register`, `/login`, `/refresh`, `/logout`, `/forgot-password`, `/reset-password`, `/verify-email`, `/resend-verification` dưới cùng `/api/v1/auth` | Auth | Không yêu cầu access JWT; Auth vẫn kiểm tra dữ liệu/refresh token/session. |
 | auth-me | GET `/api/v1/auth/me` | Auth | Business actor hợp lệ. |
 | auth-password | POST `/api/v1/auth/change-password` | Auth | Business actor hợp lệ. |
-| auth-admin | PATCH `/api/v1/admin/users/{userId}/lock`, `/unlock`, `/role` dưới cùng userId | Auth | ADMIN. |
+| auth-sessions | GET `/api/v1/auth/me/sessions`, DELETE `/api/v1/auth/me/sessions/{sessionId}` | Auth | Business actor hợp lệ. |
+| auth-admin-list | GET `/api/v1/admin/users` | Auth | ADMIN. |
+| auth-admin-detail | GET `/api/v1/admin/users/{userId}` | Auth | ADMIN. |
+| auth-admin-lock | PATCH `/api/v1/admin/users/{userId}/lock` | Auth | ADMIN. |
+| auth-admin-unlock | PATCH `/api/v1/admin/users/{userId}/unlock` | Auth | ADMIN. |
+| auth-admin-role | PATCH `/api/v1/admin/users/{userId}/role` | Auth | ADMIN. |
+| auth-admin-resetpass | POST `/api/v1/admin/users/{userId}/reset-password` | Auth | ADMIN. |
+| auth-admin-sessions | GET `/api/v1/admin/users/{userId}/sessions`, DELETE `/api/v1/admin/users/{userId}/sessions` | Auth | ADMIN. |
 | event-public | GET `/api/v1/events`, `/api/v1/events/{id}` | Event | Public; Event chỉ trả PUBLISHED. |
 | event-create | POST `/api/v1/events` | Event | ORGANIZER. |
 | event-update | PUT `/api/v1/events/{id}` | Event | ORGANIZER + owner tại Event. |

@@ -16,7 +16,7 @@ Hiện chỉ Application/context test. Chưa có realm/client/grant/JWK/issuer/a
 | `AuthService.login(LoginRequest request): TokenResponse` | Xác thực tại Keycloak bằng grant/code flow được cấu hình; chỉ chuẩn hóa token response, không tự ký JWT. Request email/password hiện là draft; cập nhật nếu chọn exchange code. |
 | `AuthService.refresh(RefreshRequest request): TokenResponse` | Gọi token client, trả expiresIn/token thực tế. Rotation/reuse do Keycloak cấu hình, không đọc bảng refresh local. |
 | `AuthService.logout(RefreshRequest request): void` | Kết thúc session theo cơ chế đã chọn; Keycloak kiểm tra refresh token/client context, không chỉ xóa dữ liệu frontend. API hiện không đòi access token còn hạn để logout; trả 204 theo hợp đồng. |
-| `AuthService.getMe(Actor actor): UserResponse` | Từ identity đã xác minh, lấy profile cần thiết qua Keycloak/adapter; không nhận userId khác trong query. |
+| `AuthService.getMe(Actor actor): UserResponse` | Từ identity đã xác minh, lấy profile qua Keycloak/adapter; **trả `UserResponse(id=sub, email, fullName, role, status, createdAt)` từ Keycloak**. Không nhận userId khác trong query. **Không trả dữ liệu từ `user_profiles`**. |
 | `AuthService.changePassword(Actor actor, ChangePasswordRequest request): void` | Kiểm tra/current re-authentication bằng Keycloak flow được cấp quyền, cập nhật credential tại provider; không so password hash local. Thu hồi session theo chính sách được cấu hình. |
 | `UserAdministrationService.lockUser(Actor admin, UUID userId): void` | ADMIN → disable user và thu hồi session tại Keycloak. Gọi lặp idempotent; không hứa mọi JWT offline mất hiệu lực ngay. |
 | `UserAdministrationService.unlockUser(Actor admin, UUID userId): void` | ADMIN → enable user, giữ role/profile hiện có. 404 nếu không tồn tại. |
@@ -45,7 +45,7 @@ ServiceImpl là orchestrator; không tạo `@Transactional` local giả để ng
 
 **Giai đoạn hiện tại không cần repository JPA identity.** Không tạo `UserRepository`, `RoleRepository`, `RefreshTokenRepository` chỉ để đủ pattern. Keycloak là owner dữ liệu này, EventHub không truy cập SQL Keycloak.
 
-Nếu sau này có profile nghiệp vụ ngoài Keycloak được yêu cầu, mới thêm migration + entity `UserProfile(id UUID, keycloakSubject UUID UNIQUE, ...)` hoặc dùng id=sub sau chốt mapping. Khi đó `UserProfileRepository.findByKeycloakSubject(UUID): Optional<UserProfile>`, `save(UserProfile)` chỉ lưu profile, không password/token hoặc quyền authoritative. Đây là mở rộng có điều kiện, chưa phải bảng cần code bây giờ. Datasource hiện có trong scaffold không phải bằng chứng cần bảng users local.
+`UserProfile` entity/repository/service/controller/mapper **đã implement** làm optional profile projection (avatar, phone, full_name tách Keycloak). Chỉ dùng khi FE yêu cầu profile mở rộng. Nếu không cần, có thể bỏ qua `eventhub_auth` datasource. Migration cho `user_profiles` tạo khi deploy nếu bảng được sử dụng.
 
 ## 5. API → service
 
@@ -62,10 +62,36 @@ Prefix public `/api/v1`.
 | PATCH `/admin/users/{userId}/lock` | `lockUser` |
 | PATCH `/admin/users/{userId}/unlock` | `unlockUser` |
 | PATCH `/admin/users/{userId}/role` | `assignRole` |
+| GET `/admin/users` | `listUsers` (phân trang, tìm kiếm) |
+| GET `/admin/users/{userId}` | `getUserDetail` |
+| POST `/admin/users/{userId}/reset-password` | `resetPassword` |
+| GET `/admin/users/{userId}/sessions` | `getUserSessions` |
+| DELETE `/admin/users/{userId}/sessions` | `revokeUserSessions` |
 
 DTO request: RegisterRequest/LoginRequest/RefreshRequest/ChangePasswordRequest/AssignRoleRequest; response TokenResponse/UserResponse. Validate UUID path đúng 36 ký tự ở hợp đồng và parse tại adapter; status ACTIVE/LOCKED là mapping provider.enabled, không bảng local. Không hardcode TTL access/refresh.
 
-## 6. Lỗi, kiểm tra và thứ tự code
+## 6. Admin UI quản lý user (Yêu cầu bắt buộc)
+
+> **Keycloak WebUI CHỈ dùng cho test/dev.** Sản phẩm cuối **CÓ ADMIN UI RIÊNG** (trong EventHub Frontend) để quản trị viên vận hành tài khoản user đầy đủ.
+
+**Admin UI tự triển khai (Next.js), không embed Keycloak Admin Console.** Tất cả thao tác qua Auth Service facade → Keycloak Admin API (service account).
+
+| Tính năng | Endpoint Auth Service | Mô tả |
+|---|---|---|
+| Danh sách user (phân trang, tìm kiếm) | `GET /api/v1/admin/users` | Lấy từ Keycloak qua Admin API, map về DTO |
+| Xem chi tiết user | `GET /api/v1/admin/users/{userId}` | Profile + role + status + timestamps |
+| Khóa tài khoản | `PATCH /api/v1/admin/users/{userId}/lock` | Disable user + revoke sessions ở Keycloak |
+| Mở khóa tài khoản | `PATCH /api/v1/admin/users/{userId}/unlock` | Enable user |
+| Gán/chuyển role | `PATCH /api/v1/admin/users/{userId}/role` | Chỉ CUSTOMER/ORGANIZER/ADMIN (business roles) |
+| Reset mật khẩu (admin) | `POST /api/v1/admin/users/{userId}/reset-password` | Gửi email reset hoặc set temporary password |
+| Xem session/đăng xuất tất cả | `GET/DELETE /api/v1/admin/users/{userId}/sessions` | Quản trị session hoạt động |
+
+**Yêu cầu kỹ thuật:**
+- Phân quyền: chỉ ADMIN (role trong token) mới truy cập `/api/v1/admin/**`
+- Audit log: ghi nhận admin nào thực hiện hành động gì, khi nào
+- FE tự build UI quản trị user, không phụ thuộc Keycloak WebUI
+
+## 7. Lỗi, kiểm tra và thứ tự code
 
 ErrorCode dự kiến: EMAIL_ALREADY_EXISTS 409, INVALID_CREDENTIALS 401, ACCOUNT_LOCKED 403, INVALID_REFRESH_TOKEN 401, USER_NOT_FOUND 404, FORBIDDEN 403, IDENTITY_PROVIDER_UNAVAILABLE 503. Các code expired/reuse chỉ trả khi provider thực sự cho biết, không suy từ mọi 400 của Keycloak. OpenAPI hiện còn mô tả cũ rằng reuse luôn thu hồi cả token family; trước code cần đồng bộ mô tả đó với chính sách Keycloak thực tế, không tự triển khai bảng family local để làm đúng một câu mô tả cũ. Wire error OIDC ở adapter chuyển thành ErrorResponse EventHub cho endpoint facade.
 

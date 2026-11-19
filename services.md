@@ -25,10 +25,21 @@ Role CUSTOMER/ORGANIZER/ADMIN và ACTIVE/LOCKED trong DTO là mapping ứng dụ
 | POST | `/auth/refresh` | AUTH-UC03 Refresh token (rotation) | Facade Auth → Keycloak |
 | POST | `/auth/logout` | AUTH-UC04 Đăng xuất | Facade Auth → Keycloak |
 | GET | `/auth/me` | AUTH-UC05 Thông tin tài khoản hiện tại | Facade Auth → Keycloak |
-| POST | `/auth/change-password` | AUTH-UC06 Đổi mật khẩu | Facade Auth → Keycloak |
-| PATCH | `/admin/users/{userId}/lock` | AUTH-UC08 Khóa tài khoản | Facade Auth → Keycloak |
-| PATCH | `/admin/users/{userId}/unlock` | AUTH-UC09 Mở khóa tài khoản | Facade Auth → Keycloak |
-| PATCH | `/admin/users/{userId}/role` | AUTH-UC07 Gán / chuyển role | Facade Auth → Keycloak |
+| POST | `/auth/change-password` | AUTH-UC06 Đổi mật khẩu (user tự đổi) | Facade Auth → Keycloak |
+| POST | `/auth/forgot-password` | AUTH-UC10 Yêu cầu reset mật khẩu | Facade Auth → Keycloak |
+| POST | `/auth/reset-password` | AUTH-UC11 Đặt lại mật khẩu bằng token | Facade Auth → Keycloak |
+| POST | `/auth/verify-email` | AUTH-UC12 Xác thực email | Facade Auth → Keycloak |
+| POST | `/auth/resend-verification` | AUTH-UC13 Gửi lại email xác thực | Facade Auth → Keycloak |
+| GET | `/auth/me/sessions` | AUTH-UC14 Xem session của mình | Facade Auth → Keycloak |
+| DELETE | `/auth/me/sessions/{sessionId}` | AUTH-UC15 Revoke một session của mình | Facade Auth → Keycloak |
+| GET | `/admin/users` | AUTH-UC07 Danh sách user (phân trang, tìm kiếm, lọc) | Facade Auth → Keycloak |
+| GET | `/admin/users/{userId}` | AUTH-UC08 Xem chi tiết user | Facade Auth → Keycloak |
+| PATCH | `/admin/users/{userId}/lock` | AUTH-UC09 Khóa tài khoản | Facade Auth → Keycloak |
+| PATCH | `/admin/users/{userId}/unlock` | AUTH-UC10 Mở khóa tài khoản | Facade Auth → Keycloak |
+| PATCH | `/admin/users/{userId}/role` | AUTH-UC11 Gán / chuyển role | Facade Auth → Keycloak |
+| POST | `/admin/users/{userId}/reset-password` | AUTH-UC12 Reset mật khẩu bởi admin | Facade Auth → Keycloak |
+| GET | `/admin/users/{userId}/sessions` | AUTH-UC13 Xem session của user | Facade Auth → Keycloak |
+| DELETE | `/admin/users/{userId}/sessions` | AUTH-UC14 Revoke tất cả session của user | Facade Auth → Keycloak |
 
 ## event-service
 
