@@ -946,5 +946,5 @@ components:
           type: string
           description: Đường dẫn HTTP của request gây lỗi
 x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
-x-implementation-status: scaffold-only
+x-implementation-status: implemented-2026-11-19
 x-open-decisions: ../project-clarifications.md

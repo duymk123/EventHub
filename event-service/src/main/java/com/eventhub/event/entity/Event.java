@@ -1,18 +1,13 @@
 package com.eventhub.event.entity;
 
-import java.time.LocalDateTime;
-import java.util.UUID;
-
-import org.hibernate.annotations.UuidGenerator;
-
 import com.eventhub.event.common.EventStatus;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -21,28 +16,40 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.type.SqlTypes;
 
-@Getter 
-@Setter 
-@AllArgsConstructor 
-@NoArgsConstructor 
-@Builder 
-@Entity 
-@Table (name = "events")
+import java.time.Instant;
+import java.util.UUID;
+
+/**
+ * Sự kiện theo DDL Event. organizerId là Keycloak sub của ORGANIZER (khóa mềm, không FK sang Auth).
+ */
+@Getter
+@Setter
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+@Entity
+@Table(name = "events", indexes = {
+        @Index(name = "idx_events_public", columnList = "status, start_time"),
+        @Index(name = "idx_events_owner", columnList = "organizer_id, created_at")
+})
 public class Event extends BaseEntity {
 
-    @Id 
-    @UuidGenerator 
-    @Column (name = "id", length = 36, nullable = false, updatable = false)
+    @Id
+    @UuidGenerator
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "id", length = 36, nullable = false, updatable = false)
     private UUID id;
 
-   // Khóa ngoại mềm trỏ sang Auth DB: users.id (Keycloak UUID)
-    @Column(name = "organizer_id", nullable = false, length = 36)
-    private String organizerId;
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "organizer_id", length = 36, nullable = false, updatable = false)
+    private UUID organizerId;
 
-    // Khóa ngoại vật lý nội bộ trỏ đến bảng categories
-    @ManyToOne (fetch = FetchType.LAZY, optional = false)
-    @JoinColumn (name = "category_id", nullable = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "category_id", nullable = false)
     private Category category;
 
     @Column(name = "title", nullable = false, length = 255)
@@ -51,14 +58,18 @@ public class Event extends BaseEntity {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    // Khóa ngoại vật lý nội bộ trỏ đến bảng locations
-    @Enumerated (EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 50)
-    private EventStatus status =  EventStatus.DRAFT;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    @Builder.Default
+    private EventStatus status = EventStatus.DRAFT;
 
     @Column(name = "start_time", nullable = false)
-    private LocalDateTime startTime;
+    private Instant startTime;
 
     @Column(name = "end_time", nullable = false)
-    private LocalDateTime endTime;
+    private Instant endTime;
+
+    /** Lý do từ chối (API trả là rejectReason); xóa khi organizer sửa lại để nộp vòng mới. */
+    @Column(name = "review_reason", columnDefinition = "TEXT")
+    private String reviewReason;
 }
