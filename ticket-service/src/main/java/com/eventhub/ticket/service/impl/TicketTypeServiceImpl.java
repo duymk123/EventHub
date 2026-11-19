@@ -10,6 +10,7 @@ import com.eventhub.ticket.dto.request.CreateTicketTypesRequest;
 import com.eventhub.ticket.dto.request.TicketTypeInput;
 import com.eventhub.ticket.dto.request.UpdateTicketTypeRequest;
 import com.eventhub.ticket.dto.response.EventCapacityResponse;
+import com.eventhub.ticket.dto.response.TicketConfigurationResponse;
 import com.eventhub.ticket.dto.response.TicketTypeResponse;
 import com.eventhub.ticket.entity.TicketType;
 import com.eventhub.ticket.exception.BusinessException;
@@ -114,6 +115,15 @@ public class TicketTypeServiceImpl implements TicketTypeService {
             throw new BusinessException(ErrorCode.EVENT_NOT_FOUND, "Event not found");
         }
         return sorted(types.findByEventId(eventId));
+    }
+
+    @Override
+    public TicketConfigurationResponse getConfiguration(UUID eventId) {
+        List<TicketType> sellable = types.findByEventId(eventId).stream()
+                .filter(type -> type.getStatus() == TicketTypeStatus.ACTIVE && type.getTotalQuota() > 0)
+                .toList();
+        long capacity = sellable.stream().mapToLong(TicketType::getTotalQuota).sum();
+        return new TicketConfigurationResponse(eventId, sellable.size(), capacity, !sellable.isEmpty());
     }
 
     @Override

@@ -23,17 +23,20 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Arrays;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Resource server JWT (Keycloak) cho mọi API. Quyền theo plan Ticket §5 và OpenAPI:
  * public xem hạng vé; ORGANIZER cấu hình hạng vé; CUSTOMER xem vé/QR của mình; cổng soát vé tạm dùng
- * ORGANIZER/ADMIN tới khi C07 chốt cơ chế thiết bị; /internal/** chỉ cho service account được liệt kê.
+ * ORGANIZER/ADMIN tới khi C07 chốt cơ chế thiết bị; /internal/** mở theo từng service account (azp), service
+ * này không gọi được API nội bộ dành cho service khác.
  */
 @Configuration
 public class SecurityConfig {
+    static final String ROLE_ORDER = "SVC_ORDER";
+    static final String ROLE_ANALYTICS = "SVC_ANALYTICS";
+    static final String ROLE_EVENT = "SVC_EVENT";
 
     @Bean
     Clock clock() {
@@ -65,9 +68,16 @@ public class SecurityConfig {
     @Bean
     CallerAuthenticationConverter callerAuthenticationConverter(
             @Value("${eventhub.security.role-claim}") String roleClaim,
-            @Value("${eventhub.security.internal-clients}") String internalClients) {
-        Set<String> clients = Arrays.stream(internalClients.split(","))
-                .map(String::trim).filter(value -> !value.isEmpty()).collect(Collectors.toSet());
+            @Value("${eventhub.security.internal-clients.order}") String orderClient,
+            @Value("${eventhub.security.internal-clients.analytics}") String analyticsClient,
+            @Value("${eventhub.security.internal-clients.event}") String eventClient) {
+        Map<String, String> clients = new HashMap<>();
+        clients.put(orderClient.trim(), ROLE_ORDER);
+        clients.put(analyticsClient.trim(), ROLE_ANALYTICS);
+        clients.put(eventClient.trim(), ROLE_EVENT);
+        if (clients.size() != 3 || clients.containsKey("")) {
+            throw new IllegalStateException("eventhub.security.internal-clients must list three distinct client ids");
+        }
         return new CallerAuthenticationConverter(roleClaim, clients);
     }
 
@@ -109,7 +119,14 @@ public class SecurityConfig {
                         // C07 (thiết bị cổng) chưa chốt: tạm cho ORGANIZER chủ sự kiện và ADMIN quét vé.
                         .requestMatchers(HttpMethod.POST, "/api/v1/gate/check-in", "/api/v1/gate/check-out")
                         .hasAnyRole("ORGANIZER", "ADMIN")
-                        .requestMatchers("/internal/**").hasRole("SERVICE")
+                        // Order: giữ/xác nhận/nhả chỗ và hủy vé theo đơn.
+                        .requestMatchers(HttpMethod.POST, "/internal/reservations", "/internal/reservations/*/confirm",
+                                "/internal/reservations/*/release", "/internal/tickets/cancel-by-order/*")
+                        .hasRole(ROLE_ORDER)
+                        // Analytics (C10): chỉ đọc sức chứa.
+                        .requestMatchers(HttpMethod.GET, "/internal/ticket-types/capacity").hasRole(ROLE_ANALYTICS)
+                        // Event (C08): kiểm tra cấu hình vé trước khi publish.
+                        .requestMatchers(HttpMethod.GET, "/internal/events/*/ticket-types/configuration").hasRole(ROLE_EVENT)
                         .anyRequest().denyAll())
                 .exceptionHandling(errors -> errors.authenticationEntryPoint(entryPoint).accessDeniedHandler(deniedHandler))
                 .oauth2ResourceServer(resource -> resource
