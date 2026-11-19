@@ -29,7 +29,7 @@ public class AdminUserController {
 
     @PatchMapping("/{userId}/lock")
     public ResponseEntity<Void> lock(@AuthenticationPrincipal Jwt admin, @PathVariable UUID userId) {
-        authService.locokkUser(UUID.fromString(admin.getSubject()), userId);
+        authService.lockUser(UUID.fromString(admin.getSubject()), userId);
         return ResponseEntity.noContent().build();
     }
 
