@@ -85,6 +85,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - eventhub
 
   # Keycloak Identity Provider
   keycloak:
@@ -107,6 +109,8 @@ services:
     depends_on:
       keycloak-db:
         condition: service_healthy
+    networks:
+      - eventhub
 # Auth Service DB
   auth-db:
     image: mysql:8.4
@@ -264,12 +268,20 @@ services:
       DB_NAME: eventhub_auth
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      # Keycloak configuration - use internal Docker network address
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
+      KEYCLOAK_FRONTEND_CLIENT_ID: ${KEYCLOAK_FRONTEND_CLIENT_ID:-eventhub-frontend}
+      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-eventhub-backend}
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/eventhub
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080
     restart: unless-stopped
     networks:
       - eventhub
     depends_on:
       auth-db:
         condition: service_healthy
+      keycloak:
+        condition: service_started
 
   event-service:
     image: eventhub/event-service:local

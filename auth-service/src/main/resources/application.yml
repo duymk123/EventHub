@@ -1,6 +1,6 @@
 # Cách hiểu các phần trong application.yml
-# spring dùng ${ABC} để lấy giá trị từ các biến môi trường, với ABC là tên biến 
-# sau dấu : là giá trị mặc đinh nếu biến chưa được đặt
+# spring dùng ${ABC} để lấy giá trị từ các biến môi trường, với ABC là tên biến
+# sau dấu : là giá trị mặc định nếu biến chưa được đặt
 
 # Nói gọn: IDE Run Configuration chọn giá trị cho service chạy từ IDE; Compose chọn giá trị cho service chạy trong Docker.
 
@@ -14,13 +14,34 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    open-in-view: false    
+    open-in-view: false
   security:
     oauth2:
       resourceserver:
         jwt:
-          # issuer-uri: "${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/eventhub}"
-          issuer-uri: http://localhost:8180/realms/eventhub
+          issuer-uri: "${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/eventhub}"
+
+# Keycloak Admin Client Configuration
+keycloak:
+  admin:
+    server-url: "${KEYCLOAK_ADMIN_URL:http://localhost:8180}"
+    realm: "${KEYCLOAK_ADMIN_REALM:eventhub}"
+    client-id: "${KEYCLOAK_ADMIN_CLIENT_ID:eventhub-backend}"
+    client-secret: "${KEYCLOAK_ADMIN_CLIENT_SECRET}"
+    # Connection pool settings
+    connection-pool-size: 10
+  frontend:
+    client-id: "${KEYCLOAK_FRONTEND_CLIENT_ID:eventhub-frontend}"
+  token:
+    # WebClient timeout for token endpoint calls
+    connect-timeout-ms: 5000
+    read-timeout-ms: 10000
 
 server:
   port: "${SERVER_PORT:8081}"
+
+logging:
+  level:
+    com.eventhub.auth: DEBUG
+    org.keycloak: DEBUG
+    org.springframework.web.reactive.function.client: DEBUG
