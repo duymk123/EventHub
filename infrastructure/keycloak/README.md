@@ -64,7 +64,45 @@ Cần chạy **cả hai**: Keycloak (Docker, ở trên) rồi auth-service. Body
 | Làm mới token | `POST http://localhost:8081/api/v1/auth/refresh` | `{"refreshToken":"..."}` | Cặp token mới; refresh token cũ **mất hiệu lực** |
 | Đăng xuất | `POST http://localhost:8081/api/v1/auth/logout` | `{"refreshToken":"..."}` | 204 |
 
-Lỗi trả dạng `{code, message, timestamp, path}` với `code`: `VALIDATION_ERROR` (400), `EMAIL_ALREADY_EXISTS` / `PHONE_ALREADY_EXISTS` (409), `INVALID_CREDENTIALS` (401), `ACCOUNT_LOCKED` (403), `INVALID_REFRESH_TOKEN` / `REFRESH_TOKEN_EXPIRED` / `REFRESH_TOKEN_REUSED` (401), `CURRENT_PASSWORD_INCORRECT` (400), `PROFILE_NOT_FOUND` (404), `PROFILE_ALREADY_EXISTS` / `EMAIL_ALREADY_VERIFIED` / `ACCOUNT_ALREADY_LOCKED` / `ACCOUNT_ALREADY_ACTIVE` / `CANNOT_MODIFY_OWN_ACCOUNT` / `ROLE_MAPPING_CONFLICT` (409), `AUTH_PROVIDER_UNAVAILABLE` (503: Keycloak chưa chạy hoặc cấu hình client sai).
+Lỗi trả dạng `{code, message, timestamp, path}` với `code`: `VALIDATION_ERROR` (400), `EMAIL_ALREADY_EXISTS` / `PHONE_ALREADY_EXISTS` (409), `INVALID_CREDENTIALS` (401), `ACCOUNT_LOCKED` (403), `EMAIL_NOT_VERIFIED` (403, đúng mật khẩu nhưng còn required action), `TOO_MANY_REQUESTS` (429, gửi lại mail xác minh quá nhanh), `INVALID_REFRESH_TOKEN` / `REFRESH_TOKEN_EXPIRED` / `REFRESH_TOKEN_REUSED` (401), `CURRENT_PASSWORD_INCORRECT` (400), `PROFILE_NOT_FOUND` (404), `PROFILE_ALREADY_EXISTS` / `EMAIL_ALREADY_VERIFIED` / `ACCOUNT_ALREADY_LOCKED` / `ACCOUNT_ALREADY_ACTIVE` / `CANNOT_MODIFY_OWN_ACCOUNT` / `ROLE_MAPPING_CONFLICT` (409), `AUTH_PROVIDER_UNAVAILABLE` (503: Keycloak chưa chạy hoặc cấu hình client sai).
+
+## Chạy bộ test Postman
+
+Thư mục `auth-service/postman/` có collection tự lưu token (không cần dán tay) và environment.
+
+```bash
+# Cần auth-service chạy ở cổng 8081, Keycloak và Mailpit đã lên
+cd auth-service/postman
+npx newman run EventHub-Auth-Collection.postman_collection.json \
+    -e EventHub-Local.postman_environment.json
+```
+
+Hoặc mở bằng Postman: import cả hai file, chọn environment **EventHub Local**, bấm **Run collection**.
+
+Kết quả đo được (2026-11-21): **65 request / 108 assertion / 0 fail**, chạy lặp lại 3 lần liền không lỗi.
+
+12 folder phải chạy **đúng thứ tự**: folder 01 lấy token trước, folder 11 (Logout) chạy cuối vì nó thu hồi token.
+
+### Cảnh báo khi chạy nhiều lần: realm khoá tài khoản tạm
+
+Realm đặt `failureFactor: 5`. Folder **05 (Đổi mật khẩu)** cố tình gửi sai mật khẩu cũ của `customer@eventhub.local`
+— vì `change-password` bắt buộc dùng token của chính mình, không thể test bằng user khác. Mỗi lần chạy collection
+là **1 lần đăng nhập sai** của customer đó. Chạy quá 5 lần trong thời gian ngắn thì customer bị khoá tạm, và mọi
+test đăng nhập sau đó trả 401 oan (message vẫn là `Invalid user credentials`, rất dễ tưởng là code hỏng).
+
+Xoá bộ đếm để chạy tiếp:
+
+```bash
+KC=http://localhost:8180
+TOK=$(curl -s -X POST $KC/realms/master/protocol/openid-connect/token \
+  -d 'grant_type=password&client_id=admin-cli&username=admin&password=admin_dev_password' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+curl -X DELETE "$KC/admin/realms/eventhub/attack-detection/brute-force/users/b54a63b4-5347-4718-accf-245e51e02859" \
+  -H "Authorization: Bearer $TOK"
+```
+
+Các test khác đã được viết để **không** đụng bộ đếm: gửi sai mật khẩu dùng email không tồn tại
+(`postman.nobody@example.com`), rate-limit dùng `ratelimit@example.com`. Đặt ở folder 02 và 12.
 
 ## Sửa cấu hình realm
 

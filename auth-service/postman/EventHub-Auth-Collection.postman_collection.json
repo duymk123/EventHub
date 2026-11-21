@@ -184,7 +184,10 @@
                   "pm.test('201 Created', () => pm.response.to.have.status(201));",
                   "const j = pm.response.json();",
                   "pm.environment.set('newUserId', j.id);",
-                  "pm.environment.set('newEmail', j.email);"
+                  "pm.environment.set('newEmail', j.email);",
+                  "// Email này dùng làm 'nạn nhân' cho folder 12 (kiểm forgot-password không khoá tài khoản).",
+                  "pm.environment.set('victimEmail', j.email);",
+                  "pm.environment.set('victimPassword', 'Test@12345');"
                 ]
               }
             }
@@ -304,10 +307,10 @@
                 "login"
               ]
             },
-            "description": "Phải trả 401 INVALID_CREDENTIALS",
+            "description": "Dùng email **không tồn tại**, không phải customer@. Lý do: realm đặt `failureFactor: 5` — mỗi lần chạy collection mà gửi sai mật khẩu cho user thật thì bộ đếm của user đó tăng, chạy 3 lần là user bị khoá tạm và mọi test sau đó đều 401 oan.\n\nEmail không tồn tại và sai mật khẩu phải trả **cùng** `INVALID_CREDENTIALS`, nếu khác là dò được tài khoản.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"customer@eventhub.local\",\n  \"password\": \"SaiMatKhau123\"\n}",
+              "raw": "{\n  \"email\": \"postman.nobody@example.com\",\n  \"password\": \"SaiMatKhau123\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -820,7 +823,7 @@
                 "change-password"
               ]
             },
-            "description": "Phải trả 400 CURRENT_PASSWORD_INCORRECT.",
+            "description": "Phải trả 400 `CURRENT_PASSWORD_INCORRECT`.\n\n⚠️ **Test này tăng bộ đếm đăng nhập sai của `customer@eventhub.local`** vì `change-password` bắt buộc dùng token của chính mình. Realm đặt `failureFactor: 5`, nên **chạy collection quá 5 lần liên tiếp là customer bị khoá tạm** và mọi test đăng nhập sau đó trả 401 oan.\n\nMở khoá: xoá bộ đếm brute-force của user, hoặc đợi hết thời gian khoá:\n```\nKC=http://localhost:8180; TOK=$(curl -s -X POST $KC/realms/master/protocol/openid-connect/token \\\n  -d 'grant_type=password&client_id=admin-cli&username=admin&password=admin_dev_password' \\\n  | python3 -c \"import sys,json;print(json.load(sys.stdin)['access_token'])\")\ncurl -X DELETE \"$KC/admin/realms/eventhub/attack-detection/brute-force/users/b54a63b4-5347-4718-accf-245e51e02859\" -H \"Authorization: Bearer $TOK\"\n```",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"currentPassword\": \"SaiHoanToan\",\n  \"newPassword\": \"Moi@12345\"\n}",
@@ -2123,6 +2126,829 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "12. Bảo mật & mã lỗi (review 2026-11-21)",
+      "description": "Kiểm các lỗi do review bên ngoài chỉ ra và đã sửa.\n\n1. Ai biết email cũng khoá được tài khoản người khác qua `forgot-password`.\n2. Chưa xác minh email thì không đăng nhập được (trái quyết định nghiệp vụ), và báo nhầm `ACCOUNT_LOCKED`.\n3. Admin list gọi Keycloak quá nhiều lần; `totalElements` sai khi vượt 2000 user.\n\n**Chuẩn bị:** dùng `{{victimEmail}}` / `{{victimPassword}}` do folder 02 tạo ra khi Register.\nXem mail tại http://localhost:8025, log service để xác nhận rate limit.",
+      "item": [
+        {
+          "name": "Bảo mật — forgot-password KHÔNG khoá tài khoản nạn nhân",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "**Lỗi bảo mật đã sửa.** Endpoint công khai. Trước đây code PUT requiredActions=[UPDATE_PASSWORD] lên user TRƯỚC khi gửi mail, nên kẻ lạ biết email là khoá được tài khoản người khác (Keycloak trả `Account is not fully set up` dù mật khẩu đúng).\n\nTest này gọi forgot-password rồi đăng nhập lại: phải là 200.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{victimEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Lỗi cũ: endpoint công khai này gắn requiredActions=[UPDATE_PASSWORD] trước khi gửi mail,",
+                  "// nên ai biết email cũng đặt được người khác vào trạng thái 'Account is not fully set up'.",
+                  "// Test này chứng minh: gọi forgot-password xong, user vẫn đăng nhập được bằng mật khẩu đúng.",
+                  "pm.test('204', () => pm.response.to.have.status(204));",
+                  "pm.test('body rỗng, không lộ user có tồn tại hay không', () => pm.expect(pm.response.text()).to.eql(''));",
+                  "",
+                  "// Dùng user riêng do folder 02 tạo, không phải customer@ dùng cho các test khác.",
+                  "const email = pm.environment.get('victimEmail');",
+                  "const password = pm.environment.get('victimPassword');",
+                  "pm.test('đã có victim từ bước Register', () => pm.expect(email, 'chạy folder 02 trước').to.be.a('string').and.not.empty);",
+                  "",
+                  "// Vừa gọi forgot-password trong chính request này -> giờ thử đăng nhập lại.",
+                  "const login = {",
+                  "  url: pm.environment.get('baseUrl') + '/api/v1/auth/login',",
+                  "  method: 'POST',",
+                  "  header: { 'Content-Type': 'application/json' },",
+                  "  body: { mode: 'raw', raw: JSON.stringify({ email: email, password: password }) }",
+                  "};",
+                  "pm.sendRequest(login, (err, res) => {",
+                  "  pm.test('đăng nhập lại được (không bị khoá)', () => {",
+                  "    pm.expect(err).to.be.null;",
+                  "    pm.expect(res.code, 'nếu 403 thì lỗ hổng khoá tài khoản đã quay lại').to.eql(200);",
+                  "  });",
+                  "  pm.test('không trả EMAIL_NOT_VERIFIED', () => pm.expect(res.json().code).to.not.eql('EMAIL_NOT_VERIFIED'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bảo mật — đăng nhập vẫn được sau forgot-password (kiểm riêng)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Chạy ngay sau request trên để có kết quả riêng, dễ đọc khi fail.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{victimEmail}}\",\n  \"password\": \"{{victimPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 — forgot-password không để lại required action nào', () => pm.response.to.have.status(200));",
+                  "pm.test('có accessToken', () => pm.expect(pm.response.json().accessToken).to.be.a('string'));",
+                  "pm.test('không phải EMAIL_NOT_VERIFIED', () => pm.expect(pm.response.json().code).to.be.undefined);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bảo mật — forgot-password lần 2 (còn trong hạn mức, vẫn 204)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "Mặc định 3 mail / 15 phút cho một email.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"ratelimit@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Dùng email KHÔNG tồn tại: forgot-password luôn 204 nên vẫn kiểm được hành vi,",
+                  "// mà không đụng bộ đếm đăng nhập sai (failureFactor=5) của user thật.",
+                  "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bảo mật — forgot-password lần 3 (còn trong hạn mức, vẫn 204)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"ratelimit@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Dùng email KHÔNG tồn tại: forgot-password luôn 204 nên vẫn kiểm được hành vi,",
+                  "// mà không đụng bộ đếm đăng nhập sai (failureFactor=5) của user thật.",
+                  "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Bảo mật — forgot-password lần 4 (vượt hạn mức, vẫn 204 nhưng KHÔNG gửi mail)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "Đọc log auth-service để thấy `Password reset email suppressed by rate limit`. Đếm mail trong Mailpit (http://localhost:8025) trước/sau: số mail mới phải là **0**.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"ratelimit@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Dùng email KHÔNG tồn tại: forgot-password luôn 204 nên vẫn kiểm được hành vi,",
+                  "// mà không đụng bộ đếm đăng nhập sai (failureFactor=5) của user thật.",
+                  "pm.test('204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mã lỗi — sai mật khẩu trả INVALID_CREDENTIALS (401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Dùng email KHÔNG tồn tại để không đụng bộ đếm đăng nhập sai (realm đặt `failureFactor: 5`). Không tồn tại và sai mật khẩu đều về `INVALID_CREDENTIALS` — đúng ý đồ chống dò tài khoản.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"postman.nobody@example.com\",\n  \"password\": \"SaiMatKhau@999\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Email không tồn tại và sai mật khẩu phải cho CÙNG một mã — nếu khác nhau thì dò được tài khoản.",
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('code = INVALID_CREDENTIALS', () => pm.expect(pm.response.json().code).to.eql('INVALID_CREDENTIALS'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Mã lỗi — tài khoản bị khoá trả ACCOUNT_LOCKED (tự khoá rồi mở lại)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Tự khoá user `mdd1@example.com` bằng `POST /admin/users/{id}/lock`, thử đăng nhập, rồi mở khoá lại. Không phụ thuộc thứ tự với folder 07.\n\nĐiểm từng sai: Keycloak trả `Account is not fully set up` bị map chung thành `ACCOUNT_LOCKED`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"mdd1@example.com\",\n  \"password\": \"Test@12345\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Test này tự khoá user, thử đăng nhập, rồi mở lại — không phụ thuộc folder 07 (folder đó mở khoá ngay).",
+                  "// Điểm từng sai: 'Account is not fully set up' bị map chung thành ACCOUNT_LOCKED.",
+                  "const base = pm.environment.get('baseUrl');",
+                  "const admin = pm.environment.get('accessToken');",
+                  "const UID = 'fce439e7-ac15-45b7-8015-abebe7469834';",
+                  "const auth = { Authorization: 'Bearer ' + admin };",
+                  "",
+                  "const lock = { url: base + '/api/v1/admin/users/' + UID + '/lock', method: 'PATCH', header: auth };",
+                  "pm.sendRequest(lock, (eLock, rLock) => {",
+                  "  pm.test('khoá được tài khoản để thử', () => pm.expect(rLock.code).to.be.oneOf([204, 409]));",
+                  "",
+                  "  const login = { url: base + '/api/v1/auth/login', method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json' },",
+                  "    body: { mode: 'raw', raw: JSON.stringify({ email: 'mdd1@example.com', password: 'Test@12345' }) } };",
+                  "",
+                  "  pm.sendRequest(login, (eLogin, rLogin) => {",
+                  "    const code = rLogin.json().code;",
+                  "    pm.test('403 khi tài khoản bị khoá', () => pm.expect(rLogin.code).to.eql(403));",
+                  "    pm.test('code = ACCOUNT_LOCKED', () => pm.expect(code).to.eql('ACCOUNT_LOCKED'));",
+                  "    pm.test('KHÔNG dùng nhầm EMAIL_NOT_VERIFIED', () => pm.expect(code).to.not.eql('EMAIL_NOT_VERIFIED'));",
+                  "",
+                  "    // Luôn mở khoá lại để lần chạy sau không bị ảnh hưởng.",
+                  "    pm.sendRequest({ url: base + '/api/v1/admin/users/' + UID + '/unlock', method: 'PATCH', header: auth },",
+                  "      (eUnlock, rUnlock) => {",
+                  "        pm.test('mở khoá lại thành công', () => pm.expect(rUnlock.code).to.be.oneOf([204, 409]));",
+                  "      });",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Danh sách — role + status lọc kết hợp đúng (totalElements = tổng thật)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/users?role=CUSTOMER&status=ACTIVE&size=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                },
+                {
+                  "key": "size",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": "Trước đây lọc chéo role+status phải duyệt tới 2000 user; giờ Keycloak lọc sẵn.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('mọi user đều role CUSTOMER', () => pm.expect(j.content.every(u => u.role === 'CUSTOMER')).to.be.true);",
+                  "pm.test('mọi user đều ACTIVE', () => pm.expect(j.content.every(u => u.status === 'ACTIVE')).to.be.true);",
+                  "",
+                  "// Điểm từng sai: duyệt tối đa 2000 user rồi tự đếm, quá 2000 thì totalElements sai mà không báo.",
+                  "// Giờ totalElements do Keycloak trả theo đúng điều kiện lọc.",
+                  "const total = j.totalElements;",
+                  "pm.environment.set('activeCustomerTotal', total);",
+                  "pm.test('totalElements là số, không null', () => pm.expect(total).to.be.a('number'));",
+                  "",
+                  "// Lấy trang lớn hơn total thì phải trả về đúng total phần tử, không thiếu.",
+                  "const big = { url: pm.environment.get('baseUrl') + '/api/v1/admin/users?role=CUSTOMER&status=ACTIVE&size=1000',",
+                  "  header: { Authorization: 'Bearer ' + pm.environment.get('accessToken') } };",
+                  "pm.sendRequest(big, (err, res) => {",
+                  "  pm.test('lấy size=1000 trả đủ totalElements', () => {",
+                  "    pm.expect(res.json().content.length).to.eql(total);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Danh sách — role + search (nhánh duy nhất còn phải lọc tay)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/users?role=CUSTOMER&search=customer&size=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "key": "search",
+                  "value": "customer"
+                },
+                {
+                  "key": "size",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": "`/roles/{role}/users` không nhận `search`, nên nhánh này phải lấy cả trang role rồi lọc tên tại chỗ.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('mọi user đều role CUSTOMER', () => pm.expect(j.content.every(u => u.role === 'CUSTOMER')).to.be.true);",
+                  "pm.test('mọi user đều khớp từ khoá customer', () => pm.expect(j.content.every(u =>",
+                  "  (u.email || '').toLowerCase().includes('customer') || (u.username || '').toLowerCase().includes('customer'))).to.be.true);",
+                  "pm.test('có ít nhất 1 kết quả', () => pm.expect(j.content.length).to.be.above(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Danh sách — enabled bị Keycloak BỎ QUA ở endpoint role, service phải tự lọc",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/users?role=CUSTOMER&status=LOCKED&size=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "key": "status",
+                  "value": "LOCKED"
+                },
+                {
+                  "key": "size",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": "Nếu lẫn ACTIVE nghĩa là code tin vào tham số `enabled` của `/roles/{role}/users` — mà tham số đó không có tác dụng.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Đo trên Keycloak 26: roles/{role}/users?enabled=false trả CẢ user đang bật.",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('mọi user đều LOCKED dù lọc ở tầng role', () => pm.expect(j.content.every(u => u.status === 'LOCKED')).to.be.true);",
+                  "pm.test('không lẫn user ACTIVE', () => pm.expect(j.content.some(u => u.status === 'ACTIVE')).to.be.false);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Danh sách — phân trang role không trùng, không thiếu",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/users?role=CUSTOMER&page=0&size=2",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "role",
+                  "value": "CUSTOMER"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "2"
+                }
+              ]
+            },
+            "description": "Phân trang của nhánh role phải áp SAU khi lọc, nếu không sẽ lặp hoặc thiếu bản ghi.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const size = 2;",
+                  "const page0 = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('trang 0 có tối đa 2 phần tử', () => pm.expect(page0.content.length).to.be.at.most(size));",
+                  "",
+                  "const total = page0.totalElements;",
+                  "const p1 = { url: pm.environment.get('baseUrl') + '/api/v1/admin/users?role=CUSTOMER&page=1&size=' + size,",
+                  "  header: { Authorization: 'Bearer ' + pm.environment.get('accessToken') } };",
+                  "const p2 = { url: pm.environment.get('baseUrl') + '/api/v1/admin/users?role=CUSTOMER&page=2&size=' + size,",
+                  "  header: { Authorization: 'Bearer ' + pm.environment.get('accessToken') } };",
+                  "pm.sendRequest(p1, (e1, r1) => {",
+                  "  pm.sendRequest(p2, (e2, r2) => {",
+                  "    pm.test('totalElements giống nhau ở mọi trang', () => {",
+                  "      pm.expect(r1.json().totalElements).to.eql(total);",
+                  "      pm.expect(r2.json().totalElements).to.eql(total);",
+                  "    });",
+                  "    pm.test('không có user lặp giữa các trang', () => {",
+                  "      const ids = [...page0.content, ...r1.json().content, ...r2.json().content].map(u => u.id);",
+                  "      pm.expect(new Set(ids).size, 'phải bằng số phần tử gộp lại').to.eql(ids.length);",
+                  "    });",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Danh sách — lọc status một mình dùng /users/count nên totalElements đúng",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/users?status=LOCKED&size=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "LOCKED"
+                },
+                {
+                  "key": "size",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": "Trước đây comment trong code nói 'Keycloak không lọc được trạng thái' — sai, `/users` và `/users/count` đều nhận `enabled`.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('mọi user đều LOCKED', () => pm.expect(j.content.every(u => u.status === 'LOCKED')).to.be.true);",
+                  "",
+                  "// Tổng của lọc LOCKED phải <= tổng không lọc (Keycloak /users/count?enabled=false).",
+                  "const all = { url: pm.environment.get('baseUrl') + '/api/v1/admin/users?size=1',",
+                  "  header: { Authorization: 'Bearer ' + pm.environment.get('accessToken') } };",
+                  "pm.sendRequest(all, (err, res) => {",
+                  "  pm.test('tổng LOCKED <= tổng toàn bộ', () => {",
+                  "    pm.expect(j.totalElements).to.be.at.most(res.json().totalElements);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Nghiệp vụ — gửi lại mail xác minh KHÔNG chặn đăng nhập",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/verify-email/resend",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "verify-email",
+                "resend"
+              ]
+            },
+            "description": "Gửi mail xác minh từng đặt `requiredActions=[VERIFY_EMAIL]` trước, khiến user không đăng nhập được. Giờ thì không.\n\nQuyết định nghiệp vụ: user chưa xác minh **vẫn đăng nhập được**; order-service mới là nơi chặn đặt vé bằng `EMAIL_NOT_VERIFIED`.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{customerToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Đã xác thực rồi thì 409, chưa thì 204 hoặc 429 (vượt hạn mức) — cả ba đều chấp nhận được.",
+                  "pm.test('204 / 409 / 429', () => pm.expect(pm.response.code).to.be.oneOf([204, 409, 429]));",
+                  "if (pm.response.code === 429) {",
+                  "  pm.test('429 là TOO_MANY_REQUESTS', () => pm.expect(pm.response.json().code).to.eql('TOO_MANY_REQUESTS'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Nghiệp vụ — user chưa xác minh vẫn đăng nhập được",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Điểm từng sai: user chưa xác minh nhận `ACCOUNT_LOCKED` với message 'Account requires further setup', dễ hiểu nhầm là bị khoá.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{victimEmail}}\",\n  \"password\": \"{{victimPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (pm.response.code === 403) {",
+                  "  pm.test('403 phải là EMAIL_NOT_VERIFIED, không phải ACCOUNT_LOCKED', () => {",
+                  "    pm.expect(j.code).to.eql('EMAIL_NOT_VERIFIED');",
+                  "  });",
+                  "} else {",
+                  "  pm.test('200', () => pm.response.to.have.status(200));",
+                  "  pm.test('có accessToken', () => pm.expect(j.accessToken).to.be.a('string'));",
+                  "}",
+                  "pm.test('không bao giờ trả ACCOUNT_LOCKED cho user chỉ thiếu xác minh', () => {",
+                  "  pm.expect(j.code).to.not.eql('ACCOUNT_LOCKED');",
+                  "});"
                 ]
               }
             }

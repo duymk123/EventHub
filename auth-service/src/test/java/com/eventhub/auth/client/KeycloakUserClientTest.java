@@ -56,19 +56,39 @@ class KeycloakUserClientTest {
         return new KeycloakUserClient("http://127.0.0.1:" + server.getAddress().getPort(), "eventhub", tokens);
     }
 
+    /**
+     * Chỉ được có MỘT lệnh gọi: send-verify-email. Nếu code gắn trước requiredActions VERIFY_EMAIL thì user bị đặt
+     * vào trạng thái chưa hoàn tất thiết lập và không đăng nhập được, trái với quyết định "chưa xác minh vẫn đăng
+     * nhập được".
+     */
     @Test
-    void sendVerifyEmailSetsRequiredActionBeforeSendingMail() throws Exception {
+    void sendVerifyEmailOnlyAsksKeycloakToSendTheMail() {
         UUID userId = UUID.randomUUID();
 
         client().sendVerifyEmail(userId);
 
         String users = "/admin/realms/eventhub/users/" + userId;
-        assertThat(requests).hasSize(2);
-        assertThat(requests.get(0)).startsWith("PUT " + users + " ");
-        JsonNode update = JSON.readTree(requests.get(0).substring(("PUT " + users + " ").length()));
-        assertThat(update.get("requiredActions")).extracting(JsonNode::asText).containsExactly("VERIFY_EMAIL");
-        assertThat(update.get("emailVerified").asBoolean()).isFalse();
-        // Bước 2 mới gửi mail: Keycloak chỉ gửi link xác minh khi user có required action VERIFY_EMAIL.
-        assertThat(requests.get(1)).isEqualTo("PUT " + users + "/send-verify-email ");
+        assertThat(requests).hasSize(1);
+        assertThat(requests.get(0)).startsWith("PUT " + users + "/send-verify-email");
+    }
+
+    /**
+     * forgot-password là endpoint công khai: nếu gắn requiredActions UPDATE_PASSWORD trước khi gửi mail thì bất kỳ
+     * ai biết email cũng khoá được tài khoản người khác (Keycloak trả "Account is not fully set up").
+     */
+    @Test
+    void sendUpdatePasswordEmailDoesNotLockTheAccount() throws Exception {
+        UUID userId = UUID.randomUUID();
+
+        client().sendUpdatePasswordEmail(userId);
+
+        String users = "/admin/realms/eventhub/users/" + userId;
+        // Đúng MỘT lệnh gọi: execute-actions-email. Không có lệnh PUT lên chính user để gắn requiredActions.
+        assertThat(requests).hasSize(1);
+        String request = requests.get(0);
+        assertThat(request).startsWith("PUT " + users + "/execute-actions-email");
+        // Action nằm trong thân lệnh gọi, Keycloak chỉ áp vào lúc user bấm link.
+        assertThat(JSON.readTree(request.substring(request.indexOf('['))))
+                .extracting(JsonNode::asText).containsExactly("UPDATE_PASSWORD");
     }
 }

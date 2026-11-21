@@ -67,7 +67,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: ACCOUNT_LOCKED
+          description: >-
+            ACCOUNT_LOCKED (tài khoản bị ADMIN khoá) hoặc EMAIL_NOT_VERIFIED (đúng mật khẩu nhưng còn required
+            action chưa hoàn tất, thường là chưa xác minh email)
           content:
             application/json:
               schema:
@@ -167,6 +169,12 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           description: EMAIL_ALREADY_VERIFIED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: TOO_MANY_REQUESTS (đã gửi mail cho email này quá số lần cho phép trong cửa sổ hiện tại)
           content:
             application/json:
               schema:
@@ -395,6 +403,14 @@ paths:
 
         Link trong mail trỏ thẳng tới Keycloak (`KC_HOSTNAME`), Keycloak tự dựng form đặt mật khẩu.
         Auth Service **không** mở endpoint nhận reset token — xem §8 trong `auth-keycloak-flows.md`.
+
+        **Giới hạn tần suất:** mỗi email nhận tối đa 3 mail trong 15 phút
+        (`eventhub.auth.email-rate-limit.*`). Vượt hạn mức vẫn trả **204** và không gửi mail —
+        cố ý, để kẻ tấn công không phân biệt được email tồn tại hay vừa bị chặn.
+
+        **Không gắn `requiredActions` trước khi gửi.** Nếu gắn, bất kỳ ai biết email cũng đặt được
+        tài khoản người khác vào trạng thái "chưa hoàn tất thiết lập", khiến họ không đăng nhập được
+        dù mật khẩu đúng. `execute-actions-email` đã mang sẵn action trong link.
       security: []
       requestBody:
         required: true

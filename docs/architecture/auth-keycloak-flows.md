@@ -541,8 +541,34 @@ Nguồn sự thật: [`infrastructure/keycloak/eventhub-realm.json`](../../infra
 | # | Hiện tượng | Nguyên nhân | Ảnh hưởng |
 |---|---|---|---|
 | 1 | Path không tồn tại trả **403** thay vì 404 | `.anyRequest().denyAll()` bắt cả request không khớp mapping | FE hiển thị "không có quyền" thay vì "không tìm thấy" |
-| 2 | Đăng nhập khi chưa xác thực email / còn `requiredActions` trả **403 `ACCOUNT_LOCKED`** với message "Account requires further setup" | Dùng chung mã lỗi với tài khoản bị khóa | User tưởng bị khóa. Nên thêm mã riêng (vd `ACCOUNT_PENDING_SETUP`) |
+| ~~2~~ | ~~Đăng nhập khi còn `requiredActions` trả `ACCOUNT_LOCKED`~~ | **Đã sửa 2026-11-21**: trả mã riêng `EMAIL_NOT_VERIFIED` (403) | — |
 | 3 | `avatarUrl` không được chuẩn hóa `""` → `NULL` như `phoneNumber` | Thiếu bước normalize trong `UserProfileMapper` | DB có thể chứa chuỗi rỗng thay vì NULL |
+
+### Đã sửa 2026-11-21
+
+Ba lỗi do review bên ngoài chỉ ra, đều đã tái hiện và sửa:
+
+| # | Lỗi | Bằng chứng tái hiện | Cách sửa |
+|---|---|---|---|
+| 1 | **Ai biết email cũng khoá được tài khoản người khác.** `sendUpdatePasswordEmail` gọi `PUT /users/{id}` với `requiredActions=[UPDATE_PASSWORD]` **trước** khi gửi mail. Vì `forgot-password` công khai, kẻ lạ chỉ cần gọi là nạn nhân bị `Account is not fully set up` dù mật khẩu đúng | Đã tái hiện trên Keycloak thật: PUT xong → login với mật khẩu đúng trả `invalid_grant: Account is not fully set up`. Chỉ cần gọi `execute-actions-email` **một mình** thì user vẫn đăng nhập được | Bỏ dòng PUT. Action đã có sẵn trong link do `execute-actions-email` tạo |
+| 2 | **Chưa xác minh email thì không đăng nhập được**, trái quyết định nghiệp vụ (order-service mới là nơi chặn bằng `EMAIL_NOT_VERIFIED`) | `sendVerifyEmail` cũng gắn `requiredActions=[VERIFY_EMAIL]` trước | Bỏ dòng PUT, giữ `send-verify-email`. Đã kiểm: user `emailVerified=false` **đăng nhập được** |
+| 3 | **`ACCOUNT_LOCKED` báo nhầm cho user chưa xác minh** | Case `not fully set up` map chung với `disabled`/`locked` | Tách thành `EMAIL_NOT_VERIFIED` (403). Ba case giờ phân biệt: `EMAIL_NOT_VERIFIED` / `ACCOUNT_LOCKED` / `INVALID_CREDENTIALS` |
+| 4 | **`/auth/forgot-password` không giới hạn số lần** → spam hộp thư người khác | Gọi 6 lần → 6 mail | Thêm `EmailRateLimiter`: 3 mail / 15 phút / email. Đã kiểm: gọi 5 lần → đúng 3 mail |
+| 5 | **Admin list gọi Keycloak quá nhiều lần** — `toResponse` gọi `effectiveRealmRoles` + 1 truy vấn DB cho **từng** user; lọc role/status duyệt tới 2000 user | Code cũ | Đẩy lọc xuống Keycloak: `enabled` cho `/users` + `/users/count`, `/roles/{role}/users` cho role; DB gom thành 1 truy vấn `findAllByKeycloakSubIn`. `search`+`role` mới cần duyệt (giới hạn 2000) |
+| 6 | **Cấu hình realm thiếu quyền `view-realm`** → `/roles/{role}/users` trả 403, admin lọc theo role ra 503 | Đã gặp khi test: `listUsersByRole(ORGANIZER) failed ... 403 Forbidden` | Thêm `view-realm` vào `infrastructure/keycloak/eventhub-realm.json` |
+
+### Điểm cần biết khi dùng các API lọc này
+
+Kiểm trên Keycloak 26.8.2:
+
+| Điều | Thực tế |
+|---|---|
+| `users?search=` | Khớp **prefix**, không phải substring. `search=eventhub.local` ra 0, `search=eventhub` mới ra |
+| `users?enabled=` | Hoạt động, cả `/users` lẫn `/users/count` |
+| `roles/{role}/users/count` | **Không tồn tại** (404). Phải đếm bằng `max` lớn |
+| `roles/{role}/users?enabled=` | Tham số bị **bỏ qua** — trả cả user đang khoá. Phải lọc tại chỗ |
+| `roles/{role}/users?search=` | Không nhận. Phải lọc tại chỗ |
+| `roles/{role}/users` | Cần quyền `view-realm` trên client role của `realm-management` |
 
 ---
 

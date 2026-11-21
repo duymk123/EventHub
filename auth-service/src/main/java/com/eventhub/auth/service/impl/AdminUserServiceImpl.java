@@ -19,16 +19,26 @@ import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Đọc danh sách/chi tiết tài khoản cho ADMIN.
  *
- * <p>Keycloak Admin API tìm được theo từ khóa nhưng lọc theo business role phải suy ra từ role mapping của từng
- * user, nên nếu có lọc role thì duyệt theo trang cho tới khi đủ số bản ghi cần. Giới hạn số trang duyệt để một
- * bộ lọc hiếm không kéo theo hàng nghìn lệnh gọi mạng.
+ * <p>Mọi điều kiện lọc đều đẩy xuống Keycloak, không duyệt danh sách ở tầng Java:
+ * <ul>
+ *   <li>{@code search} → tham số {@code search} của {@code /users}</li>
+ *   <li>trạng thái → tham số {@code enabled=true|false} của {@code /users} và {@code /users/count}</li>
+ *   <li>role → {@code /roles/{role}/users} và {@code /roles/{role}/users/count}</li>
+ * </ul>
+ * Nhờ vậy {@code totalElements} luôn là tổng thật của điều kiện lọc, không phải tổng của cả realm.
+ *
+ * <p>Chỉ còn một chỗ phải duyệt: {@code /roles/{role}/users} không nhận {@code search}, nên khi có cả role và từ
+ * khóa thì phải lấy các trang của role rồi lọc tên tại chỗ (xem {@link #listByRoleAndSearch}).
  */
 @Service
 public class AdminUserServiceImpl implements AdminUserService {
@@ -51,52 +61,35 @@ public class AdminUserServiceImpl implements AdminUserService {
 
     @Override
     public PageResponse<UserDetailResponse> listUsers(UserListQuery query) {
+        Boolean enabled = enabledFilter(query.status());
+        if (query.role() != null && query.search() != null && !query.search().isBlank()) {
+            return listByRoleAndSearch(query, enabled);
+        }
         if (query.role() != null) {
-            return listFilteredByRole(query);
+            List<KeycloakUserDetail> page =
+                    userClient.listUsersByRole(query.role().name(), enabled, query.first(), query.size());
+            int total = userClient.countUsersByRole(query.role().name(), enabled);
+            return PageResponse.of(toResponses(page, query.role().name()), query.page(), query.size(), total);
         }
-        if (query.status() != null) {
-            // Trạng thái là enabled/disabled và Keycloak không lọc được bằng query param, nên phải duyệt để đếm
-            // đúng. Đếm theo trang của Keycloak sẽ ra tổng của mọi user chứ không phải tổng user bị khóa.
-            return listFilteredByStatus(query);
-        }
-        List<KeycloakUserDetail> page = userClient.searchUsers(query.search(), query.first(), query.size());
-        int total = userClient.countUsers(query.search());
-        return PageResponse.of(page.stream().map(this::toResponse).toList(), query.page(), query.size(), total);
-    }
-
-    /** Lọc theo trạng thái: duyệt toàn bộ (có giới hạn) để totalElements đúng với điều kiện lọc. */
-    private PageResponse<UserDetailResponse> listFilteredByStatus(UserListQuery query) {
-        List<UserDetailResponse> matched = collectMatching(query, user -> matchesStatus(user, query.status()));
-        return slice(matched, query);
+        List<KeycloakUserDetail> page = userClient.searchUsers(query.search(), enabled, query.first(), query.size());
+        int total = userClient.countUsers(query.search(), enabled);
+        return PageResponse.of(toResponses(page, null), query.page(), query.size(), total);
     }
 
     /**
-     * Lọc theo business role cần đọc role của từng user. Duyệt theo lô từ đầu danh sách, giữ những user khớp, rồi
-     * cắt ra đúng trang yêu cầu.
+     * Role + từ khóa: {@code /roles/{role}/users} không nhận {@code search}, nên lấy tối đa {@link #MAX_SCAN} user
+     * của role rồi lọc tên tại chỗ. Chỉ chạm tới nhánh này khi ADMIN gõ cả hai điều kiện cùng lúc.
      */
-    private PageResponse<UserDetailResponse> listFilteredByRole(UserListQuery query) {
-        List<UserDetailResponse> matched = collectMatching(query,
-                user -> query.role().name().equals(user.role()) && matchesStatus(user, query.status()));
-        return slice(matched, query);
-    }
-
-    /**
-     * Duyệt user theo lô (tối đa {@link #MAX_SCAN} bản ghi) và giữ những bản ghi thỏa điều kiện. Duyệt hết để
-     * totalElements phản ánh đúng số user khớp, không phải số user trên trang của Keycloak.
-     */
-    private List<UserDetailResponse> collectMatching(UserListQuery query,
-                                                     java.util.function.Predicate<UserDetailResponse> condition) {
-        List<UserDetailResponse> matched = new java.util.ArrayList<>();
+    private PageResponse<UserDetailResponse> listByRoleAndSearch(UserListQuery query, Boolean enabled) {
+        String needle = query.search().trim().toLowerCase(Locale.ROOT);
+        List<KeycloakUserDetail> matched = new ArrayList<>();
         int scanned = 0;
         while (scanned < MAX_SCAN) {
-            List<KeycloakUserDetail> batch = userClient.searchUsers(query.search(), scanned, SCAN_BATCH);
-            if (batch.isEmpty()) {
-                break;
-            }
+            List<KeycloakUserDetail> batch =
+                    userClient.listUsersByRole(query.role().name(), enabled, scanned, SCAN_BATCH);
             for (KeycloakUserDetail user : batch) {
-                UserDetailResponse response = toResponse(user);
-                if (condition.test(response)) {
-                    matched.add(response);
+                if (matchesSearch(user, needle)) {
+                    matched.add(user);
                 }
             }
             scanned += batch.size();
@@ -105,21 +98,47 @@ public class AdminUserServiceImpl implements AdminUserService {
             }
         }
         if (scanned >= MAX_SCAN) {
-            log.warn("User list scan stopped at {} records for query {}", MAX_SCAN, query);
+            log.warn("Role+search scan stopped at {} records for query {}", MAX_SCAN, query);
         }
-        return matched;
-    }
-
-    /** Cắt đúng trang yêu cầu từ danh sách đã lọc. */
-    private static PageResponse<UserDetailResponse> slice(List<UserDetailResponse> matched, UserListQuery query) {
         int from = Math.min(query.first(), matched.size());
         int to = Math.min(from + query.size(), matched.size());
-        return PageResponse.of(List.copyOf(matched.subList(from, to)), query.page(), query.size(), matched.size());
+        return PageResponse.of(toResponses(matched.subList(from, to), query.role().name()),
+                query.page(), query.size(), matched.size());
     }
 
-    @Override
-    public UserDetailResponse getUserDetail(UUID userId) {
-        return toResponse(userClient.getUserDetail(userId));
+    /** Quy ước lọc trạng thái của API admin → tham số enabled của Keycloak; null nghĩa là không lọc. */
+    private static Boolean enabledFilter(String status) {
+        if (status == null) {
+            return null;
+        }
+        return switch (status) {
+            case "ACTIVE" -> Boolean.TRUE;
+            case "LOCKED" -> Boolean.FALSE;
+            default -> throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "status: must be ACTIVE or LOCKED");
+        };
+    }
+
+    private static boolean matchesSearch(KeycloakUserDetail user, String needle) {
+        return contains(user.username(), needle) || contains(user.email(), needle);
+    }
+
+    private static boolean contains(String value, String needle) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(needle);
+    }
+
+    /**
+     * Map cả trang. Khi lọc theo role thì role đã biết sẵn từ endpoint đã gọi — không cần thêm một lệnh
+     * {@code /role-mappings} cho từng user nữa.
+     */
+    private List<UserDetailResponse> toResponses(List<KeycloakUserDetail> users, String knownRole) {
+        if (users.isEmpty()) {
+            return List.of();
+        }
+        Map<String, String> fullNames = profiles.findAllByKeycloakSubIn(
+                        users.stream().map(KeycloakUserDetail::id).toList()).stream()
+                .collect(Collectors.toMap(UserProfile::getKeycloakSub, UserProfile::getFullName, (a, b) -> a));
+        return users.stream().map(user -> toResponse(user, knownRole, fullNames.get(user.id()))).toList();
     }
 
     @Override
@@ -140,21 +159,25 @@ public class AdminUserServiceImpl implements AdminUserService {
         return new TemporaryPasswordResponse(userId, temporary);
     }
 
-    private UserDetailResponse toResponse(KeycloakUserDetail user) {
-        UUID id = UUID.fromString(user.id());
-        List<String> roles = userClient.effectiveRealmRoles(id);
+    @Override
+    public UserDetailResponse getUserDetail(UUID userId) {
+        KeycloakUserDetail user = userClient.getUserDetail(userId);
+        List<String> roles = userClient.effectiveRealmRoles(userId);
         String role = BUSINESS_ROLES.stream().filter(roles::contains).findFirst().orElse(null);
-        String fullName = profiles.findByKeycloakSub(user.id())
-                .map(UserProfile::getFullName)
-                .orElseGet(() -> joinName(user.lastName(), user.firstName()));
-        return new UserDetailResponse(id, user.username(), user.email(), fullName, role,
+        String fullName = profiles.findByKeycloakSub(user.id()).map(UserProfile::getFullName).orElse(null);
+        return toResponse(user, role, fullName);
+    }
+
+    /**
+     * Dựng DTO. {@code knownRole} và {@code knownFullName} do caller chuẩn bị sẵn theo lô — hàm này không gọi
+     * Keycloak hay DB, nhờ vậy một trang N user chỉ tốn O(1) lệnh gọi thay vì O(N).
+     */
+    private static UserDetailResponse toResponse(KeycloakUserDetail user, String knownRole, String knownFullName) {
+        String fullName = knownFullName != null ? knownFullName : joinName(user.lastName(), user.firstName());
+        return new UserDetailResponse(UUID.fromString(user.id()), user.username(), user.email(), fullName, knownRole,
                 user.enabled() ? "ACTIVE" : "LOCKED", user.emailVerified(),
                 user.requiredActions() == null ? List.of() : List.copyOf(user.requiredActions()),
                 user.createdTimestamp() == null ? null : Instant.ofEpochMilli(user.createdTimestamp()));
-    }
-
-    private static boolean matchesStatus(UserDetailResponse user, String status) {
-        return status == null || status.equals(user.status());
     }
 
     private static String joinName(String lastName, String firstName) {

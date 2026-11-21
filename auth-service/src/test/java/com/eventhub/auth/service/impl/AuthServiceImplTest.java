@@ -38,6 +38,7 @@ class AuthServiceImplTest {
     private KeycloakTokenClient tokens;
     private KeycloakUserClient users;
     private UserProfileRepository profiles;
+    private EmailRateLimiter emailRateLimiter;
     private AuthServiceImpl service;
 
     @BeforeEach
@@ -45,7 +46,9 @@ class AuthServiceImplTest {
         tokens = mock(KeycloakTokenClient.class);
         users = mock(KeycloakUserClient.class);
         profiles = mock(UserProfileRepository.class);
-        service = new AuthServiceImpl(tokens, users, profiles);
+        emailRateLimiter = mock(EmailRateLimiter.class);
+        when(emailRateLimiter.tryAcquire(anyString())).thenReturn(true);
+        service = new AuthServiceImpl(tokens, users, profiles, emailRateLimiter);
         when(users.getUser(userId)).thenReturn(new KeycloakUser(userId.toString(), "a@x.vn", "A", "B", true, false, 0L));
     }
 

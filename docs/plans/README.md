@@ -4,6 +4,22 @@ Cập nhật 2026-10-28, viết trực tiếp trên `main` theo yêu cầu chủ
 
 Bổ sung 2026-10-31: [plan API Gateway](api-gateway.md) và [tài liệu nhập môn kèm luồng request](../architecture/api-gateway.md). Gateway là thành phần hạ tầng bên cạnh sáu service nghiệp vụ.
 
+## Trạng thái tài liệu — đọc trước khi tin
+
+Các plan dưới đây viết **trước** khi code, nên có chỗ mô tả thứ chưa tồn tại. Bảng này cho biết tài liệu nào đã được đối chiếu với code thật.
+
+| Plan | Đã đối chiếu với code? | Tài liệu trạng thái | Ghi chú |
+|---|---|---|---|
+| [auth-service](auth-service.md) | ✅ Có, 2026-11-21 | `auth-service/AUTH-STATUS.md` | 17 endpoint chạy thật; OpenAPI khớp 17/17 |
+| [event-service](event-service.md) | ✅ Có, 2026-11-21 | `event-service/EVENT-STATUS.md` | 16 endpoint chạy thật; test 12/12 PASS; thiếu Flyway/Testcontainers |
+| [ticket-service](ticket-service.md) | 🔲 Chưa | — | |
+| [order-service](order-service.md) | 🔲 Chưa | — | |
+| [notification-service](notification-service.md) | 🔲 Chưa | — | |
+| [analytics-service](analytics-service.md) | 🔲 Chưa | — | |
+| [api-gateway](api-gateway.md) | 🔲 Chưa | — | Module hiện chỉ có 1 class, **chưa có routing nào** |
+
+**Quy ước:** plan là *kế hoạch*, không phải *hợp đồng*. Khi code và plan khác nhau, **code + `docs/api/*-openapi.yaml` là sự thật**, plan phải sửa theo.
+
 ## Đọc theo thứ tự
 
 | Tài liệu | Phạm vi |

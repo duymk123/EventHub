@@ -1,5 +1,9 @@
 # Plan code event-service
 
+> **Trạng thái:** đã triển khai, 16/16 endpoint chạy thật. Xem
+> [`event-service/EVENT-STATUS.md`](../../event-service/EVENT-STATUS.md) để biết cái gì xong, cái gì còn thiếu.
+> Các mục §6 (Flyway, Testcontainers, test đồng thời) **vẫn chưa làm**.
+
 Ngày 2026-10-28. Nguồn: [quy ước chung](00-cross-service-contracts.md), [OpenAPI Event](../api/event-service-openapi.yaml), [DDL](../database/event-service/init.sql), [ERD UUID](../database/event-service/erd.md). Event sở hữu `categories/events`, không sở hữu ticket_types, tồn kho, zone A–D hoặc bảng người dùng.
 
 ## 1. Entity, DTO và package
@@ -51,7 +55,7 @@ Tất cả extends JpaRepository với UUID. Method ghi/lock chỉ chạy trong 
 | `findByOrganizerId(UUID organizerId, Pageable page): Page<Event>` | Dựa idx_events_owner; có thể dùng Specification cho status filter. |
 | `findAll(Specification<Event> filters, Pageable page): Page<Event>` | JpaSpecificationExecutor; public filter luôn kèm status PUBLISHED ở service/spec builder tin cậy. |
 | `existsByCategoryId(UUID categoryId): boolean` | Chặn xóa category đang dùng; FK DB vẫn bắt race. |
-| `compareAndSetStatus(UUID id, UUID ownerId, EventStatus from, EventStatus to, Instant updatedAt): int` | Phương án thay pessimistic lock cho owner transitions; admin review dùng điều kiện phù hợp và review_reason cùng update. Không dùng owner giả cho ADMIN. |
+| ~~`compareAndSetStatus(...)`~~ | **Không dùng.** Đã chốt hướng pessimistic lock (`findByIdForUpdate`). Dòng này giữ lại làm ghi chú phương án đã cân nhắc, không phải API đang có. |
 | `CategoryRepository.existsByName(String normalizedName): boolean` | UX kiểm tra trước; UNIQUE là chốt chống race. |
 | `existsByNameAndIdNot(String name, UUID id): boolean` | Update không tự đụng tên chính nó. |
 | `findAllByOrderByNameAscIdAsc(): List<Category>` | Danh mục public ổn định. |
@@ -82,8 +86,21 @@ C08 yêu cầu kiểm tra Ticket trước publish, không trước submit. Bổ 
 
 ## 6. Migration, lỗi và kiểm tra
 
-Event chưa có Flyway/entity: tạo migration đầu tiên dựa DDL tham chiếu, đổi ddl-auto validate cùng thay đổi triển khai, dùng UUID CHAR(36) và các index hiện có. Với DB đã có bảng dùng mapping cũ phải kiểm tra/baseline có kiểm soát; không bật tự động để che khác schema.
+**Trạng thái: CHƯA LÀM.** Hiện `application.yml` vẫn để `ddl-auto: update`, không có `src/main/resources/db/migration/`. Việc cần làm: tạo migration đầu tiên dựa DDL tham chiếu, đổi `ddl-auto: validate` cùng thay đổi triển khai, dùng UUID CHAR(36) và các index hiện có. Với DB đã có bảng dùng mapping cũ phải kiểm tra/baseline có kiểm soát; không bật tự động để che khác schema.
 
-ErrorCode: EVENT_NOT_FOUND/CATEGORY_NOT_FOUND 404, FORBIDDEN_NOT_OWNER/FORBIDDEN 403, INVALID_EVENT_STATE/CATEGORY_ALREADY_EXISTS/CATEGORY_IN_USE/TICKET_CONFIGURATION_NOT_READY 409, INVALID_DATE_RANGE/VALIDATION_ERROR 400, TICKET_SERVICE_UNAVAILABLE 503 cho preflight C08.
+ErrorCode: EVENT_NOT_FOUND/CATEGORY_NOT_FOUND 404, FORBIDDEN_NOT_OWNER/FORBIDDEN 403, INVALID_EVENT_STATE/CATEGORY_NAME_EXISTS/CATEGORY_IN_USE/TICKET_CONFIGURATION_NOT_READY 409, INVALID_DATE_RANGE/VALIDATION_ERROR 400, TICKET_SERVICE_UNAVAILABLE 503 cho preflight C08.
 
-Test cần có: role+owner; DRAFT→SUBMITTED→APPROVED→PUBLISHED→CLOSED; REJECTED edit→DRAFT; hai review/edit đồng thời chỉ một trạng thái hợp lệ; public không thấy draft/closed; internal vẫn đọc được; filter ngày/page ổn định; xóa category đua create Event bị FK chặn; schema UUID cột organizer/category. Unit service + WebMvcTest, MySQL Testcontainers cho lock/FK/unique. C03/C08 chỉ chặn nhánh phụ thuộc, không chặn toàn bộ Category/Event core.
+Test cần có — đánh dấu cái nào đã có:
+
+- [x] role + owner (`SecurityConfigTest`)
+- [x] DRAFT→SUBMITTED→APPROVED→PUBLISHED→CLOSED (`fullLifecycle`)
+- [x] REJECTED edit→DRAFT (`rejectNeedsReasonAndEditingRejectedEventReturnsToDraft`)
+- [x] public không thấy draft/closed (kiểm thật end-to-end)
+- [x] internal vẫn đọc được event CLOSED (kiểm thật end-to-end)
+- [ ] **hai review/edit đồng thời chỉ một trạng thái hợp lệ** — CHƯA CÓ
+- [ ] **filter ngày/page ổn định** — CHƯA CÓ test riêng
+- [ ] **xóa category đua create Event bị FK chặn** — CHƯA CÓ test (code có xử lý, chưa chứng minh)
+- [ ] **schema UUID cột organizer/category** — CHƯA CÓ
+- [ ] **MySQL Testcontainers cho lock/FK/unique** — CHƯA CÓ
+
+Hiện có 12 test (6 unit + 6 WebMvcTest), đều PASS. Phần Testcontainers và test đồng thời là lỗ hổng lớn nhất: code dùng `PESSIMISTIC_WRITE` nhưng chưa có test nào chứng minh nó chống được race. C03/C08 chỉ chặn nhánh phụ thuộc, không chặn toàn bộ Category/Event core.

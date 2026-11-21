@@ -4,6 +4,8 @@ export const errors: Record<string, string> = {
   INVALID_CREDENTIALS: "Email hoặc mật khẩu chưa đúng.",
   EMAIL_ALREADY_EXISTS: "Email này đã được đăng ký.",
   ACCOUNT_LOCKED: "Tài khoản đang bị khóa. Vui lòng liên hệ hỗ trợ.",
+  EMAIL_NOT_VERIFIED: "Tài khoản chưa hoàn tất xác minh email. Vui lòng kiểm tra hộp thư.",
+  TOO_MANY_REQUESTS: "Bạn đã thao tác quá nhiều lần. Vui lòng thử lại sau ít phút.",
   INVALID_REFRESH_TOKEN:
     "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.",
   REFRESH_TOKEN_EXPIRED: "Phiên đăng nhập đã hết hạn.",

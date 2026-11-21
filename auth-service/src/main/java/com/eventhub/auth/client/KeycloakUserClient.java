@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.util.UriBuilder;
 
 import java.net.URI;
 import java.time.Duration;
@@ -28,6 +29,9 @@ import java.util.function.Function;
 @Component
 public class KeycloakUserClient {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(KeycloakUserClient.class);
+
+    /** Trần số bản ghi khi đếm user theo role (Keycloak không có endpoint count cho role). */
+    private static final int COUNT_MAX = 5000;
 
     /** User Keycloak, chỉ các trường Auth Service cần. */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -257,20 +261,25 @@ public class KeycloakUserClient {
     }
 
     /**
-     * Một trang user cho trang quản trị. search khớp username/email/họ tên phía Keycloak; điều kiện lọc theo
-     * business role và trạng thái không làm được hết ở Keycloak nên caller lọc tiếp.
+     * Một trang user cho trang quản trị, đẩy hết điều kiện lọc xuống Keycloak.
+     *
+     * <p>Keycloak hỗ trợ sẵn:
+     * <ul>
+     *   <li>{@code search} — khớp username/email/họ tên (khớp theo prefix)</li>
+     *   <li>{@code enabled=true|false} — lọc theo trạng thái</li>
+     * </ul>
+     * Còn lọc theo business role thì dùng {@link #listUsersByRole(String, Boolean, int, int)} vì role mapping không
+     * phải thuộc tính của user.
      *
      * @param first vị trí bắt đầu (0-based), max số bản ghi mỗi trang.
      */
-    public List<KeycloakUserDetail> searchUsers(String search, int first, int max) {
+    public List<KeycloakUserDetail> searchUsers(String search, Boolean enabled, int first, int max) {
         try {
             KeycloakUserDetail[] users = withAdminToken(token -> restClient.get()
                     .uri(uri -> {
                         uri.path(usersPath).queryParam("first", first).queryParam("max", max)
                                 .queryParam("briefRepresentation", false);
-                        if (search != null && !search.isBlank()) {
-                            uri.queryParam("search", search.trim());
-                        }
+                        addUserFilters(uri, search, enabled);
                         return uri.build();
                     })
                     .headers(h -> h.setBearerAuth(token))
@@ -282,15 +291,13 @@ public class KeycloakUserClient {
         }
     }
 
-    /** Tổng số user khớp điều kiện tìm, cần cho phân trang. */
-    public int countUsers(String search) {
+    /** Tổng số user khớp điều kiện lọc, lấy từ /users/count nên không phải tải toàn bộ user về đếm. */
+    public int countUsers(String search, Boolean enabled) {
         try {
             Integer total = withAdminToken(token -> restClient.get()
                     .uri(uri -> {
                         uri.path(usersPath).path("/count");
-                        if (search != null && !search.isBlank()) {
-                            uri.queryParam("search", search.trim());
-                        }
+                        addUserFilters(uri, search, enabled);
                         return uri.build();
                     })
                     .headers(h -> h.setBearerAuth(token))
@@ -303,11 +310,106 @@ public class KeycloakUserClient {
     }
 
     /**
-     * Nhờ Keycloak gửi mail đặt lại mật khẩu. Phải gắn required action UPDATE_PASSWORD trước, cùng lý do với
-     * {@link #sendVerifyEmail(UUID)}: thiếu action thì link trong mail không đưa user tới bước đặt mật khẩu.
+     * Một trang user đang giữ realm role chỉ định.
+     *
+     * <p>Endpoint này <b>không</b> nhận {@code search} và cũng <b>bỏ qua</b> {@code enabled} (đã kiểm trên Keycloak
+     * 26), nên hai điều kiện đó phải lọc tại chỗ. Caller chịu trách nhiệm giới hạn kích thước để không quét vô hạn.
+     *
+     * <p>Vì phải lọc tại chỗ nên {@code first}/{@code max} áp lên danh sách <i>sau khi lọc</i>, không phải tham số
+     * phân trang của Keycloak.
+     */
+    public List<KeycloakUserDetail> listUsersByRole(String role, Boolean enabled, int first, int max) {
+        try {
+            KeycloakUserDetail[] users = withAdminToken(token -> restClient.get()
+                    .uri(uri -> {
+                        uri.path("/admin/realms/{realm}/roles/{role}/users")
+                                .queryParam("first", 0).queryParam("max", COUNT_MAX)
+                                .queryParam("briefRepresentation", false);
+                        return uri.build(realm, role);
+                    })
+                    .headers(h -> h.setBearerAuth(token))
+                    .retrieve()
+                    .body(KeycloakUserDetail[].class));
+            // briefRepresentation=false không được endpoint này tôn trọng ở mọi bản Keycloak: nếu thiếu
+            // createdTimestamp (trường duy nhất không có trong brief representation) thì gọi lại từng user.
+            List<KeycloakUserDetail> all = users == null ? List.of() : List.of(users);
+            if (!all.stream().allMatch(KeycloakUserClient::hasDetail)) {
+                all = fillDetails(all);
+            }
+            List<KeycloakUserDetail> filtered = enabled == null ? all
+                    : all.stream().filter(user -> user.enabled() == enabled).toList();
+            int from = Math.min(first, filtered.size());
+            int to = Math.min(from + max, filtered.size());
+            return filtered.subList(from, to);
+        } catch (HttpClientErrorException.NotFound error) {
+            throw new RoleNotFoundException(role);
+        } catch (RestClientException error) {
+            log.error("listUsersByRole({}) failed", role, error);
+            throw KeycloakTokenClient.unavailable();
+        }
+    }
+
+    /**
+     * Số user đang giữ realm role, cùng bộ lọc enabled.
+     *
+     * <p>Keycloak 26 <b>không có</b> {@code /roles/{role}/users/count} (trả 404), nên đếm bằng cách lấy danh sách
+     * id với {@code briefRepresentation=true} và {@code max} lớn. Nhẹ hơn nhiều so với việc đọc từng user đầy đủ
+     * rồi tự đếm ở tầng Java như trước.
+     */
+    public int countUsersByRole(String role, Boolean enabled) {
+        try {
+            KeycloakUserDetail[] users = withAdminToken(token -> restClient.get()
+                    .uri(uri -> {
+                        uri.path("/admin/realms/{realm}/roles/{role}/users")
+                                .queryParam("first", 0).queryParam("max", COUNT_MAX)
+                                .queryParam("briefRepresentation", true);
+                        return uri.build(realm, role);
+                    })
+                    .headers(h -> h.setBearerAuth(token))
+                    .retrieve()
+                    .body(KeycloakUserDetail[].class));
+            int total = users == null ? 0
+                    : (int) java.util.Arrays.stream(users)
+                            .filter(user -> enabled == null || user.enabled() == enabled)
+                            .count();
+            if (total == COUNT_MAX) {
+                log.warn("Role {} has at least {} users; totalElements may be under-reported", role, COUNT_MAX);
+            }
+            return total;
+        } catch (HttpClientErrorException.NotFound error) {
+            throw new RoleNotFoundException(role);
+        } catch (RestClientException error) {
+            log.error("countUsersByRole({}) failed", role, error);
+            throw KeycloakTokenClient.unavailable();
+        }
+    }
+
+    private static boolean hasDetail(KeycloakUserDetail user) {
+        return user.createdTimestamp() != null;
+    }
+
+    private List<KeycloakUserDetail> fillDetails(List<KeycloakUserDetail> users) {
+        return users.stream().map(user -> getUserDetail(UUID.fromString(user.id()))).toList();
+    }
+
+    private static void addUserFilters(UriBuilder uri, String search, Boolean enabled) {
+        if (search != null && !search.isBlank()) {
+            uri.queryParam("search", search.trim());
+        }
+        if (enabled != null) {
+            uri.queryParam("enabled", enabled);
+        }
+    }
+
+    /**
+     * Nhờ Keycloak gửi mail đặt lại mật khẩu.
+     *
+     * <p><b>Không gắn requiredActions trước.</b> {@code execute-actions-email} đã mang sẵn danh sách action trong
+     * link, Keycloak chỉ áp chúng khi user bấm link. Gắn trước thì user bị đặt vào trạng thái "chưa hoàn tất thiết
+     * lập" NGAY LẬP TỨC, và vì endpoint forgot-password là công khai nên bất kỳ ai biết email cũng khoá được tài
+     * khoản người khác (Keycloak trả {@code Account is not fully set up} dù mật khẩu đúng).
      */
     public void sendUpdatePasswordEmail(UUID userId) {
-        send(userId, "", "PUT", Map.of("requiredActions", List.of("UPDATE_PASSWORD")));
         send(userId, "/execute-actions-email", "PUT", List.of("UPDATE_PASSWORD"));
     }
 
@@ -343,11 +445,13 @@ public class KeycloakUserClient {
 
     /**
      * Nhờ Keycloak gửi mail xác minh (SMTP cấu hình trong realm, dev dùng Mailpit). Link trỏ tới KC_HOSTNAME.
-     * Phải gắn required action VERIFY_EMAIL trước: nếu không, mail vẫn được gửi nhưng bấm link không đánh dấu
-     * emailVerified và không có bước xác nhận nào để user hoàn tất.
+     *
+     * <p><b>Không gắn requiredActions VERIFY_EMAIL trước.</b> {@code send-verify-email} đã làm việc đó trong link.
+     * Gắn trước thì quyết định "chưa xác minh email vẫn đăng nhập được" bị phá: user vào trạng thái chưa hoàn tất
+     * thiết lập và bị chặn ngay cả khi mật khẩu đúng. Trên main, việc chặn đặt vé khi chưa xác minh là do
+     * order-service trả {@code EMAIL_NOT_VERIFIED}, không phải chặn đăng nhập ở đây.
      */
     public void sendVerifyEmail(UUID userId) {
-        send(userId, "", "PUT", Map.of("emailVerified", false, "requiredActions", List.of("VERIFY_EMAIL")));
         send(userId, "/send-verify-email", "PUT", null);
     }
 
@@ -394,5 +498,12 @@ public class KeycloakUserClient {
 
     private static BusinessException notFound() {
         return new BusinessException(ErrorCode.USER_NOT_FOUND, "User not found");
+    }
+
+    /** Realm role không tồn tại (ADMIN gõ sai tên role) — 404 từ Keycloak. */
+    static final class RoleNotFoundException extends RuntimeException {
+        RoleNotFoundException(String role) {
+            super("Realm role not found: " + role);
+        }
     }
 }
