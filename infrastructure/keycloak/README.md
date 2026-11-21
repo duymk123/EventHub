@@ -43,7 +43,7 @@ Tắt: `docker compose stop keycloak keycloak-db` (giữ dữ liệu). Xóa sạ
 
 User đăng ký qua `POST /api/v1/auth/register` được auth-service gán **CUSTOMER trực tiếp**. Role mặc định `default-roles-eventhub` **không** chứa business role nào, nên khi ADMIN đổi role (`PATCH /api/v1/admin/users/{id}/role`) chỉ cần thay một mapping. Mỗi user chỉ mang **một** business role: mọi service từ chối (401) token có hai role nghiệp vụ.
 
-User mới có `emailVerified=false` và nhận mail xác minh. Chưa xác minh vẫn đăng nhập được, nhưng order-service trả `EMAIL_NOT_VERIFIED` khi đặt vé. Sau khi bấm link, gọi `/auth/refresh` để lấy token có `email_verified=true`. Gửi lại mail: `POST /api/v1/auth/verify-email/resend`.
+User mới có `emailVerified=false`; auth-service gắn required action `VERIFY_EMAIL` rồi mới gửi mail xác minh. **Chưa xác minh thì chưa đăng nhập được**: Keycloak trả `invalid_grant` "Account is not fully set up" (auth-service map thành `ACCOUNT_LOCKED`, 403). Mail ở http://localhost:8025 → mở link → trang "Xác thực địa chỉ email" → bấm **"Nhấp vào đây để tiếp tục"** (chỉ mở link chưa đủ) → `emailVerified=true`, sau đó đăng nhập bình thường. Mail hết hạn/lạc: ADMIN xóa required action `VERIFY_EMAIL` trên trang quản trị (xóa xong user đăng nhập được ngay) hoặc user nhờ ADMIN gửi lại mail qua `resendVerificationEmail` khi đã có token (nên đăng nhập lại trước khi gọi, vì mỗi lần lấy token tài khoản bị khóa sẽ tốn một lượt brute-force).
 
 Chỉ dành cho môi trường dev: mật khẩu ở trên công khai trong repo.
 

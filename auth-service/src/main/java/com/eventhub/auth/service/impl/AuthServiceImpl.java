@@ -131,6 +131,8 @@ public class AuthServiceImpl implements AuthService {
         if (user.emailVerified()) {
             throw new BusinessException(ErrorCode.EMAIL_ALREADY_VERIFIED, "Email is already verified");
         }
+        // Link xác minh không chứa mật khẩu nên không ai khác mở thay được. Việc gửi mail vẫn phải gắn lại
+        // required action VERIFY_EMAIL: nếu user bấm link cũ rồi hủy, action đã bị gỡ và lần gửi sau vô tác dụng.
         userClient.sendVerifyEmail(userId);
     }
 

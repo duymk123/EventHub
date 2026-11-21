@@ -192,8 +192,11 @@ public class KeycloakUserClient {
 
     /**
      * Nhờ Keycloak gửi mail xác minh (SMTP cấu hình trong realm, dev dùng Mailpit). Link trỏ tới KC_HOSTNAME.
+     * Phải gắn required action VERIFY_EMAIL trước: nếu không, mail vẫn được gửi nhưng bấm link không đánh dấu
+     * emailVerified và không có bước xác nhận nào để user hoàn tất.
      */
     public void sendVerifyEmail(UUID userId) {
+        send(userId, "", "PUT", Map.of("emailVerified", false, "requiredActions", List.of("VERIFY_EMAIL")));
         send(userId, "/send-verify-email", "PUT", null);
     }
 
