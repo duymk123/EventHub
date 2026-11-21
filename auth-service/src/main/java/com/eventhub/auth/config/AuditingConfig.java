@@ -20,7 +20,9 @@ public class AuditingConfig {
                     SecurityContextHolder.getContext().getAuthentication();
 
             // Nếu request chưa xác thực, ghi nhận SYSTEM.
-            if (authentication == null || !authentication.isAuthenticated()) {
+            // Request chưa đăng nhập (ví dụ register) mang AnonymousAuthenticationToken, vẫn ghi là SYSTEM.
+            if (authentication == null || !authentication.isAuthenticated()
+                    || authentication instanceof org.springframework.security.authentication.AnonymousAuthenticationToken) {
                 return Optional.of("SYSTEM");
             }
 

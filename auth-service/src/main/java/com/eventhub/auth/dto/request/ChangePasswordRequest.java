@@ -2,24 +2,16 @@ package com.eventhub.auth.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 /**
- * Change password request (user changes own password).
- * Requires current password and new password.
+ * POST /api/v1/auth/change-password. Mật khẩu chỉ chuyển cho Keycloak, không lưu hay log.
  */
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class ChangePasswordRequest {
-    @NotBlank
-    private String currentPassword;
-
-    @NotBlank
-    @Size(min = 8)
-    private String newPassword;
+public record ChangePasswordRequest(
+        @NotBlank @Size(max = 128) String currentPassword,
+        @NotBlank @Size(min = 8, max = 128) String newPassword
+) {
+    @Override
+    public String toString() {
+        return "ChangePasswordRequest[***]";
+    }
 }

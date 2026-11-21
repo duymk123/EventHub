@@ -1,21 +1,10 @@
 package com.eventhub.auth.dto.request;
 
-import com.eventhub.auth.security.BusinessRole;
+import com.eventhub.auth.common.BusinessRole;
 import jakarta.validation.constraints.NotNull;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 /**
- * Assign role request (Admin only).
- * Admin assigns business role to user: CUSTOMER, ORGANIZER, ADMIN.
+ * PATCH /api/v1/admin/users/{userId}/role.
  */
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class AssignRoleRequest {
-    @NotNull
-    private BusinessRole role;
+public record AssignRoleRequest(@NotNull BusinessRole role) {
 }

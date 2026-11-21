@@ -1,6 +1,6 @@
 # Cách hiểu các phần trong application.yml
-# spring dùng ${ABC} để lấy giá trị từ các biến môi trường, với ABC là tên biến
-# sau dấu : là giá trị mặc định nếu biến chưa được đặt
+# spring dùng ${ABC} để lấy giá trị từ các biến môi trường, với ABC là tên biến 
+# sau dấu : là giá trị mặc đinh nếu biến chưa được đặt
 
 # Nói gọn: IDE Run Configuration chọn giá trị cho service chạy từ IDE; Compose chọn giá trị cho service chạy trong Docker.
 
@@ -8,40 +8,31 @@ spring:
   application:
     name: auth-service
   datasource:
-    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:33101}/${DB_NAME:eventhub_auth}?serverTimezone=UTC}"
+    # Mặc định chạy thẳng từ IntelliJ: MySQL cài trên máy (cổng 3306, root/root), database tự tạo nếu chưa có.
+    # Docker Compose tự truyền DB_HOST/DB_PORT/DB_PASSWORD riêng nên không bị ảnh hưởng.
+    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_auth}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
     username: "${DB_USERNAME:root}"
-    password: "${DB_PASSWORD}"
+    password: "${DB_PASSWORD:root}"
   jpa:
     hibernate:
       ddl-auto: update
     open-in-view: false
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          issuer-uri: "${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/eventhub}"
 
-# Keycloak Admin Client Configuration
-keycloak:
-  admin:
-    server-url: "${KEYCLOAK_ADMIN_URL:http://localhost:8180}"
-    realm: "${KEYCLOAK_ADMIN_REALM:eventhub}"
-    client-id: "${KEYCLOAK_ADMIN_CLIENT_ID:eventhub-backend}"
-    client-secret: "${KEYCLOAK_ADMIN_CLIENT_SECRET}"
-    # Connection pool settings
-    connection-pool-size: 10
-  frontend:
-    client-id: "${KEYCLOAK_FRONTEND_CLIENT_ID:eventhub-frontend}"
-  token:
-    # WebClient timeout for token endpoint calls
-    connect-timeout-ms: 5000
-    read-timeout-ms: 10000
+eventhub:
+  security:
+    # Keycloak chạy bằng Docker (docker compose up -d keycloak-db keycloak), cổng 8180, realm eventhub.
+    # issuer là địa chỉ công khai (KC_HOSTNAME); jwk-set-uri có thể là địa chỉ nội bộ (keycloak:8080 trong Docker).
+    issuer: "${KEYCLOAK_ISSUER:http://localhost:8180/realms/eventhub}"
+    jwk-set-uri: "${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/certs}"
+    # Audience do mapper eventhub-api-audience của realm thêm vào mọi token; để trống thì không kiểm tra.
+    audience: "${EVENTHUB_JWT_AUDIENCE:eventhub-api}"
+  keycloak:
+    # Auth Service gọi Keycloak (Admin API + token endpoint) bằng client confidential eventhub-auth-service.
+    # Secret dưới đây chỉ dành cho dev, khớp infrastructure/keycloak/eventhub-realm.json; môi trường thật đặt qua biến.
+    server-url: "${KEYCLOAK_SERVER_URL:http://localhost:8180}"
+    realm: "${KEYCLOAK_REALM:eventhub}"
+    client-id: "${KEYCLOAK_AUTH_CLIENT_ID:eventhub-auth-service}"
+    client-secret: "${KEYCLOAK_AUTH_CLIENT_SECRET:eventhub-auth-service-dev-secret}"
 
 server:
   port: "${SERVER_PORT:8081}"
-
-logging:
-  level:
-    com.eventhub.auth: DEBUG
-    org.keycloak: DEBUG
-    org.springframework.web.reactive.function.client: DEBUG

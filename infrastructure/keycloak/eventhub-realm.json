@@ -1,0 +1,409 @@
+{
+  "realm": "eventhub",
+  "displayName": "EventHub",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "internationalizationEnabled": true,
+  "supportedLocales": [
+    "vi",
+    "en"
+  ],
+  "defaultLocale": "vi",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 604800,
+  "ssoSessionMaxLifespan": 604800,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "smtpServer": {
+    "host": "mailpit",
+    "port": "1025",
+    "from": "noreply@eventhub.local",
+    "fromDisplayName": "EventHub",
+    "auth": "false",
+    "ssl": "false",
+    "starttls": "false"
+  },
+  "roles": {
+    "realm": [
+      {
+        "name": "CUSTOMER",
+        "description": "Khách hàng mua vé (auth-service gán trực tiếp khi đăng ký)"
+      },
+      {
+        "name": "ORGANIZER",
+        "description": "Ban tổ chức sự kiện"
+      },
+      {
+        "name": "ADMIN",
+        "description": "Quản trị hệ thống"
+      },
+      {
+        "name": "offline_access",
+        "description": "${role_offline-access}"
+      },
+      {
+        "name": "uma_authorization",
+        "description": "${role_uma_authorization}"
+      },
+      {
+        "name": "default-roles-eventhub",
+        "description": "${role_default-roles}",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "offline_access",
+            "uma_authorization"
+          ],
+          "client": {
+            "account": [
+              "view-profile",
+              "manage-account"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "defaultRole": {
+    "name": "default-roles-eventhub",
+    "description": "${role_default-roles}",
+    "composite": true
+  },
+  "clients": [
+    {
+      "clientId": "eventhub-frontend",
+      "name": "EventHub Frontend",
+      "description": "Next.js frontend: đăng nhập qua trang Keycloak (Authorization Code + PKCE). Direct access grant chỉ bật cho dev để lấy token nhanh khi test API.",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "rootUrl": "http://localhost:3000",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*##http://127.0.0.1:3000/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "eventhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "eventhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "eventhub-auth-service",
+      "name": "EventHub Auth Service",
+      "description": "Client confidential của auth-service: password grant cho /api/v1/auth/login, refresh/logout, và service account gọi Admin API để tạo user. Secret chỉ dành cho dev.",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "eventhub-auth-service-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "profile",
+        "email",
+        "web-origins",
+        "acr",
+        "kc-admin-api"
+      ],
+      "optionalClientScopes": [
+        "offline_access"
+      ],
+      "protocolMappers": [
+        {
+          "name": "eventhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "eventhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "eventhub-order-service",
+      "name": "EventHub Order Service",
+      "description": "Service account của order-service gọi /internal/** của ticket-service (reserve/confirm/release/cancel). Secret chỉ dành cho dev.",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "eventhub-order-service-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "web-origins",
+        "acr"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "eventhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "eventhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "eventhub-ticket-service",
+      "name": "EventHub Ticket Service",
+      "description": "Service account của ticket-service gọi GET /internal/events/{id} của event-service. Secret chỉ dành cho dev.",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "eventhub-ticket-service-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "web-origins",
+        "acr"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "eventhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "eventhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "eventhub-analytics-service",
+      "name": "EventHub Analytics Service",
+      "description": "Service account của analytics-service gọi /internal/** của event-service và ticket-service (C10). Secret chỉ dành cho dev.",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "eventhub-analytics-service-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "web-origins",
+        "acr"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "eventhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "eventhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "eventhub-event-service",
+      "name": "EventHub Event Service",
+      "description": "Service account của event-service gọi GET /internal/events/{id}/ticket-types/configuration của ticket-service (preflight publish C08). Secret chỉ dành cho dev.",
+      "enabled": true,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "clientAuthenticatorType": "client-secret",
+      "secret": "eventhub-event-service-dev-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "web-origins",
+        "acr"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "eventhub-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "eventhub-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin@eventhub.local",
+      "email": "admin@eventhub.local",
+      "firstName": "Admin",
+      "lastName": "EventHub",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Admin@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-eventhub",
+        "ADMIN"
+      ]
+    },
+    {
+      "username": "organizer@eventhub.local",
+      "email": "organizer@eventhub.local",
+      "firstName": "Organizer",
+      "lastName": "EventHub",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Organizer@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-eventhub",
+        "ORGANIZER"
+      ]
+    },
+    {
+      "username": "customer@eventhub.local",
+      "email": "customer@eventhub.local",
+      "firstName": "Customer",
+      "lastName": "EventHub",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Customer@123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-eventhub",
+        "CUSTOMER"
+      ]
+    },
+    {
+      "username": "service-account-eventhub-auth-service",
+      "enabled": true,
+      "serviceAccountClientId": "eventhub-auth-service",
+      "realmRoles": [
+        "offline_access"
+      ],
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users"
+        ]
+      }
+    },
+    {
+      "username": "service-account-eventhub-order-service",
+      "enabled": true,
+      "serviceAccountClientId": "eventhub-order-service",
+      "realmRoles": [
+        "offline_access"
+      ]
+    },
+    {
+      "username": "service-account-eventhub-ticket-service",
+      "enabled": true,
+      "serviceAccountClientId": "eventhub-ticket-service",
+      "realmRoles": [
+        "offline_access"
+      ]
+    },
+    {
+      "username": "service-account-eventhub-analytics-service",
+      "enabled": true,
+      "serviceAccountClientId": "eventhub-analytics-service",
+      "realmRoles": [
+        "offline_access"
+      ]
+    },
+    {
+      "username": "service-account-eventhub-event-service",
+      "enabled": true,
+      "serviceAccountClientId": "eventhub-event-service",
+      "realmRoles": [
+        "offline_access"
+      ]
+    }
+  ]
+}

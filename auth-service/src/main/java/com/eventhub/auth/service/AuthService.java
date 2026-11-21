@@ -1,74 +1,45 @@
 package com.eventhub.auth.service;
 
-import com.eventhub.auth.dto.request.*;
-import com.eventhub.auth.dto.response.*;
-import com.eventhub.auth.security.Actor;
-import reactor.core.publisher.Mono;
+import com.eventhub.auth.common.BusinessRole;
+import com.eventhub.auth.dto.request.ChangePasswordRequest;
+import com.eventhub.auth.dto.request.LoginRequest;
+import com.eventhub.auth.dto.request.RefreshRequest;
+import com.eventhub.auth.dto.request.RegisterRequest;
+import com.eventhub.auth.dto.response.TokenResponse;
+import com.eventhub.auth.dto.response.UserResponse;
+
+import java.util.UUID;
 
 /**
- * Auth Service interface for user-facing authentication operations.
- * All methods are reactive (Mono) for non-blocking Keycloak calls.
+ * Facade xác thực EventHub → Keycloak (plan Auth §2). Keycloak giữ mật khẩu, phiên và role; Auth Service
+ * không tự ký token và không lưu mật khẩu.
  */
 public interface AuthService {
-    /**
-     * Register new user (CUSTOMER role).
-     * Creates user in Keycloak with email, password, fullName.
-     */
-    Mono<UserResponse> register(RegisterRequest request);
 
-    /**
-     * Login with authorization code (PKCE flow).
-     * Exchanges code for access/refresh tokens at Keycloak.
-     */
-    Mono<TokenResponse> login(LoginRequest request);
+    /** Tạo tài khoản Keycloak, gán CUSTOMER, tạo hồ sơ EventHub và gửi mail xác minh. */
+    UserResponse register(RegisterRequest request);
 
-    /**
-     * Refresh access token using refresh token.
-     */
-    Mono<TokenResponse> refresh(RefreshRequest request);
+    TokenResponse login(LoginRequest request);
 
-    /**
-     * Logout (revoke refresh token at Keycloak).
-     */
-    Mono<Void> logout(RefreshRequest request);
+    TokenResponse refresh(RefreshRequest request);
 
-    /**
-     * Get current user profile from Keycloak.
-     */
-    Mono<UserResponse> getMe(Actor actor);
+    void logout(RefreshRequest request);
 
-    /**
-     * Change password (user knows current password).
-     */
-    Mono<Void> changePassword(Actor actor, ChangePasswordRequest request);
+    /** Tài khoản của người đang đăng nhập; userId lấy từ JWT đã xác minh. */
+    UserResponse getMe(UUID userId);
 
-    /**
-     * Forgot password - send reset email.
-     */
-    Mono<Void> forgotPassword(ForgotPasswordRequest request);
+    /** AUTH-UC06: kiểm tra mật khẩu hiện tại qua Keycloak rồi đặt mật khẩu mới. */
+    void changePassword(UUID userId, ChangePasswordRequest request);
 
-    /**
-     * Reset password with token from email.
-     */
-    Mono<Void> resetPassword(ResetPasswordRequest request);
+    /** Gửi lại mail xác minh cho người đang đăng nhập; email đã xác minh → EMAIL_ALREADY_VERIFIED. */
+    void resendVerificationEmail(UUID userId);
 
-    /**
-     * Verify email with token from email.
-     */
-    Mono<Void> verifyEmail(VerifyEmailRequest request);
+    /** AUTH-UC08: ADMIN khóa tài khoản (disable + thu hồi phiên). */
+    void lockUser(UUID adminId, UUID userId);
 
-    /**
-     * Resend verification email.
-     */
-    Mono<Void> resendVerification(ResendVerificationRequest request);
+    /** AUTH-UC09: ADMIN mở khóa tài khoản. */
+    void unlockUser(UUID adminId, UUID userId);
 
-    /**
-     * Get current user's active sessions.
-     */
-    Mono<UserSessionsResponse> getMySessions(Actor actor);
-
-    /**
-     * Revoke a specific session of current user.
-     */
-    Mono<Void> revokeMySession(Actor actor, String sessionId);
+    /** AUTH-UC07: ADMIN chuyển business role; user luôn còn đúng một role. */
+    void assignRole(UUID adminId, UUID userId, BusinessRole role);
 }

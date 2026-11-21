@@ -8,20 +8,15 @@ servers:
   description: API Gateway (local)
 tags:
 - name: Auth
-  description: Public authentication endpoints (no admin role required)
-- name: Auth - User Self-Service
-  description: User managing their own account (requires valid access token)
-- name: Admin - User Management
-  description: Admin-only endpoints for managing other users (requires ADMIN role)
+- name: Admin - User
 paths:
   /auth/register:
     post:
       tags:
       - Auth
       operationId: register
-      summary: AUTH-UC01 Đăng ký tài khoản
-      description: |-
-        Facade EventHub → Keycloak. Tạo tài khoản qua Admin API Keycloak được cấp quyền, gán realm role CUSTOMER; không lưu password hash local. Chính sách email verification cần cấu hình realm.
+      summary: AUTH-UC01 Đăng ký
+      description: Facade EventHub → Keycloak. Tạo tài khoản qua API Keycloak được cấp quyền, gán CUSTOMER; không lưu password hash local. Chính sách email verification cần cấu hình.
       requestBody:
         required: true
         content:
@@ -43,12 +38,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
       x-contract-status: target-facade-keycloak-integration-pending
   /auth/login:
     post:
@@ -56,8 +45,6 @@ paths:
       - Auth
       operationId: login
       summary: AUTH-UC02 Đăng nhập
-      description: |-
-        Facade EventHub → Keycloak. Xác thực tại Keycloak theo grant flow được cấu hình (password/code exchange) và trả token do Keycloak cấp, không ký token ứng dụng mới. UI riêng đã chốt; cách trao đổi credentials/code với Keycloak còn cấu hình.
       requestBody:
         required: true
         content:
@@ -85,21 +72,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
       x-contract-status: target-facade-keycloak-integration-pending
+      description: Facade EventHub → Keycloak. Xác thực tại Keycloak và trả token do Keycloak cấp, không ký token ứng dụng mới. UI riêng đã chốt; cách trao đổi credentials/code với Keycloak còn cấu hình, request draft không tự cho phép password grant.
   /auth/refresh:
     post:
       tags:
       - Auth
       operationId: refreshToken
       summary: AUTH-UC03 Refresh token (rotation)
-      description: |-
-        Facade EventHub → Keycloak. Ủy quyền refresh cho Keycloak, không đọc/ghi bảng refresh_tokens riêng. Chính sách rotation/reuse thuộc cấu hình Keycloak.
+      description: Facade EventHub → Keycloak. Ủy quyền refresh cho Keycloak, không đọc/ghi bảng refresh_tokens riêng. Chính sách rotation/reuse thuộc cấu hình Keycloak.
       requestBody:
         required: true
         content:
@@ -114,21 +95,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/TokenResponse'
         '401':
-          description: |-
+          description: |
             INVALID_REFRESH_TOKEN, REFRESH_TOKEN_EXPIRED hoặc REFRESH_TOKEN_REUSED
-            (reuse thì toàn bộ token family bị thu hồi theo chính sách Keycloak).
+            (reuse thì toàn bộ token family bị thu hồi).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: ACCOUNT_LOCKED
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
           content:
             application/json:
               schema:
@@ -140,8 +115,7 @@ paths:
       - Auth
       operationId: logout
       summary: AUTH-UC04 Đăng xuất
-      description: |-
-        Facade EventHub → Keycloak. Kết thúc/revoke session qua Keycloak theo client integration (logout endpoint hoặc Admin API revoke); không chỉ xóa refresh token local. Hiệu lực của access token đang tồn tại còn tùy cấu hình thu hồi/quyền resource server.
+      description: Facade EventHub → Keycloak. Kết thúc/revoke session qua Keycloak theo client integration; không chỉ xóa refresh token local. Hiệu lực của access token đang tồn tại còn cấu hình thu hồi/quyền.
       requestBody:
         required: true
         content:
@@ -157,12 +131,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
       x-contract-status: target-facade-keycloak-integration-pending
   /auth/me:
     get:
@@ -170,8 +138,6 @@ paths:
       - Auth
       operationId: getMe
       summary: AUTH-UC05 Thông tin tài khoản hiện tại
-      description: |-
-        Facade EventHub → Keycloak. Đọc identity/profile đã xác minh từ Keycloak/adapter (UserInfo endpoint hoặc Admin API); trả `UserResponse(id=sub, email, fullName, role, status, createdAt)` từ Keycloak. Không nhận userId khác trong query. Không trả dữ liệu từ `user_profiles`.
       security:
       - bearerAuth: []
       responses:
@@ -183,21 +149,130 @@ paths:
                 $ref: '#/components/schemas/UserResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
+      x-contract-status: target-facade-keycloak-integration-pending
+      description: Facade EventHub → Keycloak. Đọc identity/profile đã xác minh từ Keycloak/adapter; không giả định claim roles phẳng hoặc có DB users local.
+  /auth/verify-email/resend:
+    post:
+      tags:
+      - Auth
+      operationId: resendVerificationEmail
+      summary: Gửi lại mail xác minh email
+      description: Keycloak gửi mail (dev qua Mailpit). Sau khi bấm link, client gọi /auth/refresh để nhận token có email_verified=true; Order chỉ cho đặt vé khi email đã xác minh.
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: Đã gửi
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: EMAIL_ALREADY_VERIFIED
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
+        '503':
+          description: AUTH_PROVIDER_UNAVAILABLE (Keycloak hoặc SMTP lỗi)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /me/profile:
+    get:
+      tags:
+      - Auth
+      operationId: getMyProfile
+      summary: Hồ sơ nghiệp vụ của tôi
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Hồ sơ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: PROFILE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+      - Auth
+      operationId: initializeMyProfile
+      summary: Tạo hồ sơ cho tài khoản chưa có (tài khoản tạo ngoài /auth/register)
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserProfileRequest'
+      responses:
+        '201':
+          description: Đã tạo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: PROFILE_ALREADY_EXISTS hoặc PHONE_ALREADY_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      tags:
+      - Auth
+      operationId: updateMyProfile
+      summary: Cập nhật hồ sơ (chỉ trường được gửi; phoneNumber rỗng để xóa)
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserProfileRequest'
+      responses:
+        '200':
+          description: Hồ sơ sau cập nhật
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: PROFILE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: PHONE_ALREADY_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /auth/change-password:
     post:
       tags:
-      - Auth - User Self-Service
+      - Auth
       operationId: changePassword
-      summary: AUTH-UC06 Đổi mật khẩu (user tự đổi)
-      description: |-
-        Facade EventHub → Keycloak. Đổi mật khẩu qua Account API hoặc Admin API Keycloak được cấp quyền, không tự so hash local; kiểm tra current password theo flow được cấu hình (verify credential).
+      summary: AUTH-UC06 Đổi mật khẩu
+      description: Facade EventHub → Keycloak. Đổi mật khẩu qua API/flow Keycloak được cấp quyền, không tự so hash local; kiểm tra current password theo flow được cấu hình.
       security:
       - bearerAuth: []
       requestBody:
@@ -210,292 +285,21 @@ paths:
         '204':
           description: Đổi mật khẩu thành công
         '400':
-          description: VALIDATION_ERROR hoặc CURRENT_PASSWORD_INCORRECT
+          description: VALIDATION_ERROR (gồm mật khẩu mới không đạt chính sách realm) hoặc CURRENT_PASSWORD_INCORRECT
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
-  /auth/forgot-password:
-    post:
-      tags:
-      - Auth
-      operationId: forgotPassword
-      summary: AUTH-UC10 Yêu cầu reset mật khẩu (quên mật khẩu)
-      description: |-
-        Facade EventHub → Keycloak. Gọi Keycloak Admin API hoặc Account API gửi email reset password tới user. Không xác thực access token (public endpoint). Keycloak tự xử lý token reset, link, expiry.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ForgotPasswordRequest'
-      responses:
-        '204':
-          description: Email reset đã gửi (trả 204 dù email không tồn tại để tránh enum)
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
-  /auth/reset-password:
-    post:
-      tags:
-      - Auth
-      operationId: resetPassword
-      summary: AUTH-UC11 Đặt lại mật khẩu bằng token từ email
-      description: |-
-        Facade EventHub → Keycloak. User submit mật khẩu mới kèm reset token nhận được qua email. Gọi Keycloak Admin API (`PUT /users/{id}/reset-password`) hoặc Account API. Không yêu cầu access token.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ResetPasswordRequest'
-      responses:
-        '204':
-          description: Đặt lại mật khẩu thành công
-        '400':
-          description: VALIDATION_ERROR, RESET_TOKEN_INVALID hoặc RESET_TOKEN_EXPIRED
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
-  /auth/verify-email:
-    post:
-      tags:
-      - Auth
-      operationId: verifyEmail
-      summary: AUTH-UC12 Xác thực email bằng token
-      description: |-
-        Facade EventHub → Keycloak. User click link verify email → FE gọi endpoint này với token → proxy Keycloak verify. Không yêu cầu access token.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/VerifyEmailRequest'
-      responses:
-        '204':
-          description: Email đã được xác thực
-        '400':
-          description: VALIDATION_ERROR, VERIFICATION_TOKEN_INVALID hoặc VERIFICATION_TOKEN_EXPIRED
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
-  /auth/resend-verification:
-    post:
-      tags:
-      - Auth
-      operationId: resendVerification
-      summary: AUTH-UC13 Gửi lại email xác thực
-      description: |-
-        Facade EventHub → Keycloak. Gọi Keycloak Admin API gửi lại email verify. Không yêu cầu access token.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ResendVerificationRequest'
-      responses:
-        '204':
-          description: Email verify đã gửi lại (trả 204 dù email không tồn tại)
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
-  /auth/me/sessions:
-    get:
-      tags:
-      - Auth - User Self-Service
-      operationId: getMySessions
-      summary: AUTH-UC14 Xem session hoạt động của mình
-      description: |-
-        Facade EventHub → Keycloak. Gọi Admin API `GET /users/{id}/sessions` hoặc introspect endpoint để lấy danh sách session/device đang đăng nhập của user hiện tại.
-      security:
-      - bearerAuth: []
-      responses:
-        '200':
-          description: Danh sách session
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserSessionsResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
-  /auth/me/sessions/{sessionId}:
-    delete:
-      tags:
-      - Auth - User Self-Service
-      operationId: revokeMySession
-      summary: AUTH-UC15 Đăng xuất một session cụ thể (revoke)
-      description: |-
-        Facade EventHub → Keycloak. Gọi Admin API `DELETE /users/{id}/sessions/{sessionId}` để revoke một session cụ thể (thiết bị khác).
-      security:
-      - bearerAuth: []
-      parameters:
-      - name: sessionId
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        '204':
-          description: Đã revoke session
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          description: SESSION_NOT_FOUND
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
-  /admin/users:
-    get:
-      tags:
-      - Admin - User Management
-      operationId: listUsers
-      summary: AUTH-UC07 Danh sách user (phân trang, tìm kiếm, lọc)
-      description: |-
-        Facade EventHub → Keycloak Admin API. ADMIN lấy danh sách user từ Keycloak với phân trang, tìm kiếm theo email/username/fullName, lọc theo role, status. Map về DTO EventHub.
-      security:
-      - bearerAuth: []
-      parameters:
-      - name: page
-        in: query
-        schema:
-          type: integer
-          default: 0
-          minimum: 0
-      - name: size
-        in: query
-        schema:
-          type: integer
-          default: 20
-          minimum: 1
-          maximum: 100
-      - name: sort
-        in: query
-        schema:
-          type: string
-          default: createdAt,desc
-      - name: search
-        in: query
-        schema:
-          type: string
-          description: Tìm kiếm email, username, fullName
-      - name: role
-        in: query
-        schema:
-          $ref: '#/components/schemas/Role'
-      - name: status
-        in: query
-        schema:
-          $ref: '#/components/schemas/UserStatus'
-      responses:
-        '200':
-          description: Danh sách user phân trang
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PageUserResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
-  /admin/users/{userId}:
-    get:
-      tags:
-      - Admin - User Management
-      operationId: getUserDetail
-      summary: AUTH-UC08 Xem chi tiết user
-      description: |-
-        Facade EventHub → Keycloak Admin API. ADMIN xem chi tiết user: profile + role + status + timestamps + emailVerified + lastLoginAt.
-      security:
-      - bearerAuth: []
-      parameters:
-      - $ref: '#/components/parameters/UserId'
-      responses:
-        '200':
-          description: Chi tiết user
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserDetailResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/UserNotFound'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
       x-contract-status: target-facade-keycloak-integration-pending
   /admin/users/{userId}/lock:
     patch:
       tags:
-      - Admin - User Management
+      - Admin - User
       operationId: lockUser
-      summary: AUTH-UC09 Khóa tài khoản (disable + revoke sessions)
-      description: |-
-        Facade EventHub → Keycloak Admin API. ADMIN yêu cầu Keycloak disable user (`enabled=false`) và revoke tất cả session. Idempotent. Không hứa mọi JWT đã phát mất hiệu lực tức thì nếu resource server chỉ verify offline.
+      summary: AUTH-UC08 Khóa tài khoản
+      description: Facade EventHub → Keycloak. ADMIN yêu cầu Keycloak disable user/thu hồi session theo chính sách. Không hứa mọi JWT đã phát mất hiệu lực tức thì nếu resource server chỉ verify offline.
       security:
       - bearerAuth: []
       parameters:
@@ -510,13 +314,7 @@ paths:
         '404':
           $ref: '#/components/responses/UserNotFound'
         '409':
-          description: ACCOUNT_ALREADY_LOCKED
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
+          description: ACCOUNT_ALREADY_LOCKED hoặc CANNOT_MODIFY_OWN_ACCOUNT
           content:
             application/json:
               schema:
@@ -525,11 +323,10 @@ paths:
   /admin/users/{userId}/unlock:
     patch:
       tags:
-      - Admin - User Management
+      - Admin - User
       operationId: unlockUser
-      summary: AUTH-UC10 Mở khóa tài khoản
-      description: |-
-        Facade EventHub → Keycloak Admin API. ADMIN yêu cầu Keycloak enable user (`enabled=true`). Idempotent. 404 nếu không tồn tại.
+      summary: AUTH-UC09 Mở khóa tài khoản
+      description: Facade EventHub → Keycloak. ADMIN yêu cầu Keycloak enable user.
       security:
       - bearerAuth: []
       parameters:
@@ -544,13 +341,7 @@ paths:
         '404':
           $ref: '#/components/responses/UserNotFound'
         '409':
-          description: ACCOUNT_ALREADY_ACTIVE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
+          description: ACCOUNT_ALREADY_ACTIVE hoặc CANNOT_MODIFY_OWN_ACCOUNT
           content:
             application/json:
               schema:
@@ -559,11 +350,10 @@ paths:
   /admin/users/{userId}/role:
     patch:
       tags:
-      - Admin - User Management
+      - Admin - User
       operationId: assignRole
-      summary: AUTH-UC11 Gán / chuyển role nghiệp vụ
-      description: |-
-        Facade EventHub → Keycloak Admin API. ADMIN chuyển đúng một business role CUSTOMER/ORGANIZER/ADMIN qua realm role mappings, không users_roles local. Cần xử lý trạng thái trung gian nếu provider cần nhiều request. Retry phải hội tụ về một business role, fail closed nếu mapping mơ hồ.
+      summary: AUTH-UC07 Gán / chuyển role
+      description: Facade EventHub → Keycloak. ADMIN chuyển vai trò nghiệp vụ CUSTOMER/ORGANIZER/ADMIN qua Keycloak role mapping, không users_roles local.
       security:
       - bearerAuth: []
       parameters:
@@ -576,7 +366,7 @@ paths:
               $ref: '#/components/schemas/AssignRoleRequest'
       responses:
         '204':
-          description: Đã cập nhật role
+          description: Đã cập nhật role (gỡ business role cũ, gán role mới; người dùng nhận role mới ở lần refresh tiếp theo)
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -585,104 +375,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/UserNotFound'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
-  /admin/users/{userId}/reset-password:
-    post:
-      tags:
-      - Admin - User Management
-      operationId: adminResetPassword
-      summary: AUTH-UC12 Reset mật khẩu bởi admin
-      description: |-
-        Facade EventHub → Keycloak Admin API. ADMIN đặt lại mật khẩu cho user khác: gửi email reset hoặc set temporary password qua `PUT /users/{id}/reset-password` (type=password) hoặc `execute-actions-email` (UPDATE_PASSWORD). Không trả password trong response.
-      security:
-      - bearerAuth: []
-      parameters:
-      - $ref: '#/components/parameters/UserId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AdminResetPasswordRequest'
-      responses:
-        '204':
-          description: Đã thực hiện reset (gửi email hoặc set temporary password)
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/UserNotFound'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
-  /admin/users/{userId}/sessions:
-    get:
-      tags:
-      - Admin - User Management
-      operationId: getUserSessions
-      summary: AUTH-UC13 Xem session hoạt động của user
-      description: |-
-        Facade EventHub → Keycloak Admin API. ADMIN xem danh sách session/device đang đăng nhập của user bất kỳ: `GET /users/{id}/sessions`.
-      security:
-      - bearerAuth: []
-      parameters:
-      - $ref: '#/components/parameters/UserId'
-      responses:
-        '200':
-          description: Danh sách session
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserSessionsResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/UserNotFound'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
-  /admin/users/{userId}/sessions:
-    delete:
-      tags:
-      - Admin - User Management
-      operationId: revokeAllUserSessions
-      summary: AUTH-UC14 Đăng xuất tất cả session của user (revoke all)
-      description: |-
-        Facade EventHub → Keycloak Admin API. ADMIN revoke toàn bộ session của user: `DELETE /users/{id}/sessions`. Force logout mọi thiết bị.
-      security:
-      - bearerAuth: []
-      parameters:
-      - $ref: '#/components/parameters/UserId'
-      responses:
-        '204':
-          description: Đã revoke tất cả session
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/UserNotFound'
-        '503':
-          description: IDENTITY_PROVIDER_UNAVAILABLE
+        '409':
+          description: CANNOT_MODIFY_OWN_ACCOUNT (ADMIN tự đổi role mình) hoặc ROLE_MAPPING_CONFLICT (user vẫn thừa kế business role khác từ composite role của realm)
           content:
             application/json:
               schema:
@@ -793,45 +487,6 @@ components:
           type: string
           format: password
           minLength: 8
-    ForgotPasswordRequest:
-      type: object
-      required:
-      - email
-      properties:
-        email:
-          type: string
-          format: email
-          example: user@example.com
-    ResetPasswordRequest:
-      type: object
-      required:
-      - resetToken
-      - newPassword
-      properties:
-        resetToken:
-          type: string
-          description: Token nhận được qua email reset password
-        newPassword:
-          type: string
-          format: password
-          minLength: 8
-    VerifyEmailRequest:
-      type: object
-      required:
-      - token
-      properties:
-        token:
-          type: string
-          description: Verification token từ email
-    ResendVerificationRequest:
-      type: object
-      required:
-      - email
-      properties:
-        email:
-          type: string
-          format: email
-          example: user@example.com
     AssignRoleRequest:
       type: object
       required:
@@ -839,20 +494,6 @@ components:
       properties:
         role:
           $ref: '#/components/schemas/Role'
-    AdminResetPasswordRequest:
-      type: object
-      required:
-      - action
-      properties:
-        action:
-          type: string
-          enum:
-          - SEND_EMAIL
-          - SET_TEMPORARY_PASSWORD
-          description: SEND_EMAIL: gửi email reset; SET_TEMPORARY_PASSWORD: đặt temporary password và trả về trong response (chỉ khi cần)
-        temporaryPassword:
-          type: string
-          description: Chỉ dùng khi action=SET_TEMPORARY_PASSWORD; nếu không cung cấp, Keycloak tự sinh
     TokenResponse:
       type: object
       properties:
@@ -884,66 +525,45 @@ components:
           $ref: '#/components/schemas/Role'
         status:
           $ref: '#/components/schemas/UserStatus'
+        emailVerified:
+          type: boolean
+          description: false tới khi người dùng bấm link trong mail xác minh; Order chỉ cho đặt vé khi true.
         createdAt:
           type: string
           format: date-time
       description: DTO facade; id UUID nghiệp vụ đề xuất map Keycloak sub. role/status là mapping của Keycloak, không là bảng users local.
-    UserDetailResponse:
-      allOf:
-      - $ref: '#/components/schemas/UserResponse'
-      - type: object
-        properties:
-          emailVerified:
-            type: boolean
-            description: Email đã được xác thực
-          lastLoginAt:
-            type: string
-            format: date-time
-            description: Lần đăng nhập gần nhất (từ Keycloak)
-          username:
-            type: string
-            description: Username Keycloak (nếu khác email)
-    PageUserResponse:
+    UserProfileRequest:
       type: object
       properties:
-        content:
-          type: array
-          items:
-            $ref: '#/components/schemas/UserResponse'
-        page:
-          type: object
-          properties:
-            size:
-              type: integer
-            number:
-              type: integer
-            totalElements:
-              type: integer
-            totalPages:
-              type: integer
-    UserSessionsResponse:
+        fullName:
+          type: string
+          maxLength: 100
+          description: Bắt buộc với PUT
+        phoneNumber:
+          type: string
+          maxLength: 20
+          nullable: true
+        avatarUrl:
+          type: string
+          maxLength: 255
+          nullable: true
+    UserProfileResponse:
       type: object
       properties:
-        sessions:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: string
-                description: Session ID Keycloak
-              startedAt:
-                type: string
-                format: date-time
-              lastAccessedAt:
-                type: string
-                format: date-time
-              ipAddress:
-                type: string
-              userAgent:
-                type: string
-              device:
-                type: string
+        id:
+          type: string
+          format: uuid
+        keycloakSub:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        phoneNumber:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
     ErrorResponse:
       type: object
       required:

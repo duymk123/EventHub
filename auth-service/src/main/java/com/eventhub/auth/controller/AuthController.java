@@ -1,127 +1,85 @@
 package com.eventhub.auth.controller;
 
-import com.eventhub.auth.dto.request.*;
-import com.eventhub.auth.dto.response.*;
-import com.eventhub.auth.security.Actor;
+import com.eventhub.auth.dto.request.ChangePasswordRequest;
+import com.eventhub.auth.dto.request.LoginRequest;
+import com.eventhub.auth.dto.request.RefreshRequest;
+import com.eventhub.auth.dto.request.RegisterRequest;
+import com.eventhub.auth.dto.response.TokenResponse;
+import com.eventhub.auth.dto.response.UserResponse;
 import com.eventhub.auth.service.AuthService;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
 /**
- * Auth Controller - Public and user self-service endpoints.
- * All endpoints under /api/v1/auth.
+ * AUTH-UC01..UC06 theo docs/api/auth-service-openapi.yaml. register/login/refresh/logout không cần token;
+ * các API còn lại cần access token hợp lệ, userId lấy từ sub của JWT.
  */
 @RestController
-@RequiredArgsConstructor
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
     private final AuthService authService;
 
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
+
+    /** POST /api/v1/auth/register → 201, tài khoản mới có role CUSTOMER, mail xác minh được gửi. */
     @PostMapping("/register")
     public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterRequest request) {
-        return authService.register(request)
-                .map(user -> ResponseEntity.status(201).body(user))
-                .block();
+        return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
     }
 
+    /** POST /api/v1/auth/login → accessToken (5 phút) và refreshToken. */
     @PostMapping("/login")
     public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest request) {
-        return authService.login(request)
-                .map(ResponseEntity::ok)
-                .block();
+        return ResponseEntity.ok(authService.login(request));
     }
 
+    /** POST /api/v1/auth/refresh → cặp token mới; refresh token cũ hết hiệu lực (xoay vòng). */
     @PostMapping("/refresh")
     public ResponseEntity<TokenResponse> refresh(@Valid @RequestBody RefreshRequest request) {
-        return authService.refresh(request)
-                .map(ResponseEntity::ok)
-                .block();
+        return ResponseEntity.ok(authService.refresh(request));
     }
 
+    /** POST /api/v1/auth/logout → 204, kết thúc phiên tại Keycloak. */
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@Valid @RequestBody RefreshRequest request) {
-        authService.logout(request).block();
+        authService.logout(request);
         return ResponseEntity.noContent().build();
     }
 
+    /** GET /api/v1/auth/me → thông tin tài khoản đang đăng nhập. */
     @GetMapping("/me")
-    public ResponseEntity<UserResponse> getMe(@AuthenticationPrincipal Jwt jwt) {
-        Actor actor = extractActor(jwt);
-        return authService.getMe(actor)
-                .map(ResponseEntity::ok)
-                .block();
+    public ResponseEntity<UserResponse> me(@AuthenticationPrincipal Jwt jwt) {
+        return ResponseEntity.ok(authService.getMe(UUID.fromString(jwt.getSubject())));
     }
 
+    /** POST /api/v1/auth/change-password → 204. */
     @PostMapping("/change-password")
     public ResponseEntity<Void> changePassword(@AuthenticationPrincipal Jwt jwt,
-                                                @Valid @RequestBody ChangePasswordRequest request) {
-        Actor actor = extractActor(jwt);
-        authService.changePassword(actor, request).block();
-        return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/forgot-password")
-    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
-        authService.forgotPassword(request).block();
-        return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/reset-password")
-    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
-        authService.resetPassword(request).block();
-        return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/verify-email")
-    public ResponseEntity<Void> verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
-        authService.verifyEmail(request).block();
-        return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/resend-verification")
-    public ResponseEntity<Void> resendVerification(@Valid @RequestBody ResendVerificationRequest request) {
-        authService.resendVerification(request).block();
-        return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/me/sessions")
-    public ResponseEntity<UserSessionsResponse> getMySessions(@AuthenticationPrincipal Jwt jwt) {
-        Actor actor = extractActor(jwt);
-        return authService.getMySessions(actor)
-                .map(ResponseEntity::ok)
-                .block();
-    }
-
-    @DeleteMapping("/me/sessions/{sessionId}")
-    public ResponseEntity<Void> revokeMySession(@AuthenticationPrincipal Jwt jwt,
-                                                 @PathVariable String sessionId) {
-        Actor actor = extractActor(jwt);
-        authService.revokeMySession(actor, sessionId).block();
+                                               @Valid @RequestBody ChangePasswordRequest request) {
+        authService.changePassword(UUID.fromString(jwt.getSubject()), request);
         return ResponseEntity.noContent().build();
     }
 
     /**
-     * Extract Actor from JWT.
-     * In production, this should use IdentityMapper bean.
-     * Kept here for simplicity until IdentityMapper is properly injected.
+     * POST /api/v1/auth/verify-email/resend → 204, gửi lại mail xác minh. Sau khi bấm link, client gọi
+     * /auth/refresh để nhận token có email_verified=true.
      */
-    private Actor extractActor(Jwt jwt) {
-        String sub = jwt.getSubject();
-        var realmAccess = jwt.getClaim("realm_access");
-        @SuppressWarnings("unchecked")
-        java.util.List<String> roles = (java.util.List<String>) ((java.util.Map<String, Object>) realmAccess).get("roles");
-        com.eventhub.auth.security.BusinessRole role = roles.stream()
-                .filter(r -> r.equals("CUSTOMER") || r.equals("ORGANIZER") || r.equals("ADMIN"))
-                .map(com.eventhub.auth.security.BusinessRole::valueOf)
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("No business role in token"));
-        return new Actor(UUID.fromString(sub), role);
+    @PostMapping("/verify-email/resend")
+    public ResponseEntity<Void> resendVerificationEmail(@AuthenticationPrincipal Jwt jwt) {
+        authService.resendVerificationEmail(UUID.fromString(jwt.getSubject()));
+        return ResponseEntity.noContent().build();
     }
 }

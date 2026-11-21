@@ -16,6 +16,7 @@ erDiagram
   orders {
     CHAR(36) id PK
     CHAR(36) customer_id
+    VARCHAR(255) customer_email
     CHAR(36) event_id
     CHAR(36) reservation_id
     VARCHAR(20) status

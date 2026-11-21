@@ -1,21 +1,10 @@
 package com.eventhub.auth.dto.response;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 /**
- * Token response for login/refresh.
- * Contains access token, refresh token, and metadata.
+ * Token do Keycloak cấp, Auth Service chỉ đổi tên trường cho đúng hợp đồng API, không tự ký token.
+ *
+ * @param expiresIn Số giây access token còn hiệu lực (realm đặt 300).
+ * @param refreshExpiresIn Số giây refresh token còn hiệu lực.
  */
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class TokenResponse {
-    private String accessToken;
-    private String refreshToken;
-    private String tokenType = "Bearer";
-    private Integer expiresIn;
-}
+public record TokenResponse(String accessToken, String refreshToken, String tokenType, long expiresIn,
+                            long refreshExpiresIn) {}

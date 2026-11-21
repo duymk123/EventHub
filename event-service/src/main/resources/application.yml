@@ -2,13 +2,45 @@ spring:
   application:
     name: event-service
   datasource:
-    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_event}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
+    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_event}?serverTimezone=UTC&forceConnectionTimeZoneToSession=true&createDatabaseIfNotExist=true}"
     username: "${DB_USERNAME:root}"
     password: "${DB_PASSWORD:root}"
   jpa:
     hibernate:
       ddl-auto: update
     open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+      hibernate.type.preferred_uuid_jdbc_type: CHAR
+  data:
+    web:
+      pageable:
+        # Quy ước chung: Page trả JSON {content, page{size, number, totalElements, totalPages}}.
+        serialization-mode: via-dto
+        max-page-size: 100
 
 server:
   port: "${SERVER_PORT:8082}"
+
+eventhub:
+  security:
+    # JWT do Keycloak realm eventhub ký; mặc định khớp Keycloak local cổng 8180.
+    issuer: ${KEYCLOAK_ISSUER:http://localhost:8180/realms/eventhub}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/certs}
+    # Mapper eventhub-api-audience của realm thêm aud này vào mọi token; để trống thì không kiểm tra.
+    audience: ${EVENTHUB_JWT_AUDIENCE:eventhub-api}
+    role-claim: ${EVENTHUB_ROLE_CLAIM:realm_access.roles}
+    # Service account (claim azp) được gọi /internal/**: Ticket chỉ INT-01, Analytics INT-01/02/03.
+    internal-clients:
+      ticket: ${TICKET_SERVICE_CLIENT_ID:eventhub-ticket-service}
+      analytics: ${ANALYTICS_SERVICE_CLIENT_ID:eventhub-analytics-service}
+  s2s:
+    # Credential của Event để gọi preflight cấu hình vé của ticket-service trước khi publish (C08).
+    token-uri: ${KEYCLOAK_SERVICE_TOKEN_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/token}
+    client-id: ${EVENT_SERVICE_CLIENT_ID:eventhub-event-service}
+    client-secret: ${EVENT_SERVICE_CLIENT_SECRET:eventhub-event-service-dev-secret}
+  ticket-service:
+    base-url: ${TICKET_SERVICE_URL:http://localhost:8083}
+  event:
+    # startDate/endDate của tìm kiếm public là ngày theo giờ Việt Nam (OpenAPI EVT-07).
+    search-zone: Asia/Ho_Chi_Minh

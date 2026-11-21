@@ -7,8 +7,6 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.OneToMany;
@@ -19,7 +17,6 @@ import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-import com.eventhub.order.entity.enums.OrderStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -37,8 +34,8 @@ import java.util.UUID;
 @NoArgsConstructor
 public class Order extends BaseEntity {
 
+    /** Order Service sinh UUID trước khi gọi Ticket reserve (orderId là khóa idempotency), không để Hibernate sinh. */
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(nullable = false, updatable = false, length = 36)
     private UUID id;
@@ -46,6 +43,10 @@ public class Order extends BaseEntity {
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "customer_id", nullable = false, length = 36)
     private UUID customerId;
+
+    /** C02: snapshot email đã xác minh của người mua lúc tạo đơn, dùng cho confirm/ticket.issued/order.failed. */
+    @Column(name = "customer_email", nullable = false, length = 255)
+    private String customerEmail;
 
     @JdbcTypeCode(SqlTypes.CHAR)
     @Column(name = "event_id", nullable = false, length = 36)

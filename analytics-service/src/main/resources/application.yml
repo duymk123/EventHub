@@ -48,23 +48,23 @@ spring:
 eventhub:
   security:
     # JWT người dùng được xác minh và chuyển thành Actor trước khi truy vấn báo cáo.
-    issuer: ${KEYCLOAK_ISSUER:}
-    audience: ${EVENTHUB_JWT_AUDIENCE:}
-    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:}
-    role-claim: ${EVENTHUB_ROLE_CLAIM:}
+    issuer: ${KEYCLOAK_ISSUER:http://localhost:8180/realms/eventhub}
+    audience: ${EVENTHUB_JWT_AUDIENCE:eventhub-api}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/certs}
+    role-claim: ${EVENTHUB_ROLE_CLAIM:realm_access.roles}
     algorithm: ${EVENTHUB_JWT_ALGORITHM:RS256}
   s2s:
     # Credential riêng của Analytics để gọi GET /internal/events/{id}.
-    token-uri: ${KEYCLOAK_SERVICE_TOKEN_URI:}
-    client-id: ${ANALYTICS_SERVICE_CLIENT_ID:}
-    client-secret: ${ANALYTICS_SERVICE_CLIENT_SECRET:}
+    token-uri: ${KEYCLOAK_SERVICE_TOKEN_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/token}
+    client-id: ${ANALYTICS_SERVICE_CLIENT_ID:eventhub-analytics-service}
+    client-secret: ${ANALYTICS_SERVICE_CLIENT_SECRET:eventhub-analytics-service-dev-secret}
     scope: ${ANALYTICS_SERVICE_SCOPE:}
   analytics:
     # paidAt/refundedAt UTC được đổi sang ngày Việt Nam trước khi ghi metric_date.
     reporting-zone: Asia/Ho_Chi_Minh
   websocket:
     # Danh sách Origin frontend, phân cách bằng dấu phẩy, dùng khi mở WebSocket.
-    allowed-origins: ${DASHBOARD_ALLOWED_ORIGINS:}
+    allowed-origins: ${DASHBOARD_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
   event-service:
     url: ${EVENT_SERVICE_URL:http://localhost:8082}
   ticket-service:

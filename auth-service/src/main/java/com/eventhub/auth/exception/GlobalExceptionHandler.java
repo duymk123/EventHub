@@ -1,80 +1,67 @@
 package com.eventhub.auth.exception;
 
-import com.eventhub.auth.client.exception.KeycloakAuthenticationException;
-import com.eventhub.auth.client.exception.KeycloakMappingException;
-import com.eventhub.auth.client.exception.KeycloakUnavailableException;
-import com.eventhub.auth.dto.response.ErrorResponse;
-
+import com.eventhub.auth.common.ErrorCode;
+import com.eventhub.auth.common.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.FieldError;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
-import java.util.stream.Collectors;
 
 /**
- * Global exception handler for Auth Service.
- * Maps exceptions to standardized ErrorResponse format.
+ * Chuyển lỗi của controller thành ErrorResponse(code, message, timestamp, path). Lỗi không lường trước trả
+ * INTERNAL_ERROR, chi tiết chỉ ghi log.
  */
-@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    // Handle validation errors (e.g., @Valid failures)
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidationError(MethodArgumentNotValidException ex, HttpServletRequest request) {
-        String message = ex.getBindingResult().getFieldErrors().stream()
-                .map(FieldError::getDefaultMessage)
-                .collect(Collectors.joining(", "));
-        return buildErrorResponse(ErrorCode.VALIDATION_ERROR, message, request.getRequestURI());
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ErrorResponse> handleBusiness(BusinessException error, HttpServletRequest request) {
+        return respond(error.getErrorCode().httpStatus(), error.getErrorCode().name(), error.getMessage(), request);
     }
 
-    // Handle WebClient errors (e.g., Keycloak API errors)
-    @ExceptionHandler(KeycloakAuthenticationException.class)
-    public ResponseEntity<ErrorResponse> handleKeycloakAuthError(KeycloakAuthenticationException ex, HttpServletRequest request) {
-        ErrorCode errorCode;
-        try {
-            errorCode = ErrorCode.valueOf(ex.getErrorCode());
-        } catch (IllegalArgumentException e) {
-            errorCode = ErrorCode.INVALID_CREDENTIALS;
+    @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<ErrorResponse> handleValidation(Exception error, HttpServletRequest request) {
+        String message = "Invalid request";
+        if (error instanceof MethodArgumentNotValidException invalid && invalid.getBindingResult().getFieldError() != null) {
+            var field = invalid.getBindingResult().getFieldError();
+            message = field.getField() + ": " + field.getDefaultMessage();
+        } else if (error instanceof MethodArgumentTypeMismatchException mismatch) {
+            message = mismatch.getName() + ": invalid value";
         }
-        return buildErrorResponse(errorCode, ex.getMessage(), request.getRequestURI());
+        return respond(400, ErrorCode.VALIDATION_ERROR.name(), message, request);
     }
 
-    @ExceptionHandler(KeycloakUnavailableException.class)
-    public ResponseEntity<ErrorResponse> handleKeycloakUnavailable(KeycloakUnavailableException ex, HttpServletRequest request) {
-        log.error("Keycloak unavailable: {}", ex.getMessage(), ex);
-        return buildErrorResponse(ErrorCode.IDENTITY_PROVIDER_UNAVAILABLE, "Identity provider temporarily unavailable", request.getRequestURI());
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNotFound(NoResourceFoundException error, HttpServletRequest request) {
+        return respond(404, "NOT_FOUND", "Resource not found", request);
     }
 
-    @ExceptionHandler(KeycloakMappingException.class)
-    public ResponseEntity<ErrorResponse> handleKeycloakMappingError(KeycloakMappingException ex, HttpServletRequest request) {
-        log.error("Keycloak mapping error: {}", ex.getMessage(), ex);
-        return buildErrorResponse(ErrorCode.INTERNAL_ERROR, "Identity provider response mapping failed", request.getRequestURI());
-    }
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException ex, HttpServletRequest request) {
-        return buildErrorResponse(ErrorCode.VALIDATION_ERROR, ex.getMessage(), request.getRequestURI());
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethod(HttpRequestMethodNotSupportedException error,
+                                                      HttpServletRequest request) {
+        return respond(405, "METHOD_NOT_ALLOWED", "Method not allowed", request);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGeneric(Exception ex, HttpServletRequest request) {
-        log.error("Unexpected error: {}", ex.getMessage(), ex);
-        return buildErrorResponse(ErrorCode.INTERNAL_ERROR, "Internal server error", request.getRequestURI());
+    public ResponseEntity<ErrorResponse> handleUnexpected(Exception error, HttpServletRequest request) {
+        log.error("Unexpected error on {}", request.getRequestURI(), error);
+        return respond(500, ErrorCode.INTERNAL_ERROR.name(), "Unexpected error", request);
     }
 
-    private ResponseEntity<ErrorResponse> buildErrorResponse(ErrorCode errorCode, String message, String path) {
-        ErrorResponse response = ErrorResponse.builder()
-                .code(errorCode.getCode())
-                .message(message)
-                .timestamp(Instant.now())
-                .path(path)
-                .build();
-        return ResponseEntity.status(errorCode.getHttpStatus()).body(response);
+    private static ResponseEntity<ErrorResponse> respond(int status, String code, String message,
+                                                         HttpServletRequest request) {
+        return ResponseEntity.status(status)
+                .body(new ErrorResponse(code, message, Instant.now(), request.getRequestURI()));
     }
 }

@@ -14,5 +14,6 @@ out/
 .maven-user-home/
 .DS_Store
 Thumbs.db
-.kilo/
-.codegraph/
+
+
+# Cong cu tai ve de chay local (vi du Keycloak native)

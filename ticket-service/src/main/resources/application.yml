@@ -2,13 +2,61 @@ spring:
   application:
     name: ticket-service
   datasource:
-    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_ticket}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
+    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_ticket}?serverTimezone=UTC&forceConnectionTimeZoneToSession=true&createDatabaseIfNotExist=true}"
     username: "${DB_USERNAME:root}"
     password: "${DB_PASSWORD:root}"
   jpa:
     hibernate:
       ddl-auto: update
     open-in-view: false
+    properties:
+      hibernate.jdbc.time_zone: UTC
+      hibernate.type.preferred_uuid_jdbc_type: CHAR
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      # Outbox publisher gửi JSON envelope dạng chuỗi, không kèm type header (docs/kafka/events.md §1).
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        # Kafka chưa chạy thì publisher thử lại ở vòng sau thay vì treo luồng scheduler 60 giây.
+        max.block.ms: 5000
+        delivery.timeout.ms: 15000
+        request.timeout.ms: 10000
+
+logging:
+  level:
+    # Kafka chưa chạy: client chỉ báo lỗi, không cảnh báo kết nối lại mỗi giây (OutboxPublisher tự log một lần).
+    org.apache.kafka.clients.NetworkClient: ERROR
+    org.springframework.kafka.support.LoggingProducerListener: "OFF"
 
 server:
   port: "${SERVER_PORT:8083}"
+
+eventhub:
+  security:
+    # JWT do Keycloak realm eventhub ký; mặc định khớp Keycloak local cổng 8180.
+    issuer: ${KEYCLOAK_ISSUER:http://localhost:8180/realms/eventhub}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/certs}
+    # Mapper eventhub-api-audience của realm thêm aud này vào mọi token; để trống thì không kiểm tra.
+    audience: ${EVENTHUB_JWT_AUDIENCE:eventhub-api}
+    role-claim: ${EVENTHUB_ROLE_CLAIM:realm_access.roles}
+    # Client service account (claim azp) được gọi /internal/**, mỗi client chỉ vào đúng nhóm API của mình:
+    # Order: reserve/confirm/release/cancel-by-order; Analytics: capacity; Event: cấu hình vé trước publish (C08).
+    internal-clients:
+      order: ${ORDER_SERVICE_CLIENT_ID:eventhub-order-service}
+      analytics: ${ANALYTICS_SERVICE_CLIENT_ID:eventhub-analytics-service}
+      event: ${EVENT_SERVICE_CLIENT_ID:eventhub-event-service}
+  s2s:
+    # Credential của Ticket để gọi GET /internal/events/{id} của event-service.
+    token-uri: ${KEYCLOAK_SERVICE_TOKEN_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/token}
+    client-id: ${TICKET_SERVICE_CLIENT_ID:eventhub-ticket-service}
+    client-secret: ${TICKET_SERVICE_CLIENT_SECRET:eventhub-ticket-service-dev-secret}
+  event-service:
+    base-url: ${EVENT_SERVICE_URL:http://localhost:8082}
+  ticket:
+    # Hạn giữ vé tối đa (plan Ticket §2: reservation tối đa 3 phút).
+    reservation-ttl: PT3M
+    expiry-delay-ms: 10000
+    outbox-delay-ms: 1000

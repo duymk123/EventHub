@@ -1,20 +1,13 @@
 package com.eventhub.auth.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 /**
- * Token refresh request.
- * Client sends refresh token to get new access token.
+ * POST /api/v1/auth/refresh và /api/v1/auth/logout.
  */
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class RefreshRequest {
-    @NotBlank
-    private String refreshToken;
+public record RefreshRequest(@NotBlank String refreshToken) {
+    @Override
+    public String toString() {
+        return "RefreshRequest[***]";
+    }
 }
