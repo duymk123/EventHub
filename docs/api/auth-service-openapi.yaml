@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: EventHub - Auth Service API
   version: 2.0.0-draft
-  description: 'Hợp đồng mục tiêu BC_32_V2 + xác nhận 2026-10-27: giữ giao diện/API tài khoản riêng, Auth gọi Keycloak. Keycloak quản lý credentials, đăng nhập, cấp token và session; Auth không tự ký JWT hoặc lưu password_hash/refresh_tokens. Các endpoint dưới là facade EventHub, không phải endpoint tự cấp token. Repo hiện là scaffold, chưa triển khai. Realm/client, grant flow, issuer/audience/JWK, role mapper, admin/service-account permissions và S2S còn chờ cấu hình; không mặc định password grant hoặc TTL. Mapping userId=sub UUID là đề xuất kỹ thuật cần khớp realm; DB profile nếu cần sẽ thiết kế riêng.'
+  description: 'Hợp đồng mục tiêu BC_32_V2 + xác nhận 2026-10-27: giữ giao diện/API tài khoản riêng, Auth gọi Keycloak. Keycloak quản lý credentials, đăng nhập, cấp token và session; Auth không tự ký JWT hoặc lưu password_hash/refresh_tokens. Các endpoint dưới là facade EventHub, không phải endpoint tự cấp token. **Đã triển khai và chạy thật** (17 endpoint); realm/client/grant flow/role mapper/audience đã cấu hình trong `infrastructure/keycloak/eventhub-realm.json`. Access token TTL 300s, refresh token rotation bật. Mapping userId=sub UUID đã khớp realm (`registrationEmailAsUsername=true`). Profile lưu ở DB riêng của auth-service (`user_profiles`). Luồng chi tiết: `docs/architecture/auth-keycloak-flows.md`. Bộ test tay: `auth-service/postman/`.'
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
@@ -38,7 +38,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
+      x-contract-status: implemented
   /auth/login:
     post:
       tags:
@@ -72,7 +72,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
+      x-contract-status: implemented
       description: Facade EventHub → Keycloak. Xác thực tại Keycloak và trả token do Keycloak cấp, không ký token ứng dụng mới. UI riêng đã chốt; cách trao đổi credentials/code với Keycloak còn cấu hình, request draft không tự cho phép password grant.
   /auth/refresh:
     post:
@@ -108,7 +108,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
+      x-contract-status: implemented
   /auth/logout:
     post:
       tags:
@@ -131,7 +131,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
+      x-contract-status: implemented
   /auth/me:
     get:
       tags:
@@ -149,7 +149,7 @@ paths:
                 $ref: '#/components/schemas/UserResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-      x-contract-status: target-facade-keycloak-integration-pending
+      x-contract-status: implemented
       description: Facade EventHub → Keycloak. Đọc identity/profile đã xác minh từ Keycloak/adapter; không giả định claim roles phẳng hoặc có DB users local.
   /auth/verify-email/resend:
     post:
@@ -292,7 +292,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-      x-contract-status: target-facade-keycloak-integration-pending
+      x-contract-status: implemented
   /admin/users/{userId}/lock:
     patch:
       tags:
@@ -319,7 +319,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
+      x-contract-status: implemented
   /admin/users/{userId}/unlock:
     patch:
       tags:
@@ -346,7 +346,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
+      x-contract-status: implemented
   /admin/users/{userId}/role:
     patch:
       tags:
@@ -381,7 +381,226 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: target-facade-keycloak-integration-pending
+      x-contract-status: implemented
+  /auth/forgot-password:
+    post:
+      tags:
+      - Auth
+      operationId: forgotPassword
+      summary: AUTH-UC07 Quên mật khẩu
+      description: |
+        Tìm user theo email chính xác rồi nhờ Keycloak gửi mail đặt lại mật khẩu.
+        **Luôn trả 204** dù email có tồn tại hay không (chống dò tài khoản). Tài khoản `enabled=false`
+        cũng trả 204 nhưng không gửi mail.
+
+        Link trong mail trỏ thẳng tới Keycloak (`KC_HOSTNAME`), Keycloak tự dựng form đặt mật khẩu.
+        Auth Service **không** mở endpoint nhận reset token — xem §8 trong `auth-keycloak-flows.md`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '204':
+          description: Đã xử lý (luôn 204, kể cả email không tồn tại)
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ProviderUnavailable'
+      x-contract-status: implemented
+  /auth/me/sessions:
+    get:
+      tags:
+      - Auth
+      operationId: getMySessions
+      summary: Danh sách phiên đăng nhập của chính mình
+      description: Các phiên còn hiệu lực của user đang đăng nhập, đọc từ Keycloak.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Danh sách phiên
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ProviderUnavailable'
+      x-contract-status: implemented
+  /auth/me/sessions/{sessionId}:
+    delete:
+      tags:
+      - Auth
+      operationId: revokeMySession
+      summary: Thu hồi một phiên của chính mình
+      description: |
+        Chỉ thu hồi được phiên thuộc về người gọi; phiên của người khác trả 404 để không lộ sự tồn tại.
+        Access token đã cấp vẫn dùng được tới khi hết hạn (5 phút).
+      security:
+      - bearerAuth: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: ScX2A4mz5dpG7VLEyhFSDZbR
+      responses:
+        '204':
+          description: Đã thu hồi
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: USER_NOT_FOUND — message "Session not found"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ProviderUnavailable'
+      x-contract-status: implemented
+  /admin/users:
+    get:
+      tags:
+      - Admin - User
+      operationId: listUsers
+      summary: ADMIN-UC01 Danh sách user (phân trang + lọc)
+      description: |
+        Chỉ ADMIN (`SecurityConfig` chặn `/api/v1/admin/**` bằng `hasRole("ADMIN")`).
+
+        - `search` đẩy xuống Keycloak (khớp email/họ tên/username).
+        - `role` và `status` không lọc được bằng query param của Keycloak nên Auth Service duyệt theo lô,
+          tối đa 2000 bản ghi mỗi truy vấn; vượt trần thì ghi log WARN và trả kết quả một phần.
+        - Tham số rác được chuẩn hóa thay vì trả lỗi: `page` âm → 0, `size` > 100 → 100, `status` lạ → bỏ qua.
+      security:
+      - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Số trang, bắt đầu từ 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Tìm theo email / họ tên / username
+        - name: role
+          in: query
+          schema:
+            $ref: '#/components/schemas/Role'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/UserStatus'
+      responses:
+        '200':
+          description: Một trang user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageOfUserDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ProviderUnavailable'
+      x-contract-status: implemented
+  /admin/users/{userId}:
+    get:
+      tags:
+      - Admin - User
+      operationId: getUserDetail
+      summary: ADMIN-UC02 Chi tiết user
+      description: |
+        Chi tiết tài khoản cho trang quản trị, gồm `requiredActions` (các bước Keycloak đang bắt user hoàn tất).
+        **Không có `lastLoginAt`** — Keycloak Admin API không trả về thời điểm đăng nhập cuối.
+      security:
+      - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Chi tiết user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetailResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '503':
+          $ref: '#/components/responses/ProviderUnavailable'
+      x-contract-status: implemented
+  /admin/users/{userId}/reset-password:
+    post:
+      tags:
+      - Admin - User
+      operationId: adminResetPassword
+      summary: ADMIN-UC06 Đặt lại mật khẩu của user khác
+      description: |
+        - `SEND_EMAIL`: Keycloak gửi mail chứa link đặt mật khẩu. `temporaryPassword` = null.
+        - `SET_TEMPORARY_PASSWORD`: Auth Service sinh mật khẩu tạm 16 ký tự (SecureRandom, đủ 4 nhóm ký tự,
+          loại ký tự dễ nhầm 0/O/1/l/I), đặt ở chế độ `temporary: true` và thu hồi toàn bộ phiên cũ.
+          Mật khẩu **chỉ trả đúng một lần**, không lưu DB, không ghi log.
+
+        ADMIN không được thao tác trên chính mình.
+      security:
+      - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminResetPasswordRequest'
+      responses:
+        '200':
+          description: Đã xử lý
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemporaryPasswordResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+        '409':
+          description: CANNOT_MODIFY_OWN_ACCOUNT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ProviderUnavailable'
+      x-contract-status: implemented
+
 components:
   securitySchemes:
     bearerAuth:
@@ -420,6 +639,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     UserNotFound:
       description: USER_NOT_FOUND
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ProviderUnavailable:
+      description: AUTH_PROVIDER_UNAVAILABLE — không gọi được Keycloak
       content:
         application/json:
           schema:
@@ -564,6 +789,105 @@ components:
         avatarUrl:
           type: string
           nullable: true
+    ForgotPasswordRequest:
+      type: object
+      required:
+      - email
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 255
+    PageOfUserDetailResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserDetailResponse'
+        page:
+          type: integer
+          description: Số trang, bắt đầu từ 0
+          example: 0
+        size:
+          type: integer
+          example: 20
+        totalElements:
+          type: integer
+          format: int64
+          description: Tổng số bản ghi khớp điều kiện (không phải số bản ghi trong trang)
+          example: 8
+        totalPages:
+          type: integer
+          example: 1
+    UserDetailResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        fullName:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        status:
+          $ref: '#/components/schemas/UserStatus'
+        emailVerified:
+          type: boolean
+        requiredActions:
+          type: array
+          items:
+            type: string
+          description: Các bước Keycloak đang bắt user hoàn tất; rỗng nghĩa là không còn bước nào chờ
+          example: ["UPDATE_PASSWORD"]
+        createdAt:
+          type: string
+          format: date-time
+      description: DTO trang quản trị. Không có lastLoginAt — Keycloak Admin API không cung cấp.
+    AdminResetPasswordRequest:
+      type: object
+      required:
+      - action
+      properties:
+        action:
+          type: string
+          enum:
+          - SEND_EMAIL
+          - SET_TEMPORARY_PASSWORD
+    TemporaryPasswordResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        temporaryPassword:
+          type: string
+          nullable: true
+          description: |
+            Chỉ có giá trị khi action=SET_TEMPORARY_PASSWORD. Trả đúng một lần, không lưu DB, không ghi log.
+            null khi action=SEND_EMAIL.
+    SessionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Dùng cho DELETE /auth/me/sessions/{sessionId}
+          example: ScX2A4mz5dpG7VLEyhFSDZbR
+        ipAddress:
+          type: string
+          nullable: true
+          example: 172.20.0.1
+        startedAt:
+          type: string
+          format: date-time
+        lastAccessAt:
+          type: string
+          format: date-time
     ErrorResponse:
       type: object
       required:
@@ -584,8 +908,8 @@ components:
           type: string
           description: Đường dẫn HTTP của request gây lỗi
 x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
-x-implementation-status: scaffold-only
+x-implementation-status: implemented-and-tested
 x-open-decisions: ../project-clarifications.md
 x-oidc-discovery: '{keycloak-base-url}/realms/{realm}/.well-known/openid-configuration'
-x-integration-proposal: Không dùng đồng thời flow tự cấp JWT cũ. Cơ chế trao đổi credentials/code với Keycloak phải chọn khi cấu hình realm/client; không tự bật Direct Access Grants.
+x-integration-proposal: "Không dùng đồng thời flow tự cấp JWT cũ. Đã chốt dùng Direct Access Grants (ROPC) qua client confidential eventhub-auth-service. Authorization Code + PKCE để dành cho FE gọi thẳng Keycloak nếu sau này cần."
 x-integration-decision: UI/API tài khoản EventHub riêng, Auth gọi Keycloak; chủ dự án đã chọn.

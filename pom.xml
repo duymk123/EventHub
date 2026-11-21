@@ -17,6 +17,13 @@
     <description>EventHub backend services</description>
     <properties>
         <java.version>21</java.version>
+        <!-- Version dung cho annotation processor Lombok/MapStruct o tat ca module.
+             Bat buoc khai bao version o annotationProcessorPaths; de trong thi Maven
+             khong resolve duoc processor va code sinh ra bi sai (vi du MapStruct
+             sinh class khong implements interface). -->
+        <lombok.version>1.18.46</lombok.version>
+        <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
+        <mapstruct.version>1.6.3</mapstruct.version>
     </properties>
     <modules>
         <module>auth-service</module>
@@ -34,11 +41,24 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
                     <configuration>
+                        <!-- Tap trung annotation processor cho moi module.
+                             Thu tu: Lombok -> binding -> MapStruct. Thieu version hoac
+                             sai thu tu lam MapStruct sinh class khong implements interface. -->
                         <annotationProcessorPaths>
                             <path>
                                 <groupId>org.projectlombok</groupId>
                                 <artifactId>lombok</artifactId>
                                 <version>${lombok.version}</version>
+                            </path>
+                            <path>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok-mapstruct-binding</artifactId>
+                                <version>${lombok-mapstruct-binding.version}</version>
+                            </path>
+                            <path>
+                                <groupId>org.mapstruct</groupId>
+                                <artifactId>mapstruct-processor</artifactId>
+                                <version>${mapstruct.version}</version>
                             </path>
                         </annotationProcessorPaths>
                     </configuration>

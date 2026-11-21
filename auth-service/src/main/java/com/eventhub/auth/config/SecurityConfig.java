@@ -52,10 +52,11 @@ public class SecurityConfig {
             .requestCache(cache -> cache.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/error", "/actuator/health").permitAll()
-                // Đăng ký/đăng nhập/refresh/logout chưa có access token
+                // Đăng ký/đăng nhập/refresh/logout/quên mật khẩu chưa có access token
                 .requestMatchers(HttpMethod.POST,
                         "/api/v1/auth/register", "/api/v1/auth/login",
-                        "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
+                        "/api/v1/auth/refresh", "/api/v1/auth/logout",
+                        "/api/v1/auth/forgot-password").permitAll()
                 // API quản trị tài khoản (khóa/mở khóa/đổi role) chỉ ADMIN
                 .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/v1/auth/**", "/api/v1/me/**").authenticated()

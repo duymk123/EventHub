@@ -14,6 +14,10 @@ out/
 .maven-user-home/
 .DS_Store
 Thumbs.db
+scripts/
 
+# CodeGraph local index
+.codegraph/
 
-# Cong cu tai ve de chay local (vi du Keycloak native)
+# Ghi chu trang thai ca nhan, khong commit
+auth-service/AUTH-STATUS.md

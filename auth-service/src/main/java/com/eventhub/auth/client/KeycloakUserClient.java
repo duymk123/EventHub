@@ -34,6 +34,23 @@ public class KeycloakUserClient {
     public record KeycloakUser(String id, String email, String firstName, String lastName, boolean enabled,
                                boolean emailVerified, Long createdTimestamp) {}
 
+    /**
+     * User đầy đủ cho trang quản trị: thêm username và danh sách required action đang chờ (vd VERIFY_EMAIL).
+     * Admin API không trả họ tên ghép nên caller tự ghép từ firstName/lastName.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record KeycloakUserDetail(String id, String username, String email, String firstName, String lastName,
+                                     boolean enabled, boolean emailVerified, Long createdTimestamp,
+                                     List<String> requiredActions) {}
+
+    /**
+     * Một phiên đăng nhập do Keycloak quản lý. clients là map clientId → tên client, không phải số lượng, nên giữ
+     * dạng Map để Jackson không lỗi khi user đăng nhập qua nhiều client.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record KeycloakSession(String id, String username, String ipAddress, Long start, Long lastAccess,
+                                  Map<String, String> clients) {}
+
     /** Role realm; Admin API cần cả id và name khi thêm/xóa role mapping. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record RoleRepresentation(String id, String name) {}
@@ -41,6 +58,7 @@ public class KeycloakUserClient {
     private final RestClient restClient;
     private final KeycloakTokenClient tokens;
     private final String usersPath;
+    private final String realm;
 
     public KeycloakUserClient(@Value("${eventhub.keycloak.server-url}") String serverUrl,
                               @Value("${eventhub.keycloak.realm}") String realm,
@@ -51,6 +69,7 @@ public class KeycloakUserClient {
         this.restClient = RestClient.builder().baseUrl(serverUrl).requestFactory(factory).build();
         this.tokens = tokens;
         this.usersPath = "/admin/realms/" + realm + "/users";
+        this.realm = realm;
     }
 
     /**
@@ -188,6 +207,138 @@ public class KeycloakUserClient {
      */
     public void resetPassword(UUID userId, String newPassword) {
         send(userId, "/reset-password", "PUT", Map.of("type", "password", "value", newPassword, "temporary", false));
+    }
+
+    /**
+     * Đặt mật khẩu TẠM THỜI: Keycloak bắt user đổi ở lần đăng nhập kế tiếp. Dùng khi ADMIN cần chuyển mật khẩu
+     * cho user qua kênh khác; mật khẩu không đạt chính sách realm → VALIDATION_ERROR.
+     */
+    public void resetPasswordTemporarily(UUID userId, String temporaryPassword) {
+        send(userId, "/reset-password", "PUT",
+                Map.of("type", "password", "value", temporaryPassword, "temporary", true));
+    }
+
+    /**
+     * Đọc user kèm username và required action, dùng cho trang quản trị. Không tồn tại → USER_NOT_FOUND.
+     */
+    public KeycloakUserDetail getUserDetail(UUID userId) {
+        try {
+            KeycloakUserDetail user = withAdminToken(token -> restClient.get().uri(usersPath + "/{id}", userId)
+                    .headers(h -> h.setBearerAuth(token))
+                    .retrieve()
+                    .body(KeycloakUserDetail.class));
+            if (user == null) {
+                throw KeycloakTokenClient.unavailable();
+            }
+            return user;
+        } catch (HttpClientErrorException.NotFound error) {
+            throw notFound();
+        } catch (RestClientException error) {
+            throw KeycloakTokenClient.unavailable();
+        }
+    }
+
+    /**
+     * Tìm user theo email chính xác. Dùng cho quên mật khẩu: không tìm thấy trả null để caller phản hồi giống hệt
+     * trường hợp có tài khoản (chống dò email).
+     */
+    public KeycloakUser findByEmailExact(String email) {
+        try {
+            KeycloakUser[] users = withAdminToken(token -> restClient.get()
+                    .uri(uri -> uri.path(usersPath).queryParam("email", email).queryParam("exact", true)
+                            .queryParam("max", 1).build())
+                    .headers(h -> h.setBearerAuth(token))
+                    .retrieve()
+                    .body(KeycloakUser[].class));
+            return users == null || users.length == 0 ? null : users[0];
+        } catch (RestClientException error) {
+            throw KeycloakTokenClient.unavailable();
+        }
+    }
+
+    /**
+     * Một trang user cho trang quản trị. search khớp username/email/họ tên phía Keycloak; điều kiện lọc theo
+     * business role và trạng thái không làm được hết ở Keycloak nên caller lọc tiếp.
+     *
+     * @param first vị trí bắt đầu (0-based), max số bản ghi mỗi trang.
+     */
+    public List<KeycloakUserDetail> searchUsers(String search, int first, int max) {
+        try {
+            KeycloakUserDetail[] users = withAdminToken(token -> restClient.get()
+                    .uri(uri -> {
+                        uri.path(usersPath).queryParam("first", first).queryParam("max", max)
+                                .queryParam("briefRepresentation", false);
+                        if (search != null && !search.isBlank()) {
+                            uri.queryParam("search", search.trim());
+                        }
+                        return uri.build();
+                    })
+                    .headers(h -> h.setBearerAuth(token))
+                    .retrieve()
+                    .body(KeycloakUserDetail[].class));
+            return users == null ? List.of() : List.of(users);
+        } catch (RestClientException error) {
+            throw KeycloakTokenClient.unavailable();
+        }
+    }
+
+    /** Tổng số user khớp điều kiện tìm, cần cho phân trang. */
+    public int countUsers(String search) {
+        try {
+            Integer total = withAdminToken(token -> restClient.get()
+                    .uri(uri -> {
+                        uri.path(usersPath).path("/count");
+                        if (search != null && !search.isBlank()) {
+                            uri.queryParam("search", search.trim());
+                        }
+                        return uri.build();
+                    })
+                    .headers(h -> h.setBearerAuth(token))
+                    .retrieve()
+                    .body(Integer.class));
+            return total == null ? 0 : total;
+        } catch (RestClientException error) {
+            throw KeycloakTokenClient.unavailable();
+        }
+    }
+
+    /**
+     * Nhờ Keycloak gửi mail đặt lại mật khẩu. Phải gắn required action UPDATE_PASSWORD trước, cùng lý do với
+     * {@link #sendVerifyEmail(UUID)}: thiếu action thì link trong mail không đưa user tới bước đặt mật khẩu.
+     */
+    public void sendUpdatePasswordEmail(UUID userId) {
+        send(userId, "", "PUT", Map.of("requiredActions", List.of("UPDATE_PASSWORD")));
+        send(userId, "/execute-actions-email", "PUT", List.of("UPDATE_PASSWORD"));
+    }
+
+    /** Phiên (phiên bản refresh token) đang hoạt động của user. */
+    public List<KeycloakSession> sessions(UUID userId) {
+        try {
+            KeycloakSession[] sessions = withAdminToken(token -> restClient.get()
+                    .uri(usersPath + "/{id}/sessions", userId)
+                    .headers(h -> h.setBearerAuth(token))
+                    .retrieve()
+                    .body(KeycloakSession[].class));
+            return sessions == null ? List.of() : List.of(sessions);
+        } catch (HttpClientErrorException.NotFound error) {
+            throw notFound();
+        } catch (RestClientException error) {
+            throw KeycloakTokenClient.unavailable();
+        }
+    }
+
+    /** Thu hồi một phiên theo id; phiên đã hết hạn thì Keycloak không báo lỗi. */
+    public void revokeSession(String sessionId) {
+        try {
+            withAdminToken(token -> restClient.delete().uri("/admin/realms/{realm}/sessions/{id}", realm, sessionId)
+                    .headers(h -> h.setBearerAuth(token))
+                    .retrieve()
+                    .toBodilessEntity());
+        } catch (HttpClientErrorException.NotFound error) {
+            // Phiên đã bị thu hồi hoặc hết hạn: coi như thành công để thao tác lặp lại không lỗi.
+        } catch (RestClientException error) {
+            throw KeycloakTokenClient.unavailable();
+        }
     }
 
     /**
