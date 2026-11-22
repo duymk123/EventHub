@@ -7,7 +7,7 @@ Sáu file OpenAPI 3.0.3 là **hợp đồng mục tiêu 2.0.0-draft**, không ph
 | File | Nội dung |
 |---|---|
 | [Auth](auth-service-openapi.yaml) | Giữ UI/API riêng: register/login/refresh/logout/password/me/admin là facade Auth → Keycloak, không tự cấp JWT. |
-| [Event](event-service-openapi.yaml) | events/categories, vòng đời, tìm theo startDate/endDate, internal response có title/organizerId. |
+| [Event](event-service-openapi.yaml) | events/categories, vòng đời, tìm theo startDate/endDate, `GET /admin/events` (EVT-11) cho ADMIN duyệt, internal response có title/organizerId. |
 | [Ticket](ticket-service-openapi.yaml) | Hạng vé và quota gộp, reserve/confirm/release/cancel, vé cá nhân, quét cổng. |
 | [Order](order-service-openapi.yaml) | Snapshot email buyer, hoàn khách cả đơn 70%/ADMIN, C05 hold/verify/bù 100% có thiết kế; provider C06 để sau. |
 | [Notification](notification-service-openapi.yaml) | In-app có nội dung/phân trang, read idempotent, unread-count, template theo code+channel. |
@@ -15,7 +15,7 @@ Sáu file OpenAPI 3.0.3 là **hợp đồng mục tiêu 2.0.0-draft**, không ph
 
 Public server URL là http://localhost:8080/api/v1 nên path /orders tương ứng /api/v1/orders. /internal/** có server riêng của service, không ghép thêm /api/v1 và không expose Gateway. WS giữ /ws/dashboard, dùng route ws riêng của Gateway theo Hình 2.81.
 
-Gateway không định nghĩa lại DTO nghiệp vụ: xem [bảng route, quyền và plan triển khai](../plans/api-gateway.md), [tài liệu nhập môn và luồng](../architecture/api-gateway.md). Trong 52 REST operations hiện có, 47 là public qua Gateway (vẫn có thể yêu cầu xác thực), 5 là internal chỉ gọi trực tiếp giữa service. Đề xuất C10 (2026-11-13, chưa triển khai) đã ghi vào OpenAPI: thêm 2 public ở Analytics, internal `GET /internal/events?ids=` (INT-02) và `GET /internal/events/ids?organizerId=` (INT-03) ở Event, `GET /internal/ticket-types/capacity` ở Ticket; triển khai xong là 57 operations (49 public, 8 internal). Hai API public đã có ở analytics-service. Xem [C10](../project-clarifications.md) và [plan Analytics §8](../plans/analytics-service.md). Webhook có cơ chế xác thực provider riêng; WS nằm ngoài số REST operations này.
+Gateway không định nghĩa lại DTO nghiệp vụ: xem [bảng route, quyền và plan triển khai](../plans/api-gateway.md), [tài liệu nhập môn và luồng](../architecture/api-gateway.md). Trong 53 REST operations hiện có, 48 là public qua Gateway (vẫn có thể yêu cầu xác thực), 5 là internal chỉ gọi trực tiếp giữa service. Đề xuất C10 (2026-11-13, chưa triển khai) đã ghi vào OpenAPI: thêm 2 public ở Analytics, internal `GET /internal/events?ids=` (INT-02) và `GET /internal/events/ids?organizerId=` (INT-03) ở Event, `GET /internal/ticket-types/capacity` ở Ticket; triển khai xong là 58 operations (50 public, 8 internal). Hai API public đã có ở analytics-service. Xem [C10](../project-clarifications.md) và [plan Analytics §8](../plans/analytics-service.md). Webhook có cơ chế xác thực provider riêng; WS nằm ngoài số REST operations này.
 
 UUID string/uuid cho PK/tham chiếu; code của provider là string bên ngoài. ErrorResponse EventHub bắt buộc code/message/timestamp/path. Lỗi chuẩn OIDC của Keycloak và phản hồi ACK theo provider là hợp đồng bên ngoài riêng, không tự ép về DTO ứng dụng.
 

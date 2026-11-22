@@ -42,7 +42,9 @@ Package gốc com.eventhub.<service>: controller, service/impl, repository, enti
 
 Theo yêu cầu chủ dự án, `entity` chỉ chứa entity và mapped superclass như BaseEntity. Enum đặt trực tiếp trong `com.eventhub.<service>.common`, không để trong entity hoặc entity/enums. Mỗi service giữ enum riêng trong common của mình; entity import enum từ package này.
 
-Migration Flyway ở src/main/resources/db/migration/V<n>__description.sql. Notification/Analytics đã có V1 và ddl-auto: validate. Service khác còn update trong scaffold; chuyển sang migration trước khi dùng môi trường chung. Không sửa migration đã áp dụng; dùng version tiếp theo. docs/database/*/init.sql là schema tham chiếu, không là migration triển khai.
+Migration Flyway ở src/main/resources/db/migration/V<n>__description.sql. Event/Notification/Analytics đã có V1 và ddl-auto: validate. Service khác còn update trong scaffold; chuyển sang migration trước khi dùng môi trường chung. Không sửa migration đã áp dụng; dùng version tiếp theo. docs/database/*/init.sql là schema tham chiếu, không là migration triển khai.
+
+Khi chuyển một service từ `update` sang Flyway: DB rỗng thì chỉ cần V1; DB đã có bảng thì baseline có kiểm soát, không bật `baseline-on-migrate` mặc định. Script sửa schema cũ chạy tay đặt cùng `db/migration/` nhưng **không** mang tiền tố `V<n>__` (Flyway bỏ qua) — mẫu là `event-service/src/main/resources/db/migration/helper_legacy_datetime.sql`, quy trình đầy đủ ở `event-service/EVENT-STATUS.md` §7. Lưu ý đã kiểm chứng: Hibernate `ddl-auto: update` **không** thêm FK khi index trên cột FK đã tồn tại và **không** đổi ENUM sang VARCHAR.
 
 ## 5. Hợp đồng chung
 

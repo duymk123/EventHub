@@ -42,6 +42,9 @@ public interface EventService {
 
     Page<EventResponse> getMine(Actor organizer, EventStatus status, Pageable pageable);
 
+    /** EVT-11: ADMIN xem mọi event, lọc theo status (không lọc = mọi trạng thái), chỉ đọc. */
+    Page<EventResponse> getAll(EventStatus status, Pageable pageable);
+
     InternalEventResponse getInternal(UUID eventId);
 
     List<UUID> getInternalIdsByOrganizer(UUID organizerId);

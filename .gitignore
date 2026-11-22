@@ -21,3 +21,4 @@ scripts/
 
 # Ghi chu trang thai ca nhan, khong commit
 auth-service/AUTH-STATUS.md
+event-service/EVENT-STATUS.md

@@ -241,6 +241,44 @@ paths:
           $ref: '#/components/responses/EventNotFound'
         '409':
           $ref: '#/components/responses/InvalidEventState'
+  /admin/events:
+    get:
+      tags:
+      - Admin - Event
+      operationId: listEventsForReview
+      summary: EVT-11 Admin xem danh sách Event (hàng đợi duyệt)
+      description: |-
+        Role ADMIN. Trả Event mọi trạng thái, mới cập nhật trước; `status=SUBMITTED` là hàng đợi duyệt.
+        Không lọc `status` thì trả mọi trạng thái. Chỉ đọc, không đổi trạng thái.
+        Bổ sung sau khi triển khai: trước đó ADMIN chỉ có `PATCH .../review` nên không biết id nào đang chờ duyệt.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        schema:
+          $ref: '#/components/schemas/EventStatus'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Size'
+      - name: sort
+        in: query
+        description: Mặc định `updatedAt,desc` (thêm `id` để phân trang ổn định). Cho phép `startTime/endTime/title/createdAt/updatedAt/status`.
+        schema:
+          type: string
+          example: updatedAt,desc
+      responses:
+        '200':
+          description: Danh sách Event cho ADMIN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventPage'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /admin/events/{id}/review:
     patch:
       tags:
@@ -464,7 +502,7 @@ paths:
       - serviceAuth: []
     servers:
     - url: http://localhost:8082
-      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
+      description: Gọi trực tiếp service, không qua public Gateway; S2S dùng client_credentials (azp) chứ không qua Gateway
   /internal/events/ids:
     get:
       tags:
@@ -472,11 +510,11 @@ paths:
       operationId: getEventIdsByOrganizerInternal
       summary: INT-03 Danh sách id Event của một organizer (đề xuất C10)
       description: |
-        Đề xuất 2026-11-14, CHƯA triển khai ở Event Service (client phía Analytics đã có). Analytics gọi để giới hạn
+        Đã triển khai ở Event Service (client phía Analytics có từ 2026-11-14). Analytics gọi để giới hạn
         thống kê gộp (/analytics/overview không có eventId, /analytics/events) vào đúng sự kiện ORGANIZER sở hữu.
         organizerId do Analytics lấy từ JWT đã xác minh của người gọi, không nhận từ request public.
         Trả id mọi status (kể cả DRAFT/CLOSED), không phân trang; organizer chưa có sự kiện trả mảng rỗng (200, không 404).
-        Path literal /internal/events/ids phải được ưu tiên hơn /internal/events/{id} khi map controller.
+        Chỉ service credential được cấp INT-03 gọi được (analytics đúng, ticket thì 403).
       parameters:
       - name: organizerId
         in: query
@@ -518,7 +556,7 @@ paths:
       - serviceAuth: []
     servers:
     - url: http://localhost:8082
-      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
+      description: Gọi trực tiếp service, không qua public Gateway; S2S dùng client_credentials (azp) chứ không qua Gateway
   /internal/events:
     get:
       tags:
@@ -526,10 +564,11 @@ paths:
       operationId: getEventsInternalBatch
       summary: INT-02 Lấy nhiều Event theo danh sách id (đề xuất C10)
       description: |
-        Đề xuất 2026-11-13, CHƯA triển khai ở Event Service (client phía Analytics đã có từ 2026-11-14). Analytics gọi để bổ sung title/status/startTime cho một trang
+        Đã triển khai ở Event Service (client phía Analytics có từ 2026-11-14). Analytics gọi để bổ sung title/status/startTime cho một trang
         thống kê theo sự kiện (GET /api/v1/analytics/events), thay vì gọi INT-01 từng id.
         Trả mọi status (kể cả DRAFT/CLOSED), chỉ gồm id tồn tại; id không tồn tại bị bỏ qua, không trả 404.
         Thứ tự kết quả không đảm bảo, caller tự map theo id. Không trả mô tả/ảnh để giữ DTO tối thiểu.
+        Chỉ service credential được cấp INT-02 gọi được (analytics đúng, ticket thì 403).
       parameters:
       - name: ids
         in: query
@@ -575,7 +614,7 @@ paths:
       - serviceAuth: []
     servers:
     - url: http://localhost:8082
-      description: Gọi trực tiếp service, không qua public Gateway; S2S auth chưa chốt
+      description: Gọi trực tiếp service, không qua public Gateway; S2S dùng client_credentials (azp) chứ không qua Gateway
 components:
   securitySchemes:
     bearerAuth:
@@ -946,5 +985,5 @@ components:
           type: string
           description: Đường dẫn HTTP của request gây lỗi
 x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
-x-implementation-status: implemented-2026-11-19
+x-implementation-status: implemented-2026-11-22
 x-open-decisions: ../project-clarifications.md

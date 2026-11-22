@@ -11,7 +11,7 @@ Các plan dưới đây viết **trước** khi code, nên có chỗ mô tả th
 | Plan | Đã đối chiếu với code? | Tài liệu trạng thái | Ghi chú |
 |---|---|---|---|
 | [auth-service](auth-service.md) | ✅ Có, 2026-11-21 | `auth-service/AUTH-STATUS.md` | 17 endpoint chạy thật; OpenAPI khớp 17/17 |
-| [event-service](event-service.md) | ✅ Có, 2026-11-21 | `event-service/EVENT-STATUS.md` | 16 endpoint chạy thật; test 12/12 PASS; thiếu Flyway/Testcontainers |
+| [event-service](event-service.md) | ✅ Có, 2026-11-22 | `event-service/EVENT-STATUS.md` | 17 endpoint chạy thật (thêm EVT-11 `GET /admin/events`); test 14/14 PASS; Flyway V1 + `ddl-auto: validate` đã xong; còn thiếu Testcontainers/test đồng thời |
 | [ticket-service](ticket-service.md) | 🔲 Chưa | — | |
 | [order-service](order-service.md) | 🔲 Chưa | — | |
 | [notification-service](notification-service.md) | 🔲 Chưa | — | |
@@ -25,7 +25,7 @@ Các plan dưới đây viết **trước** khi code, nên có chỗ mô tả th
 | Tài liệu | Phạm vi |
 |---|---|
 | [Quy ước và phối hợp](00-cross-service-contracts.md) | UUID, transaction, outbox, task retry, API nội bộ cần bổ sung, trình tự triển khai |
-| [API Gateway](api-gateway.md) | Route 47 REST operations public, chặn internal, JWT/CORS, webhook, WS, timeout và triển khai từng bước |
+| [API Gateway](api-gateway.md) | Route 48 REST operations public, chặn internal, JWT/CORS, webhook, WS, timeout và triển khai từng bước |
 | [Auth](auth-service.md) | UI/API riêng, adapter Keycloak; không tự tạo DB mật khẩu/token |
 | [Event](event-service.md) | Danh mục, CRUD/vòng đời sự kiện, internal response và ownership |
 | [Ticket](ticket-service.md) | Hạng vé/tồn kho, reserve/confirm/release/expire, QR, check-in/out/cancel |

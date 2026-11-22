@@ -15,6 +15,10 @@ import com.eventhub.event.repository.CategoryRepository;
 import com.eventhub.event.repository.EventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Clock;
@@ -27,6 +31,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -57,7 +63,7 @@ class EventServiceImplTest {
                 .status(EventStatus.DRAFT).startTime(NOW.plusSeconds(86_400)).endTime(NOW.plusSeconds(90_000))
                 .build();
         when(events.findByIdForUpdate(event.getId())).thenReturn(Optional.of(event));
-        when(events.findById(event.getId())).thenReturn(Optional.of(event));
+        when(events.findWithCategoryById(event.getId())).thenReturn(Optional.of(event));
         when(events.saveAndFlush(any())).thenAnswer(call -> call.getArgument(0));
         when(categories.findById(category.getId())).thenReturn(Optional.of(category));
     }
@@ -108,6 +114,22 @@ class EventServiceImplTest {
     void publishChecksStateBeforeCallingTicket() {
         assertCode(() -> service.publish(owner, event.getId()), ErrorCode.INVALID_EVENT_STATE);
         verify(tickets, never()).isReadyToPublish(any());
+    }
+
+    @Test
+    void adminListPassesStatusFilterAndDefaultSort() {
+        when(events.findByStatus(any(), any())).thenReturn(Page.empty());
+        when(events.findAll(any(Pageable.class))).thenReturn(Page.empty());
+
+        service.getAll(EventStatus.SUBMITTED, Pageable.ofSize(20));
+        verify(events).findByStatus(eq(EventStatus.SUBMITTED), argThat(p -> !p.getSort().isSorted()
+                || p.getSort().getOrderFor("updatedAt") != null));
+
+        service.getAll(null, PageRequest.of(0, 5, Sort.by("title")));
+        verify(events).findAll(argThat((Pageable p) -> p.getSort().getOrderFor("title") != null
+                && p.getSort().getOrderFor("id") != null));
+        assertCode(() -> service.getAll(null, PageRequest.of(0, 5, Sort.by("organizerId"))),
+                ErrorCode.VALIDATION_ERROR);
     }
 
     @Test

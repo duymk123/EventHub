@@ -1,20 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1530" height="651" viewBox="0 0 1530 651" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1530" height="744" viewBox="0 0 1530 744" role="img" aria-labelledby="title desc">
 <title id="title">event-service — UUID CHAR(36)</title>
-<desc id="desc">Reference ERD generated from init.sql, SHA-256 198f17713aa71779ac90055ca4a0e3ef965377c2df49a8d8f5ba1335deba0e20. Every application primary key and ID reference is UUID CHAR(36); only local physical foreign keys are connected.</desc>
+<desc id="desc">Reference ERD generated from init.sql, SHA-256 3b85ee714c2df4f6341e1c0fcc3ff40d0ad1da210eda7dbe341637047f73b7c0. Every application primary key and ID reference is UUID CHAR(36); only local physical foreign keys are connected.</desc>
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#617891"/></marker></defs>
 <rect width="100%" height="100%" fill="white"/>
 <text x="65" y="65" font-family="Segoe UI,Arial,sans-serif" font-size="36" font-weight="700" fill="#163453">EVENT SERVICE | UUID CHAR(36)</text>
 <text x="65" y="108" font-family="Segoe UI,Arial,sans-serif" font-size="22" fill="#52657d">Nguồn: init.sql. PK và ID tham chiếu đều là UUID 36 ký tự.</text>
 <polyline data-fk="events.category_id" points="715,235 815,235" fill="none" stroke="#617891" stroke-width="3" marker-end="url(#arrow)"><title>categories.id → events.category_id</title></polyline>
-<g data-table="categories"><rect x="65" y="150" width="650" height="184" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<g data-table="categories"><rect x="65" y="150" width="650" height="215" fill="white" stroke="#c3d0dd" stroke-width="2"/>
 <rect x="65" y="150" width="650" height="48" fill="#163453"/>
 <text x="83" y="183" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">categories</text>
 <text data-column="id" x="81" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="505" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
 <text data-column="name" x="81" y="259" font-family="Consolas,monospace" font-size="20" fill="#172b4d">name</text><text x="505" y="259" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(100)</text>
 <text data-column="description" x="81" y="290" font-family="Consolas,monospace" font-size="20" fill="#172b4d">description</text><text x="505" y="290" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TEXT</text>
-<text data-column="created_at" x="81" y="321" font-family="Consolas,monospace" font-size="20" fill="#172b4d">created_at</text><text x="505" y="321" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="created_at" x="81" y="321" font-family="Consolas,monospace" font-size="20" fill="#172b4d">created_at</text><text x="505" y="321" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DATETIME(6)</text>
+<text data-column="updated_at" x="81" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">updated_at</text><text x="505" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DATETIME(6)</text>
 </g>
-<g data-table="events"><rect x="815" y="150" width="650" height="401" fill="white" stroke="#c3d0dd" stroke-width="2"/>
+<g data-table="events"><rect x="815" y="150" width="650" height="494" fill="white" stroke="#c3d0dd" stroke-width="2"/>
 <rect x="815" y="150" width="650" height="48" fill="#163453"/>
 <text x="833" y="183" font-family="Segoe UI,Arial,sans-serif" font-size="25" font-weight="700" fill="white">events</text>
 <text data-column="id" x="831" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">id [PK]</text><text x="1255" y="228" font-family="Consolas,monospace" font-size="20" fill="#08775d">CHAR(36)</text>
@@ -23,11 +24,14 @@
 <text data-column="title" x="831" y="321" font-family="Consolas,monospace" font-size="20" fill="#172b4d">title</text><text x="1255" y="321" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(255)</text>
 <text data-column="description" x="831" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">description</text><text x="1255" y="352" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TEXT</text>
 <text data-column="status" x="831" y="383" font-family="Consolas,monospace" font-size="20" fill="#172b4d">status</text><text x="1255" y="383" font-family="Consolas,monospace" font-size="20" fill="#172b4d">VARCHAR(20)</text>
-<text data-column="start_time" x="831" y="414" font-family="Consolas,monospace" font-size="20" fill="#172b4d">start_time</text><text x="1255" y="414" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
-<text data-column="end_time" x="831" y="445" font-family="Consolas,monospace" font-size="20" fill="#172b4d">end_time</text><text x="1255" y="445" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
-<text data-column="created_at" x="831" y="476" font-family="Consolas,monospace" font-size="20" fill="#172b4d">created_at</text><text x="1255" y="476" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
-<text data-column="updated_at" x="831" y="507" font-family="Consolas,monospace" font-size="20" fill="#172b4d">updated_at</text><text x="1255" y="507" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TIMESTAMP</text>
+<text data-column="start_time" x="831" y="414" font-family="Consolas,monospace" font-size="20" fill="#172b4d">start_time</text><text x="1255" y="414" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DATETIME(6)</text>
+<text data-column="end_time" x="831" y="445" font-family="Consolas,monospace" font-size="20" fill="#172b4d">end_time</text><text x="1255" y="445" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DATETIME(6)</text>
+<text data-column="created_at" x="831" y="476" font-family="Consolas,monospace" font-size="20" fill="#172b4d">created_at</text><text x="1255" y="476" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DATETIME(6)</text>
+<text data-column="updated_at" x="831" y="507" font-family="Consolas,monospace" font-size="20" fill="#172b4d">updated_at</text><text x="1255" y="507" font-family="Consolas,monospace" font-size="20" fill="#172b4d">DATETIME(6)</text>
 <text data-column="review_reason" x="831" y="538" font-family="Consolas,monospace" font-size="20" fill="#172b4d">review_reason</text><text x="1255" y="538" font-family="Consolas,monospace" font-size="20" fill="#172b4d">TEXT</text>
+<text data-column="KEY" x="831" y="569" font-family="Consolas,monospace" font-size="20" fill="#172b4d">KEY</text><text x="1255" y="569" font-family="Consolas,monospace" font-size="20" fill="#172b4d">IDX_EVENTS_PUBLIC(STATUS,START_TIME)</text>
+<text data-column="KEY" x="831" y="600" font-family="Consolas,monospace" font-size="20" fill="#172b4d">KEY</text><text x="1255" y="600" font-family="Consolas,monospace" font-size="20" fill="#172b4d">IDX_EVENTS_OWNER(ORGANIZER_ID,CREATED_AT)</text>
+<text data-column="KEY" x="831" y="631" font-family="Consolas,monospace" font-size="20" fill="#172b4d">KEY</text><text x="1255" y="631" font-family="Consolas,monospace" font-size="20" fill="#172b4d">FK_EVENTS_CATEGORY(CATEGORY_ID)</text>
 </g>
-<text x="65" y="616" font-family="Segoe UI,Arial,sans-serif" font-size="21" fill="#52657d">Mũi tên: cha → con, chỉ FK nội bộ. DDL SHA-256: 198f17713aa71779</text>
+<text x="65" y="709" font-family="Segoe UI,Arial,sans-serif" font-size="21" fill="#52657d">Mũi tên: cha → con, chỉ FK nội bộ. DDL SHA-256: 3b85ee714c2df4f6</text>
 </svg>

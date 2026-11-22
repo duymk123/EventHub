@@ -49,7 +49,7 @@ Chỉ owner ORGANIZER được sửa/submit/publish/close; ADMIN review. Chỉ D
 
 **Trạng thái:** DRAFT → SUBMITTED → APPROVED → PUBLISHED → CLOSED; SUBMITTED → REJECTED → DRAFT khi sửa.
 
-Schema/kiểu/NULL/unique: [DDL](docs/database/event-service/init.sql), [ERD](docs/database/event-service/erd.md). OpenAPI: [event](docs/api/event-service-openapi.yaml).
+Schema/kiểu/NULL/unique: [DDL tham chiếu](docs/database/event-service/init.sql) (nguồn chuẩn là Flyway [`V1__init.sql`](event-service/src/main/resources/db/migration/V1__init.sql), Hibernate chỉ validate), [ERD](docs/database/event-service/erd.md), [từ điển cột](docs/database/event-service/fields.md). OpenAPI: [event](docs/api/event-service-openapi.yaml).
 
 | Method | Đường dẫn (chưa gồm prefix public) | Mục đích | Trạng thái |
 |---|---|---|---|
@@ -60,6 +60,7 @@ Schema/kiểu/NULL/unique: [DDL](docs/database/event-service/init.sql), [ERD](do
 | POST | `/events/{id}/submit` | EVT-03 Nộp duyệt | Mục tiêu V2 |
 | POST | `/events/{id}/publish` | EVT-05 Publish Event | Mục tiêu V2 |
 | POST | `/events/{id}/close` | EVT-06 Đóng bán vé | Mục tiêu V2 |
+| GET | `/admin/events` | EVT-11 Admin xem danh sách Event chờ duyệt (lọc `status`, phân trang) | Mục tiêu V2 |
 | PATCH | `/admin/events/{id}/review` | EVT-04 Admin duyệt / từ chối Event | Mục tiêu V2 |
 | GET | `/organizer/events` | EVT-09 Event của tôi | Mục tiêu V2 |
 | GET | `/categories` | CAT-02 Danh sách Category (public) | Mục tiêu V2 |
@@ -67,6 +68,8 @@ Schema/kiểu/NULL/unique: [DDL](docs/database/event-service/init.sql), [ERD](do
 | PUT | `/categories/{id}` | CAT-03 Cập nhật Category | Mục tiêu V2 |
 | DELETE | `/categories/{id}` | CAT-04 Xóa Category | Mục tiêu V2 |
 | GET | `/internal/events/{id}` | INT-01 Thông tin Event cho service khác | Mục tiêu V2 |
+| GET | `/internal/events/ids?organizerId=` | INT-03 ID Event của một organizer (C10) | Đã có |
+| GET | `/internal/events?ids=` | INT-02 Batch Event theo danh sách ID (C10) | Đã có |
 
 ## ticket-service
 

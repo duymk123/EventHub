@@ -42,13 +42,15 @@ Cấu hình local nằm trực tiếp trong `src/main/resources/application.yml`
 |---|---|---:|---:|
 | api-gateway | eventhub_gateway | 3306 | 8080 |
 | auth-service | eventhub_auth | **33101** ⚠️ | 8081 |
-| event-service | eventhub_event | 3306 | 8082 |
+| event-service | eventhub_event | 3306 (Flyway V1 + `validate`) | 8082 |
 | ticket-service | eventhub_ticket | 3306 | 8083 |
 | order-service | eventhub_order | 3306 | 8084 |
 | notification-service | eventhub_notification | 3306 | 8085 |
 | analytics-service | eventhub_analytics | 3306 | 8086 |
 
-Connector/J tạo database nếu chưa tồn tại và tài khoản có quyền tạo database. Gateway và cả 6 service dùng Hibernate `ddl-auto: update` để tạo/cập nhật bảng từ entity; Flyway tắt ở Notification và Analytics. Kafka của Notification/Analytics vẫn dùng `localhost:29092`.
+Connector/J tạo database nếu chưa tồn tại và tài khoản có quyền tạo database. **event-service** dùng Flyway `V1__init.sql` + `ddl-auto: validate`: DB rỗng thì chỉ cần chạy service, Flyway tự tạo bảng (`SPRING_FLYWAY_ENABLED` mặc định `true`). Gateway, auth/ticket/order dùng Hibernate `ddl-auto: update`; Flyway tắt ở Notification và Analytics. Kafka của Notification/Analytics vẫn dùng `localhost:29092`.
+
+> ⚠️ **event-service: đừng bật `validate` trên DB cũ chưa đồng bộ.** DB do Hibernate `update` tạo từ trước phải baseline có kiểm soát — quy trình ở [`EVENT-STATUS.md` §7](../event-service/EVENT-STATUS.md#7-nâng-cấp-database-cũ-ddl-auto-update--flyway). Biến `SPRING_JPA_HIBERNATE_DDL_AUTO`/tham số dòng lệnh ghi đè `application.yml` nên dễ vô tình quay lại `update`. Đã áp `V1` thì không sửa `V1__init.sql`, thay đổi schema dùng `V2__*.sql`.
 
 Username/password mặc định là `root/root`. Có thể ghi đè bằng `DB_USERNAME`/`DB_PASSWORD` khi cần.
 
@@ -82,4 +84,4 @@ Nếu là một bản Notification đã chạy trong IntelliJ, dừng bản cũ 
 docker compose -f docker-compose.infra.yml stop
 ```
 
-Khi chuyển sang chạy toàn bộ bằng Docker sau này, Compose đã có biến kết nối tới MySQL Docker; database MySQL Docker độc lập với database trên máy. Nếu muốn quay lại quản lý schema bằng Flyway cho Notification/Analytics, cần cấu hình lại Flyway/Hibernate phù hợp. Không bật Flyway trực tiếp trên database đã được Hibernate tạo bảng mà chưa đối chiếu schema và xử lý baseline/migration.
+Khi chuyển sang chạy toàn bộ bằng Docker sau này, Compose đã có biến kết nối tới MySQL Docker; database MySQL Docker độc lập với database trên máy. Nếu muốn quay lại quản lý schema bằng Flyway cho Notification/Analytics, cần cấu hình lại Flyway/Hibernate phù hợp. Không bật Flyway trực tiếp trên database đã được Hibernate tạo bảng mà chưa đối chiếu schema và xử lý baseline/migration (event-service đã làm đúng đường này, xem `EVENT-STATUS.md` §7).

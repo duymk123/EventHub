@@ -117,7 +117,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/events/*/submit", "/api/v1/events/*/publish",
                                 "/api/v1/events/*/close").hasRole("ORGANIZER")
                         .requestMatchers(HttpMethod.GET, "/api/v1/organizer/events").hasRole("ORGANIZER")
-                        // ADMIN: duyệt event, quản lý danh mục.
+                        // ADMIN: xem hàng đợi và duyệt event, quản lý danh mục.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/events").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/admin/events/*/review").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/v1/categories").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/categories/*").hasRole("ADMIN")

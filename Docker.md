@@ -48,9 +48,9 @@ docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafk
 
 ## Flyway, UUID và seed
 
-Notification/analytics dùng flyway-core + flyway-mysql, migration src/main/resources/db/migration/V1__init.sql, ddl-auto: validate. Flyway tạo schema trước; Hibernate chỉ kiểm tra mapping. Mọi PK/tham chiếu ID dùng UUID CHAR(36), kể cả gateId; Hibernate preferred_uuid_jdbc_type=CHAR. Loại vé VIP/PREMIUM/STANDARD.
+Event/Notification/Analytics dùng flyway-core + flyway-mysql, migration src/main/resources/db/migration/V1__init.sql, ddl-auto: validate. Flyway tạo schema trước; Hibernate chỉ kiểm tra mapping. Event có thêm `helper_legacy_datetime.sql` (không mang tiền tố `V<n>__`, chạy tay khi DB cũ do Hibernate tạo) — xem `event-service/EVENT-STATUS.md` §7. Mọi PK/tham chiếu ID dùng UUID CHAR(36), kể cả gateId; Hibernate preferred_uuid_jdbc_type=CHAR. Loại vé VIP/PREMIUM/STANDARD.
 
-V1 tạo schema nền theo kế hoạch; entity/repository/API sẽ được bổ sung ở bước nghiệp vụ. Seed nội dung template sẽ thêm khi triển khai notification core. Các service khác vẫn dùng Hibernate update trong scaffold, chưa chuyển sang Flyway ở thay đổi này.
+V1 tạo schema nền theo kế hoạch. Event, Notification, Analytics đã có V1; Auth/Ticket/Order vẫn dùng Hibernate update trong scaffold, chưa chuyển sang Flyway. Seed nội dung template sẽ thêm khi triển khai notification core.
 
 V1 dành cho schema rỗng. DB đã có bảng: sao lưu, đối chiếu schema và lập migration/baseline có kiểm soát; không tự bật baseline-on-migrate. Không sửa V1 đã áp dụng; thay đổi tiếp dùng V2/V3. docs/database/*/init.sql là schema tham chiếu, không phải migration; bản mới không DROP TABLE. Không chạy vào DB đang có dữ liệu hoặc chạy song song Flyway.
 
