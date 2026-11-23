@@ -20,7 +20,7 @@ Compose hiện có 7 MySQL database scaffold, 7 backend scaffold, Kafka KRaft m�
 | order-service | eventhub_order | 8084 | 33104 |
 | notification-service | eventhub_notification | 8085 | 33105 |
 | analytics-service | eventhub_analytics | 8086 | 33106 |
-| api-gateway | eventhub_gateway | 8080 | 33107 |
+| api-gateway | Không dùng DB (từ 2026-11-24) | 8080 | — |
 
 DBeaver: host 127.0.0.1, user root, password từ .env, database/port như bảng. Trong Docker, backend dùng tên DB service (ví dụ notification-db) và port 3306. Tài khoản root này dành cho local.
 
@@ -82,6 +82,6 @@ Java 21, có thể build bằng JDK 23; Maven Wrapper quản lý Maven. Từ roo
 
 Keycloak quản lý identity/token theo quyết định mới. Compose hiện **chưa có Keycloak/Redis**, chưa có realm import, client, role mapper hay issuer/JWK. Không tự dùng JWT_SECRET hoặc EVENTHUB_JWT_KEY thay Keycloak. Phiên bản, cổng, DB Keycloak, realm/client và credential S2S sẽ bổ sung ở thay đổi triển khai sau khi cấu hình được chốt.
 
-Sáu service nghiệp vụ không đồng nghĩa bảy DB nghiệp vụ: eventhub_gateway cùng datasource/JPA chỉ là scaffold cũ, chưa có yêu cầu dữ liệu Gateway. eventhub_auth không phải DB Keycloak; không seed credentials/refresh token vào đó. Đã giữ Auth facade UI/API riêng; profile DB chỉ thêm khi có dữ liệu ngoài identity Keycloak. Redis chỉ hỗ trợ lock/cache; reservation/counters vẫn ở MySQL.
+Sáu service nghiệp vụ không đồng nghĩa bảy DB nghiệp vụ: Gateway đã bỏ datasource/JPA và container api-gateway-db (2026-11-24); volume cũ vẫn được giữ. eventhub_auth không phải DB Keycloak; không seed credentials/refresh token vào đó. Đã giữ Auth facade UI/API riêng; profile DB chỉ thêm khi có dữ liệu ngoài identity Keycloak. Redis chỉ hỗ trợ lock/cache; reservation/counters vẫn ở MySQL.
 
 Gateway mục tiêu route REST /api/v1/** và WS /ws/dashboard qua ws://analytics-service:8080; /internal/** không expose. Trong Docker mọi backend nghe 8080. [Schema đã đối chiếu](docs/database/README.md), [quyết định nguồn](docs/architecture/source-decisions.md).

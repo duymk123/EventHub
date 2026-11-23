@@ -63,7 +63,7 @@ flowchart TB
 
 | **Component** | **Responsibility** | **Address local** |
 |---|---|---|
-| **MySQL 8.4** | Database riêng cho các module | `localhost:33101`–`localhost:33107` |
+| **MySQL 8.4** | Database riêng cho các module | `localhost:33101`–`localhost:33106` |
 | **Kafka 3.8.1 — KRaft** | Event bus, không cần Zookeeper | `localhost:29092` |
 | **Kafka UI** | Xem topic và message khi phát triển | [localhost:8089](http://localhost:8089) |
 | **Mailpit SMTP** | Nhận email thử nghiệm ở môi trường local | `localhost:1025` |
