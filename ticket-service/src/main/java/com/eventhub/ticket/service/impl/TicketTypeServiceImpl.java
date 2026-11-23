@@ -4,25 +4,35 @@ import com.eventhub.ticket.client.EventClient;
 import com.eventhub.ticket.client.InternalEventResponse;
 import com.eventhub.ticket.common.Actor;
 import com.eventhub.ticket.common.ErrorCode;
+import com.eventhub.ticket.common.SeatStatus;
 import com.eventhub.ticket.common.TicketTypeName;
 import com.eventhub.ticket.common.TicketTypeStatus;
 import com.eventhub.ticket.dto.request.CreateTicketTypesRequest;
 import com.eventhub.ticket.dto.request.TicketTypeInput;
 import com.eventhub.ticket.dto.request.UpdateTicketTypeRequest;
 import com.eventhub.ticket.dto.response.EventCapacityResponse;
+import com.eventhub.ticket.dto.response.SeatMapResponse;
 import com.eventhub.ticket.dto.response.TicketConfigurationResponse;
 import com.eventhub.ticket.dto.response.TicketTypeResponse;
+import com.eventhub.ticket.entity.Seat;
 import com.eventhub.ticket.entity.TicketType;
 import com.eventhub.ticket.exception.BusinessException;
+import com.eventhub.ticket.repository.ReservationSeatRepository;
+import com.eventhub.ticket.repository.SeatRepository;
 import com.eventhub.ticket.repository.TicketTypeRepository;
 import com.eventhub.ticket.service.TicketTypeService;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -30,19 +40,27 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Gọi Event Service (HTTP) ngoài transaction, chỉ mở transaction ngắn khi ghi để không giữ lock DB trong lúc chờ
- * mạng.
+ * Hạng vé = zone ngồi (C12). Gọi Event Service (HTTP) ngoài transaction, chỉ mở transaction ngắn khi ghi để không giữ
+ * lock DB trong lúc chờ mạng. Ghế được sinh/xóa cùng transaction với cấu hình hàng × ghế.
  */
 @Service
 public class TicketTypeServiceImpl implements TicketTypeService {
     private final TicketTypeRepository types;
+    private final SeatRepository seats;
+    private final ReservationSeatRepository reservationSeats;
     private final EventClient eventClient;
     private final TransactionTemplate tx;
+    private final Clock clock;
 
-    public TicketTypeServiceImpl(TicketTypeRepository types, EventClient eventClient, TransactionTemplate tx) {
+    public TicketTypeServiceImpl(TicketTypeRepository types, SeatRepository seats,
+                                 ReservationSeatRepository reservationSeats, EventClient eventClient,
+                                 TransactionTemplate tx, Clock clock) {
         this.types = types;
+        this.seats = seats;
+        this.reservationSeats = reservationSeats;
         this.eventClient = eventClient;
         this.tx = tx;
+        this.clock = clock;
     }
 
     @Override
@@ -66,14 +84,18 @@ public class TicketTypeServiceImpl implements TicketTypeService {
                     type.setEventId(request.eventId());
                     type.setName(input.name());
                     type.setPrice(input.price());
-                    type.setTotalQuota(input.totalQuota());
-                    type.setAvailableQuantity(input.totalQuota());
-                    type.setReservedQuantity(0);
-                    type.setSoldQuantity(0);
+                    type.setRowCount(input.rowCount());
+                    type.setSeatsPerRow(input.seatsPerRow());
+                    type.setTotalQuota(input.rowCount() * input.seatsPerRow());
                     type.setStatus(TicketTypeStatus.ACTIVE);
                     return type;
                 }).toList();
-                return sorted(types.saveAllAndFlush(created));
+                List<TicketType> saved = types.saveAllAndFlush(created);
+                Instant now = clock.instant();
+                for (TicketType type : saved) {
+                    addRows(type, 1, type.getRowCount(), now);
+                }
+                return responses(saved);
             });
         } catch (DataIntegrityViolationException error) {
             // UNIQUE(event_id, name): request song song tạo cùng hạng.
@@ -91,30 +113,71 @@ public class TicketTypeServiceImpl implements TicketTypeService {
                 // Không ảnh hưởng giá snapshot của reservation/order đã tạo.
                 type.setPrice(request.price());
             }
-            if (request.totalQuota() != null) {
-                int committed = type.getReservedQuantity() + type.getSoldQuantity();
-                if (request.totalQuota() < committed) {
-                    throw new BusinessException(ErrorCode.QUOTA_BELOW_SOLD_RESERVED,
-                            "totalQuota must be at least reserved + sold (" + committed + ")");
-                }
-                type.setTotalQuota(request.totalQuota());
-                type.setAvailableQuantity(request.totalQuota() - committed);
-            }
+            int rows = request.rowCount() == null ? type.getRowCount() : request.rowCount();
+            int perRow = request.seatsPerRow() == null ? type.getSeatsPerRow() : request.seatsPerRow();
+            changeLayout(type, rows, perRow);
             if (request.status() != null) {
                 type.setStatus(request.status());
             }
-            return TicketTypeResponse.from(type);
+            return responses(List.of(type)).get(0);
         });
+    }
+
+    /**
+     * Sơ đồ ghế (C12): thêm hàng luôn được. Bớt hàng hoặc đổi số ghế mỗi hàng chỉ khi các ghế bị bỏ chưa từng thuộc
+     * reservation nào (reservation_seats giữ lịch sử nên không xóa được), ngược lại SEAT_LAYOUT_LOCKED.
+     */
+    private void changeLayout(TicketType type, int rows, int perRow) {
+        Instant now = clock.instant();
+        if (perRow != type.getSeatsPerRow()) {
+            if (reservationSeats.existsHistoryFromRow(type.getId(), 1)) {
+                throw layoutLocked("Seats per row cannot change after seats of this zone were held or sold");
+            }
+            seats.deleteRowsAfter(type.getId(), 0);
+            type.setSeatsPerRow(perRow);
+            type.setRowCount(0);
+        }
+        if (rows < type.getRowCount()) {
+            if (reservationSeats.existsHistoryFromRow(type.getId(), rows + 1)) {
+                throw layoutLocked("Rows with held or sold seats cannot be removed");
+            }
+            seats.deleteRowsAfter(type.getId(), rows);
+        } else if (rows > type.getRowCount()) {
+            addRows(type, type.getRowCount() + 1, rows, now);
+        }
+        type.setRowCount(rows);
+        type.setTotalQuota(rows * type.getSeatsPerRow());
+    }
+
+    private void addRows(TicketType type, int fromRow, int toRow, Instant now) {
+        List<Seat> created = new ArrayList<>();
+        for (int row = fromRow; row <= toRow; row++) {
+            for (int number = 1; number <= type.getSeatsPerRow(); number++) {
+                created.add(Seat.of(type, row, number, now));
+            }
+        }
+        seats.saveAll(created);
     }
 
     @Override
     public List<TicketTypeResponse> listPublicTypes(UUID eventId) {
-        InternalEventResponse event = eventClient.getInternal(eventId);
-        if (!event.isPubliclyVisible()) {
-            // Sự kiện chưa công bố coi như không tồn tại với người xem công khai.
-            throw new BusinessException(ErrorCode.EVENT_NOT_FOUND, "Event not found");
+        requirePublic(eventClient.getInternal(eventId));
+        return responses(types.findByEventId(eventId));
+    }
+
+    @Override
+    public SeatMapResponse getSeatMap(UUID typeId) {
+        TicketType type = types.findById(typeId).orElseThrow(TicketTypeServiceImpl::typeNotFound);
+        requirePublic(eventClient.getInternal(type.getEventId()));
+        Map<Integer, SeatMapResponse.Row> rows = new LinkedHashMap<>();
+        for (Seat seat : seats.findByTicketTypeIdOrderByRowIndexAscSeatNumberAsc(typeId)) {
+            rows.computeIfAbsent(seat.getRowIndex(),
+                            index -> new SeatMapResponse.Row(index, seat.getRowLabel(), new ArrayList<>()))
+                    .seats().add(new SeatMapResponse.SeatItem(seat.getId(), seat.getSeatNumber(), seat.getLabel(),
+                            seat.getStatus()));
         }
-        return sorted(types.findByEventId(eventId));
+        return new SeatMapResponse(type.getId(), type.getName(), type.getPrice(), List.copyOf(rows.values()),
+                clock.instant());
     }
 
     @Override
@@ -139,20 +202,40 @@ public class TicketTypeServiceImpl implements TicketTypeService {
         return ids.stream().map(id -> new EventCapacityResponse(id, capacity.getOrDefault(id, 0L))).toList();
     }
 
+    /** Thứ tự hiển thị VIP, PREMIUM, STANDARD, kèm số ghế theo trạng thái (một query cho mọi zone). */
+    private List<TicketTypeResponse> responses(List<TicketType> list) {
+        if (list.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, Map<SeatStatus, Long>> counts = new HashMap<>();
+        for (SeatRepository.SeatCountRow row : seats.countByTypeAndStatus(list.stream().map(TicketType::getId).toList())) {
+            counts.computeIfAbsent(row.getTicketTypeId(), key -> new EnumMap<>(SeatStatus.class))
+                    .put(row.getStatus(), row.getTotal());
+        }
+        return list.stream().sorted(Comparator.comparing(TicketType::getName))
+                .map(type -> TicketTypeResponse.from(type, counts.getOrDefault(type.getId(), Map.of())))
+                .toList();
+    }
+
+    private static void requirePublic(InternalEventResponse event) {
+        if (!event.isPubliclyVisible()) {
+            // Sự kiện chưa công bố coi như không tồn tại với người xem công khai.
+            throw new BusinessException(ErrorCode.EVENT_NOT_FOUND, "Event not found");
+        }
+    }
+
     private static void requireOwner(Actor organizer, InternalEventResponse event) {
         if (!event.organizerId().equals(organizer.userId())) {
             throw new BusinessException(ErrorCode.FORBIDDEN_NOT_OWNER, "Event belongs to another organizer");
         }
     }
 
-    /** Thứ tự hiển thị VIP, PREMIUM, STANDARD. */
-    private static List<TicketTypeResponse> sorted(List<TicketType> list) {
-        return list.stream().sorted(Comparator.comparing(TicketType::getName))
-                .map(TicketTypeResponse::from).toList();
-    }
-
     private static BusinessException typeNotFound() {
         return new BusinessException(ErrorCode.TICKET_TYPE_NOT_FOUND, "Ticket type not found");
+    }
+
+    private static BusinessException layoutLocked(String message) {
+        return new BusinessException(ErrorCode.SEAT_LAYOUT_LOCKED, message);
     }
 
     private static BusinessException alreadyExist() {

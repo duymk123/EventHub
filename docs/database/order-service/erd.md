@@ -25,8 +25,14 @@ erDiagram
     VARCHAR(3) currency
     TIMESTAMP expires_at
     TIMESTAMP paid_at
+    TIMESTAMP tickets_confirmed_at
+    CHAR(36) payment_id
+    TIMESTAMP event_start_time
+    VARCHAR(100) idempotency_key
+    CHAR(64) request_hash
     TIMESTAMP created_at
     TIMESTAMP updated_at
+    VARCHAR(73) pending_slot
   }
   order_items {
     CHAR(36) id PK
@@ -40,6 +46,8 @@ erDiagram
   order_holders {
     CHAR(36) id PK
     CHAR(36) order_item_id FK
+    CHAR(36) seat_id
+    VARCHAR(8) seat_label
     VARCHAR(100) holder_name
     VARCHAR(255) holder_email
     VARCHAR(20) holder_phone
@@ -48,11 +56,16 @@ erDiagram
     CHAR(36) id PK
     CHAR(36) order_id FK
     VARCHAR(50) provider
+    VARCHAR(40) provider_txn_ref
     VARCHAR(100) provider_transaction_id
+    VARCHAR(14) provider_pay_date
     DECIMAL(14_2) amount
     VARCHAR(20) status
     TEXT payment_url
     VARCHAR(100) idempotency_key
+    TIMESTAMP reconciled_at
+    CHAR(36) reconciled_by
+    VARCHAR(500) reconciliation_note
     TIMESTAMP created_at
     TIMESTAMP updated_at
   }
@@ -68,6 +81,9 @@ erDiagram
     TIMESTAMP requested_at
     TIMESTAMP reviewed_at
     TIMESTAMP refunded_at
+    VARCHAR(40) provider_request_id
+    VARCHAR(100) provider_refund_id
+    VARCHAR(255) failure_reason
   }
   payment_webhooks {
     CHAR(36) id PK

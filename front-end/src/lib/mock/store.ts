@@ -1,7 +1,7 @@
 "use client";
 import type { DemoState } from "@/types";
 import { seedState } from "./seed";
-const KEY = "eventhub-ui-demo-v1";
+const KEY = "eventhub-ui-demo-v2";
 const initial = seedState();
 let state = initial;
 let hydrated = false;

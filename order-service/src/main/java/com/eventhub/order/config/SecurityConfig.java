@@ -26,7 +26,9 @@ import java.time.Instant;
 
 /**
  * Resource server JWT (Keycloak). Đơn hàng chỉ dành cho CUSTOMER; customerId lấy từ JWT, không từ header.
- * Payment/webhook/refund chưa có endpoint (chờ C06) nên mọi đường khác bị chặn.
+ * C06: IPN VNPay public (tin cậy bằng chữ ký); khởi tạo/đối soát thanh toán và hủy đơn (C19) cho CUSTOMER;
+ * hoàn tiền (C04/C05): CUSTOMER yêu cầu, ADMIN duyệt/từ chối/thử lại; danh sách đối soát (C21) cho ADMIN.
+ * Đường khác bị chặn.
  */
 @Configuration
 public class SecurityConfig {
@@ -90,7 +92,19 @@ public class SecurityConfig {
                 .requestCache(cache -> cache.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/error").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/payments/vnpay/ipn").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/orders").hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/orders/*/payment", "/api/v1/orders/*/payment/verify",
+                                "/api/v1/orders/*/cancel")
+                        .hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/orders/*/refunds").hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/orders/*/refunds").hasRole("CUSTOMER")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/payments/reconciliation", "/api/v1/admin/refunds")
+                        .hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/admin/payments/*/resolve",
+                                "/api/v1/admin/refunds/*/approve", "/api/v1/admin/refunds/*/reject",
+                                "/api/v1/admin/refunds/*/retry")
+                        .hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/v1/orders/me", "/api/v1/orders/*").hasRole("CUSTOMER")
                         .anyRequest().denyAll())
                 .exceptionHandling(errors -> errors.authenticationEntryPoint(entryPoint).accessDeniedHandler(deniedHandler))

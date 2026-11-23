@@ -26,7 +26,7 @@ flowchart LR
     GW --> O
     GW --> N
     GW --> A
-    O -->|REST reserve, confirm, release, cancel| T
+    O -->|REST giữ ghế, confirm, release, cancel| T
     T -->|REST đọc sự kiện| E
     A -->|REST kiểm tra owner| E
     O --> P
@@ -41,7 +41,7 @@ Mỗi khối nghiệp vụ có DB riêng. Đường REST/Kafka không có nghĩa
 
 ## Ví dụ một đơn mua ba vé
 
-Một order có hai order_items: VIP số lượng 2 và STANDARD số lượng 1. Mỗi item có các order_holders tương ứng: hai người cho VIP, một người cho STANDARD. Ticket giữ một reservation với hai reservation_items, rồi phát hành ba tickets khi confirm thành công.
+Một order có hai order_items: VIP số lượng 2 và STANDARD số lượng 1. Mỗi item có các order_holders tương ứng: hai người cho VIP, một người cho STANDARD. Theo C12, mỗi holder gắn một ghế cụ thể (ví dụ VIP B-07, B-08 và STANDARD D-12). Ticket giữ một reservation với hai reservation_items và ba ghế, rồi phát hành ba tickets, mỗi vé một ghế, khi confirm thành công.
 
 ```mermaid
 erDiagram
@@ -51,19 +51,21 @@ erDiagram
     ticket_types ||--o{ reservation_items : "giữ số lượng theo hạng"
     reservations ||--o{ tickets : "confirm phát vé"
     ticket_types ||--o{ tickets : "hạng vé đã mua"
+    ticket_types ||--o{ seats : "ghế của zone (C12)"
+    seats ||--o{ tickets : "vé gắn một ghế"
 ```
 
 orders.reservation_id và reservations.order_id chỉ là UUID mềm giữa hai DB, không tạo FK trong sơ đồ trên. ticket_types.event_id cũng là UUID mềm sang Event. Schema chi tiết ở [database README](../database/README.md).
 
 ## Khi trả tiền thành công
 
-1. Order sinh UUID, yêu cầu Ticket giữ chỗ ba phút. Ticket trả reservationId, hạn và giá đã chốt.
-2. Order lưu orders/items/holders. Nếu lưu lỗi sau reserve thì release bù trừ.
+1. Khách chọn zone trên sơ đồ 3D rồi chọn từng ghế (C12). Order sinh UUID, gửi danh sách ghế sang Ticket để giữ mười phút (C16). Ticket giữ bằng UPDATE có điều kiện trên từng ghế, trả reservationId, hạn và giá đã chốt; ghế đã bị lấy thì trả 409 SEAT_TAKEN để khách chọn lại.
+2. Order lưu orders/items/holders (mỗi holder gắn một ghế). Nếu lưu lỗi sau khi giữ ghế thì release bù trừ. Chi tiết [C12](../project-clarifications.md#c12--đặt-vé-theo-ghế-cụ-thể).
 3. Provider báo thành công qua webhook đã xác minh. Order thắng CAS mới chuyển PAID; scheduler không được chuyển PAID sang EXPIRED.
 4. Order gọi REST confirm. Ticket tạo vé/QR trong transaction rồi đưa ticket.issued vào outbox.
 5. Sau confirm thành công, Order ghi order.paid để Analytics tính doanh số. Notification nhận ticket.issued để gửi vé. Không phát vé thêm bằng consumer order.paid.
 
-Lỗi tạm thời có job retry bền vững. C05 đã chọn: timeout confirm phải query/retry cùng ID; nếu chắc chắn không phát được vé thì fence phát vé và hoàn bù 100% thực thu chưa hoàn. Refund khách là 70% cả đơn, Ticket giữ quyền hủy trước provider; commit hủy sau success. Kết quả tiền UNKNOWN phải verify, không mở hold hoặc gửi lệnh mới bằng key khác. [Thiết kế chi tiết và đối soát](payment-refund-recovery.md); provider C06 để sau.
+Thanh toán qua VNPay sandbox (C06): khách trả tiền trên trang VNPay, IPN của VNPay là kết quả chính thức, `querydr` dùng để đối soát khi chưa nhận IPN. Hoàn tiền theo C05 rút gọn: ADMIN duyệt → Ticket hủy vé, trả ghế → VNPay hoàn 70% → `order.refunded`; lỗi thì refund FAILED để ADMIN thử lại. Task retry bền vững, verify khi kết quả chưa rõ, hold trước provider và hoàn bù 100% là hướng phát triển ([thiết kế đầy đủ](payment-refund-recovery.md)).
 
 ## Báo cáo không phải database gốc
 

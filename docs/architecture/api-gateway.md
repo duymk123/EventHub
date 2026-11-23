@@ -41,7 +41,7 @@ Module `api-gateway` hiện chỉ có Application, starter MVC, JPA/MySQL và da
 flowchart LR
     FE[Frontend] --> GW[API Gateway :8080]
     PP[Payment provider] -->|Webhook| GW
-    DEVICE[Thiết bị cổng: chờ C07] --> GW
+    DEVICE[Trang quét QR của ORGANIZER/ADMIN: C07] --> GW
     GW --> AU[Auth]
     GW --> E[Event]
     GW --> T[Ticket]
@@ -138,8 +138,8 @@ sequenceDiagram
     participant K as Kafka
     F->>G: POST /api/v1/orders + JWT
     G->>O: Tạo đơn, chuyển idempotency key nếu contract có
-    O->>T: POST /internal/reservations + S2S
-    T-->>O: Reservation, giá, hạn giữ 3 phút
+    O->>T: POST /internal/reservations + S2S (ghế đã chọn, C12)
+    T-->>O: Reservation, giá, hạn giữ 10 phút hoặc 409 SEAT_TAKEN
     O-->>G: 201 Order
     G-->>F: 201 Order
     F->>G: POST /api/v1/orders/{id}/payment + JWT
@@ -157,11 +157,11 @@ sequenceDiagram
     O->>K: Publisher gửi order.paid sau confirm và outbox commit
 ```
 
-Gateway không tự reserve/confirm và không gọi lại POST tạo đơn/thanh toán/hoàn tiền khi timeout. Timeout chỉ nói rằng chưa nhận được kết quả; giao dịch có thể đã được xử lý. Client tra cứu trạng thái hoặc retry theo idempotency contract tại service.
+Trước bước tạo đơn, frontend đọc sơ đồ ghế qua `GET /api/v1/ticket-types/{id}/seats` (public, route về Ticket) theo [C12](../project-clarifications.md#c12--đặt-vé-theo-ghế-cụ-thể). Gateway nên giới hạn tần suất `POST /api/v1/orders` theo người dùng để chặn giữ ghế hàng loạt. Gateway không tự reserve/confirm và không gọi lại POST tạo đơn/thanh toán/hoàn tiền khi timeout. Timeout chỉ nói rằng chưa nhận được kết quả; giao dịch có thể đã được xử lý. Client tra cứu trạng thái hoặc retry theo idempotency contract tại service.
 
 Webhook do payment provider gọi vào, khác với API Gateway của EventHub. Provider thường không có access JWT người dùng. Ngoại lệ không yêu cầu JWT chỉ áp đúng webhook route đã cấu hình; Order bắt buộc xác minh chữ ký và dedup. C06 chưa chọn provider nên method, wire format, chữ ký và ACK còn phải hoàn thiện; POST là draft hiện hành, không tự mở mọi method.
 
-Gateway giữ nguyên body/query/form/chữ ký, không ACK thành công thay Order. C04 refund khách cả đơn 70%, ADMIN-only; C05 hold trước provider và bù lỗi phát vé 100% đã có [thiết kế](payment-refund-recovery.md). Adapter provider C06 để sau; Gateway không tự thực hiện hoàn tiền.
+Gateway giữ nguyên body/query/form/chữ ký, không ACK thành công thay Order. C04 refund khách cả đơn 70%, ADMIN-only; C05 rút gọn: hủy vé rồi hoàn qua VNPay; hold và bù 100% là hướng phát triển ([thiết kế](payment-refund-recovery.md)). Provider C06 là VNPay sandbox, IPN là GET có chữ ký trên query string; Gateway không tự thực hiện hoàn tiền.
 
 ## 7. Luồng dashboard WebSocket
 
@@ -200,7 +200,7 @@ Sau SUBSCRIBE thành công, frontend GET lại snapshot để hội tụ cập n
 | `/api/v1/events`, `/api/v1/events/{id}` và submit/publish/close | Event | Owner kiểm tra trong Event. |
 | `/api/v1/events/{eventId}/ticket-types` | Ticket | Route cụ thể này phải đứng trước route events rộng nếu dùng route rộng. |
 | `/api/v1/categories...`, `/api/v1/organizer/events`, `/api/v1/admin/events/{id}/review` | Event | GET categories public; ghi categories dành ADMIN. |
-| `/api/v1/ticket-types...`, `/api/v1/tickets...`, `/api/v1/gate/...` | Ticket | Thiết bị cổng cần identity riêng, chờ C07. |
+| `/api/v1/ticket-types...`, `/api/v1/tickets...`, `/api/v1/gate/...` | Ticket | C07: quét vé bằng JWT ORGANIZER chủ sự kiện/ADMIN trong khung giờ sự kiện; không có identity thiết bị. |
 | `/api/v1/orders...`, `/api/v1/payments/webhook/{provider}`, `/api/v1/admin/refunds...` | Order | Webhook có cơ chế xác thực riêng. |
 | `/api/v1/notifications...`, `/api/v1/admin/notification-templates...` | Notification | Các route admin không cùng owner service. |
 | `/api/v1/analytics/events/{id}/...`, `/api/v1/analytics/overview`, `/api/v1/analytics/events` (C10), `/ws/dashboard` | Analytics | Tách REST và WS. Hai path C10 cho ADMIN và ORGANIZER (Analytics giới hạn theo owner), khai báo cụ thể. |
@@ -263,6 +263,6 @@ GET public kỳ vọng theo OpenAPI; `/orders/me` thiếu token trả 401; inter
 
 ## 11. Những việc cần chốt trước khi vận hành
 
-Issuer/audience/JWK/role mapping và S2S theo cấu hình Keycloak; flow Auth; provider C06; quyền thiết bị C07; origin frontend và topology TLS/proxy; timeout/giới hạn request theo môi trường. Các giá trị này phải được cấu hình và kiểm tra, không tự xem là đã chốt chỉ vì có Gateway.
+Issuer/audience/JWK/role mapping và S2S theo cấu hình Keycloak; flow Auth; thông số VNPay sandbox (C06); origin frontend và topology TLS/proxy; timeout/giới hạn request theo môi trường. Các giá trị này phải được cấu hình và kiểm tra, không tự xem là đã chốt chỉ vì có Gateway.
 
 Tiếp theo: [plan triển khai Gateway](../plans/api-gateway.md), [hợp đồng API](../api/README.md), [luồng hệ thống](README.md).

@@ -1,5 +1,7 @@
 # Điều phối thanh toán, phát vé và hoàn tiền khi có lỗi
 
+> **Phạm vi từ 2026-11-22:** chủ dự án chốt **bản rút gọn** của C05 (ADMIN duyệt → Ticket hủy vé, trả ghế → VNPay hoàn 70% → `order.refunded`), xem [C05 rút gọn](../project-clarifications.md#c05-rút-gọn--luồng-hoàn-tiền-giai-đoạn-này). Toàn bộ thiết kế dưới đây (hold/fence, verify khi kết quả chưa rõ, hoàn bù 100%, `payment.compensated`) là **hướng phát triển** ghi trong báo cáo, chưa nằm trong phạm vi code giai đoạn này. Provider đã chọn là VNPay sandbox (C06).
+
 Cập nhật 2026-11-05. Chủ dự án giao xử lý C05; đây là phương án Codex chọn. [Quyết định C02–C09](../project-clarifications.md) là nguồn nghiệp vụ, [plan Order](../plans/order-service.md) và [plan Ticket](../plans/ticket-service.md) là nơi triển khai. Tài liệu mô tả thiết kế cần xây, chưa phải worker/API/migration đã chạy.
 
 ## 1. Hai loại hoàn tiền

@@ -28,7 +28,8 @@ import java.util.UUID;
         uniqueConstraints = @UniqueConstraint(name = "uk_ticket_qr_code", columnNames = "qr_code_value"),
         indexes = {
                 @Index(name = "idx_tickets_owner", columnList = "owner_user_id, issued_at"),
-                @Index(name = "idx_tickets_order", columnList = "order_id")
+                @Index(name = "idx_tickets_order", columnList = "order_id"),
+                @Index(name = "idx_tickets_seat", columnList = "seat_id")
         })
 @Getter @Setter @NoArgsConstructor
 public class Ticket {
@@ -41,13 +42,20 @@ public class Ticket {
     private UUID orderId;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "ticket_type_id", nullable = false)
     private TicketType ticketType;
+    /** C12: ghế của vé; vé hủy thì ghế về AVAILABLE và bán lại được nên không UNIQUE. */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "seat_id", nullable = false)
+    private Seat seat;
+
+    @Column(name = "seat_label", nullable = false, length = 8)
+    private String seatLabel;
+
     @JdbcTypeCode(SqlTypes.CHAR) @Column(name = "owner_user_id", nullable = false, length = 36)
     private UUID ownerUserId;
     @Column(name = "holder_name", length = 100)
     private String holderName;
     @Column(name = "qr_code_value", nullable = false, unique = true, length = 255)
     private String qrCodeValue;
-    @Enumerated(EnumType.STRING) @Column(nullable = false, length = 20)
+    @Enumerated(EnumType.STRING) @JdbcTypeCode(SqlTypes.VARCHAR) @Column(nullable = false, length = 20)
     private TicketStatus status = TicketStatus.ISSUED;
     @Column(name = "issued_at", nullable = false, updatable = false)
     private Instant issuedAt;

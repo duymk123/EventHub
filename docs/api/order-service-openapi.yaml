@@ -3,10 +3,14 @@ info:
   title: EventHub - Order Service API
   version: 2.0.0-draft
   description: |-
-    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Đã triển khai (2026-11-19) POST /orders, GET /orders/me, GET /orders/{id} và worker hết hạn đơn; payment/webhook/refund chờ provider C06 (trạng thái ở docs/plans/order-service.md).
+    Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Đã triển khai (2026-11-19) POST /orders, GET /orders/me, GET /orders/{id} và worker hết hạn đơn; payment/IPN/refund theo VNPay chưa có code (trạng thái ở docs/plans/order-service.md).
+    Chốt 2026-11-22: C06 VNPay sandbox (IPN là kết quả chính thức, querydr để đối soát, refund để hoàn 70%); C05 hoàn tiền bản rút gọn; C14 Idempotency-Key cho POST /orders.
     UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
     Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
-    Order sinh ID, snapshot buyer email đã xác minh theo C02, reserve rồi lưu; reservationId NOT NULL. C04 hoàn khách cả đơn 70% giá mua, giữ 30%, ADMIN duyệt; C05 hold trước provider, bù lỗi cung cấp vé 100%. Provider C06 để sau; storage/API điều phối mới cần triển khai.
+    Chốt và triển khai 2026-11-23: C16 giữ ghế/hạn thanh toán 10 phút; C18 thanh toán lỗi hoặc khách hủy trên VNPay thì đơn vẫn PENDING_PAYMENT để thanh toán lại; C19 khách hủy đơn chưa thanh toán; C20 mỗi khách một đơn PENDING_PAYMENT cho mỗi sự kiện; C21 danh sách đối soát cho ADMIN.
+    Triển khai 2026-11-23 (đợt 2): Idempotency-Key cho POST /orders (C14), hoàn tiền C04/C05 rút gọn (yêu cầu, duyệt, từ chối, thử lại, order.refunded), đánh dấu đã xử lý khoản đối soát (C21). Duyệt muộn dưới 48 giờ tự REJECTED; khách không tự rút yêu cầu hoàn.
+    C12 (2026-11-22, đã triển khai 2026-11-23): khách chọn ghế cụ thể; mỗi holder gửi seatId, Order gọi Ticket giữ ghế đồng bộ, ghế đã bị lấy trả 409 SEAT_TAKEN kèm takenSeatIds.
+    Order sinh ID, snapshot buyer email đã xác minh theo C02, reserve rồi lưu; reservationId NOT NULL. C04 hoàn khách cả đơn 70% giá mua, giữ 30%, ADMIN duyệt. Hold trước provider, verify khi kết quả chưa rõ và bù 100% là hướng phát triển (C05 đầy đủ).
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
@@ -15,16 +19,25 @@ tags:
 - name: Payment
 - name: Refund
 - name: Admin - Refund
+- name: Admin - Payment
 paths:
   /orders:
     post:
       tags:
       - Order
       operationId: createOrder
-      summary: Tạo Order và reserve vé
-      description: 'Hình 2.57: sinh orderId UUID → Ticket reserve → dùng giá/hạn chính thức → lưu orders/items/holders trong transaction. Nếu lưu lỗi sau reserve thì release bù trừ. Không nhận giá/tổng tiền/customerId từ client.'
+      summary: Tạo Order và giữ ghế
+      description: 'Hình 2.57 + C12: sinh orderId UUID → Ticket giữ đúng các ghế khách chọn (tối đa 10) → dùng giá/hạn chính thức → lưu orders/items/holders (mỗi holder một ghế) trong transaction. Nếu lưu lỗi sau khi giữ ghế thì release bù trừ. Không nhận giá/tổng tiền/customerId từ client.'
       security:
       - bearerAuth: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          maxLength: 100
+        description: 'C14: frontend sinh một UUID cho mỗi lần bấm "Giữ ghế" và gửi lại đúng key khi retry. Cùng key + cùng nội dung → 200 trả đơn cũ; cùng key + nội dung khác → 409 IDEMPOTENCY_KEY_REUSED. Lưu theo cặp (customerId, key).'
       requestBody:
         required: true
         content:
@@ -32,6 +45,12 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateOrderRequest'
       responses:
+        '200':
+          description: Gửi lại cùng Idempotency-Key và cùng nội dung — trả lại đơn đã tạo trước đó, không giữ ghế lần nữa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
         '201':
           description: Order đã tạo
           content:
@@ -49,13 +68,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: EVENT_NOT_FOUND hoặc TICKET_TYPE_NOT_FOUND (giữ nguyên mã của Ticket)
+          description: EVENT_NOT_FOUND, TICKET_TYPE_NOT_FOUND hoặc SEAT_NOT_FOUND (giữ nguyên mã của Ticket)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: INSUFFICIENT_TICKETS hoặc TICKET_TYPE_NOT_ON_SALE
+          description: SEAT_TAKEN (kèm takenSeatIds để frontend tô xám và cho chọn lại), TICKET_TYPE_NOT_ON_SALE (sự kiện chưa/không còn PUBLISHED hoặc đã tới startTime, C17), PENDING_ORDER_EXISTS (C20, khách đã có đơn chờ thanh toán cho sự kiện này; lấy đơn đó qua GET /orders/me) hoặc IDEMPOTENCY_KEY_REUSED (C14)
           content:
             application/json:
               schema:
@@ -130,13 +149,48 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/OrderNotFound'
+  /orders/{id}/cancel:
+    post:
+      tags:
+      - Order
+      operationId: cancelOrder
+      summary: Hủy đơn chưa thanh toán
+      description: |-
+        C19. Chỉ chủ đơn, chỉ khi PENDING_PAYMENT. Đơn → CANCELLED, Order gọi Ticket release để trả ghế ngay; không phát Kafka. Gọi lại khi đơn đã CANCELLED trả đơn hiện tại.
+        Payment PENDING của đơn không bị hủy phía VNPay; nếu sau đó VNPay vẫn báo thành công thì payment vào danh sách đối soát (C21).
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: Đơn sau khi hủy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
+        '409':
+          description: ORDER_NOT_CANCELLABLE (đơn đã PAID, EXPIRED, REFUNDED…)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /orders/{id}/payment:
     post:
       tags:
       - Payment
       operationId: initPayment
-      summary: Khởi tạo thanh toán
-      description: Chỉ khi Order PENDING_PAYMENT và chưa quá `expiresAt`. Tạo hoặc đọc Payment theo `idempotency_key`.
+      summary: Khởi tạo thanh toán VNPay
+      description: |-
+        C06. Chỉ khi Order PENDING_PAYMENT và còn ít nhất 20 giây trước `expiresAt`. Tạo hoặc đọc Payment theo `Idempotency-Key`, trạng thái PENDING.
+        C18: sau khi thanh toán lỗi hoặc khách hủy trên VNPay, đơn vẫn PENDING_PAYMENT; nút "Thanh toán lại" gửi Idempotency-Key mới để tạo payment mới (vnp_TxnRef mới).
+        Dựng URL `vpcpay.html` của VNPay: vnp_Amount = tiền × 100, vnp_TxnRef = providerTxnRef (mã payment 32 ký tự hex), vnp_ExpireDate = expiresAt của đơn (giờ Việt Nam), vnp_ReturnUrl = trang kết quả của frontend; ký HMAC-SHA512 bằng hash secret. Frontend chuyển khách sang `paymentUrl`.
       security:
       - bearerAuth: []
       parameters:
@@ -146,16 +200,10 @@ paths:
         required: true
         schema:
           type: string
-        description: 'Đề xuất kỹ thuật: key ổn định cho retry cùng yêu cầu; tái sử dụng khác payload trả 409.'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/InitPaymentRequest'
+        description: Key ổn định cho retry cùng lần thanh toán (tối đa 100 ký tự). Key đã dùng cho đơn khác trả 409 IDEMPOTENCY_KEY_REUSED.
       responses:
         '200':
-          description: Thông tin để khách thanh toán với gateway
+          description: URL thanh toán VNPay đã ký
           content:
             application/json:
               schema:
@@ -172,54 +220,99 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /payments/webhook/{provider}:
+  /orders/{id}/payment/verify:
     post:
       tags:
       - Payment
-      operationId: paymentWebhook
-      summary: Payment webhook (gateway gọi)
-      description: 'Wire format/chữ ký chờ provider C06. Xác minh request gốc, order/transaction/amount/currency, dedup provider/eventId; ghi transition và task trước ACK. C05 success sau EXPIRED không tự phát vé: query/fence Ticket rồi bù 100% thực thu chưa hoàn. Timeout không tạo key tiền mới.'
+      operationId: verifyPayment
+      summary: Đối soát thanh toán với VNPay (querydr)
+      description: |-
+        C06. Frontend gọi khi khách quay về từ VNPay (trang kết quả), không tin tham số trên URL quay về. Nếu payment còn PENDING, Order gọi API `querydr` của VNPay và áp dụng kết quả giống IPN (cùng logic, cùng chống xử lý lặp).
+        Cần khi chạy local không có URL public cho IPN, hoặc IPN tới chậm. Payment đã SUCCEEDED/FAILED thì trả trạng thái hiện tại, không gọi VNPay.
+      security:
+      - bearerAuth: []
       parameters:
-      - name: provider
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: X-Signature
-        in: header
-        required: true
-        schema:
-          type: string
-      requestBody:
-        description: Wire format/chữ ký chờ chọn provider C06; không áp JSON DTO chuẩn hóa cho provider thật.
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-          application/x-www-form-urlencoded:
-            schema:
-              type: object
-              additionalProperties:
-                type: string
+      - $ref: '#/components/parameters/OrderId'
       responses:
         '200':
-          description: Đã tiếp nhận (kể cả webhook lặp)
+          description: Trạng thái đơn sau đối soát (PAID, PENDING_PAYMENT hoặc EXPIRED; payment thất bại không đổi đơn, C18)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
         '401':
-          description: INVALID_SIGNATURE
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
+        '503':
+          description: PAYMENT_PROVIDER_UNAVAILABLE (VNPay không phản hồi; thử lại sau)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-      x-contract-status: provider-wire-contract-pending-C06
+  /payments/vnpay/ipn:
+    get:
+      tags:
+      - Payment
+      operationId: vnpayIpn
+      summary: IPN của VNPay (VNPay gọi, kết quả thanh toán chính thức)
+      description: |-
+        C06. Public, không JWT; Gateway chỉ mở đúng method/path này. Wire format do VNPay quy định: tham số `vnp_*` trên query string, chữ ký `vnp_SecureHash` (HMAC-SHA512 trên các tham số `vnp_*` trừ vnp_SecureHash/vnp_SecureHashType, sắp xếp theo tên).
+        Thứ tự xử lý: kiểm chữ ký → tìm payment theo vnp_TxnRef → so vnp_Amount với amount × 100 → chống lặp theo `vnp_TxnRef:vnp_TransactionNo` (payment_webhooks) → thành công khi vnp_ResponseCode = 00 và vnp_TransactionStatus = 00: payment SUCCEEDED, lưu vnp_TransactionNo/vnp_PayDate, Order PENDING_PAYMENT → PAID (lưu orders.payment_id), sau đó confirm Ticket và outbox order.paid; ngược lại chỉ payment FAILED, đơn vẫn PENDING_PAYMENT và giữ ghế để khách thanh toán lại (C18).
+        Tiền về khi đơn đã EXPIRED/CANCELLED, hoặc payment thứ hai của đơn đã PAID: payment SUCCEEDED, đơn giữ nguyên, payment vào danh sách đối soát của ADMIN (C21, hoàn thủ công; hoàn bù tự động là hướng phát triển).
+        Luôn trả HTTP 200 với JSON theo bảng mã VNPay để VNPay không gửi lại vô hạn.
+      parameters:
+      - name: params
+        in: query
+        required: true
+        style: form
+        explode: true
+        schema:
+          type: object
+          additionalProperties:
+            type: string
+        description: Toàn bộ tham số vnp_* VNPay gửi (vnp_TxnRef, vnp_Amount, vnp_ResponseCode, vnp_TransactionStatus, vnp_TransactionNo, vnp_PayDate, vnp_BankCode, vnp_SecureHash…).
+      responses:
+        '200':
+          description: 'Phản hồi cho VNPay. RspCode: 00 xác nhận thành công, 01 không tìm thấy đơn, 02 đơn đã được xác nhận trước đó, 04 sai số tiền, 97 sai chữ ký, 99 lỗi khác.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VnpayIpnAck'
   /orders/{id}/refunds:
+    get:
+      tags:
+      - Refund
+      operationId: listOrderRefunds
+      summary: Yêu cầu hoàn của một đơn
+      description: Chủ đơn xem trạng thái các yêu cầu hoàn (mới nhất trước), gồm reviewReason khi bị từ chối.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: Danh sách yêu cầu hoàn
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RefundResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/OrderNotFound'
     post:
       tags:
       - Refund
       operationId: requestRefund
       summary: Yêu cầu Refund
-      description: 'Owner, PAID, toàn bộ vé chưa dùng, >=48 giờ lúc yêu cầu và kiểm tra lại khi duyệt. C04 hoàn cả đơn 70% snapshot giá mua, giữ 30%, không thêm phí; HALF_UP scale 2. Chỉ nhận reason, không chọn ticketIds/amount. ADMIN duyệt; request chưa gọi provider.'
+      description: 'Owner, đơn PAID đã phát vé, còn ≥ 48 giờ trước startTime (Order lưu event_start_time lúc giữ ghế; khi còn ≥ 48 giờ thì cổng quét chưa mở nên mọi vé chắc chắn chưa dùng). Mỗi đơn một yêu cầu đang sống (bị REJECTED thì được yêu cầu lại); khách không tự rút yêu cầu. C04 hoàn cả đơn 70% snapshot giá mua, HALF_UP scale 2. Chỉ nhận reason (bắt buộc, ≤ 1000 ký tự). Request chưa gọi provider.'
       security:
       - bearerAuth: []
       parameters:
@@ -251,6 +344,73 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '422':
           description: REFUND_WINDOW_EXPIRED (dưới 48 giờ) hoặc TICKET_ALREADY_CHECKED_IN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/payments/reconciliation:
+    get:
+      tags:
+      - Admin - Payment
+      operationId: listPaymentReconciliation
+      summary: Payment đã trừ tiền nhưng không thành vé
+      description: C21. Chỉ ADMIN. Payment SUCCEEDED có id khác orders.payment_id (tiền về khi đơn đã hết hạn/hủy, hoặc khách trả hai lần), mới nhất trước, tối đa 100. ADMIN dùng providerTransactionId và providerPayDate để hoàn tiền thủ công trên cổng merchant VNPay.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Danh sách cần đối soát
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReconciliationItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/payments/{id}/resolve:
+    post:
+      tags:
+      - Admin - Payment
+      operationId: resolveReconciliation
+      summary: Đánh dấu khoản đối soát đã xử lý
+      description: C21 (2026-11-23). Chỉ ADMIN, chỉ payment đang nằm trong danh sách đối soát. Lưu reconciled_at/reconciled_by/reconciliation_note; payment rời danh sách. Gọi lại khi đã xử lý trả trạng thái hiện tại.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectRefundRequest'
+      responses:
+        '200':
+          description: Khoản đối soát sau khi đánh dấu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationItem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: PAYMENT_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: PAYMENT_NOT_RECONCILABLE (payment không nằm trong danh sách đối soát)
           content:
             application/json:
               schema:
@@ -289,16 +449,18 @@ paths:
       operationId: approveRefund
       summary: Duyệt Refund
       description: |-
-        Chỉ ADMIN. Kiểm tra lại toàn bộ vé chưa dùng và >=48 giờ, chốt quote 70% cả đơn; lưu task prepare hold tại Ticket trước khi gọi provider.
-        C05 dùng token giữ quyền hủy, chặn scan. Sau provider success mới commit hủy theo token; không từ chối vì qua mốc 48 giờ trong lúc chờ. Chỉ REFUNDED và phát order.refunded khi tiền và hủy đều xong.
-        UNKNOWN phải verify cùng key và giữ hold; chỉ release khi provider xác nhận dứt khoát không hoàn. Approve có thể trả APPROVED/PROCESSING, không có nghĩa workflow đã hoàn tất. Storage/API hold mới cần bổ sung theo docs/architecture/payment-refund-recovery.md trước bật luồng này.
+        Chỉ ADMIN. C05 rút gọn (2026-11-22), chạy đồng bộ trong request:
+        1. Kiểm lại ≥48 giờ trước sự kiện. Dưới 48 giờ: refund tự chuyển REJECTED với reviewReason bắt đầu bằng REFUND_WINDOW_EXPIRED, trả 200 (quyết định 2026-11-23). Còn hạn: REQUESTED → PROCESSING (approvedBy, reviewedAt).
+        2. Gọi Ticket `POST /internal/tickets/cancel-by-order/{orderId}`: hủy mọi vé, trả ghế, outbox ticket.cancelled. Ticket trả 409 (vé đã dùng) → refund FAILED, không gọi VNPay.
+        3. Gọi API refund của VNPay hoàn 70% (vnp_TransactionType = 03, vnp_RequestId mới lưu provider_request_id, giao dịch gốc là orders.payment_id). Thành công → refund REFUNDED, đơn REFUNDED, outbox order.refunded. Lỗi/timeout → refund FAILED, failureReason là VNPAY_<mã>, VNPAY_CHECKSUM_MISMATCH hoặc PAYMENT_PROVIDER_UNAVAILABLE; vé đã hủy không mở lại.
+        Hold trước provider và verify khi kết quả chưa rõ là hướng phát triển.
       security:
       - bearerAuth: []
       parameters:
       - $ref: '#/components/parameters/RefundId'
       responses:
         '200':
-          description: Refund sau khi duyệt
+          description: Refund sau khi duyệt (REFUNDED, FAILED kèm failureReason, hoặc REJECTED khi đã dưới 48 giờ)
           content:
             application/json:
               schema:
@@ -327,7 +489,7 @@ paths:
       parameters:
       - $ref: '#/components/parameters/RefundId'
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -335,6 +497,36 @@ paths:
       responses:
         '200':
           description: Refund REJECTED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/RefundNotFound'
+        '409':
+          description: INVALID_REFUND_STATE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/refunds/{id}/retry:
+    post:
+      tags:
+      - Admin - Refund
+      operationId: retryRefund
+      summary: Thử lại hoàn tiền bị lỗi
+      description: Chỉ ADMIN, chỉ khi refund FAILED. Chạy lại từ bước còn thiếu (hủy vé là idempotent, rồi gọi VNPay với vnp_RequestId mới). ADMIN cần kiểm tra giao dịch trên cổng merchant VNPay trước khi thử lại sau timeout, vì xác minh tự động là hướng phát triển.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/RefundId'
+      responses:
+        '200':
+          description: Refund sau khi thử lại (REFUNDED hoặc vẫn FAILED kèm failureReason)
           content:
             application/json:
               schema:
@@ -411,11 +603,13 @@ components:
   schemas:
     OrderStatus:
       type: string
+      description: FAILED giữ lại cho tương thích, từ C18 (2026-11-23) không còn được gán; CANCELLED do khách hủy (C19).
       enum:
       - PENDING_PAYMENT
       - PAID
       - FAILED
       - EXPIRED
+      - CANCELLED
       - REFUNDED
     PaymentStatus:
       type: string
@@ -436,8 +630,15 @@ components:
     HolderInput:
       type: object
       required:
+      - seatId
       - holderName
       properties:
+        seatId:
+          type: string
+          format: uuid
+          minLength: 36
+          maxLength: 36
+          description: C12 ghế khách chọn trên sơ đồ, phải thuộc ticketTypeId của dòng này; không trùng trong đơn.
         holderName:
           type: string
         holderEmail:
@@ -465,7 +666,7 @@ components:
           minimum: 1
         holders:
           type: array
-          description: Mỗi vé một người nhận; số phần tử phải bằng quantity. Lưu order_holders, không gộp holder vào dòng order_items.
+          description: Mỗi vé một người nhận và một ghế (C12); số phần tử phải bằng quantity, tổng mọi dòng tối đa 10. Lưu order_holders, không gộp holder vào dòng order_items.
           items:
             $ref: '#/components/schemas/HolderInput'
           minItems: 1
@@ -584,12 +785,6 @@ components:
           format: int64
         totalPages:
           type: integer
-    InitPaymentRequest:
-      type: object
-      properties:
-        provider:
-          type: string
-          description: Provider sandbox còn chờ C06; ví dụ không phải lựa chọn được xác nhận.
     PaymentResponse:
       type: object
       properties:
@@ -605,38 +800,72 @@ components:
           maxLength: 36
         status:
           $ref: '#/components/schemas/PaymentStatus'
+        provider:
+          type: string
+          example: VNPAY
+        providerTxnRef:
+          type: string
+          description: vnp_TxnRef gửi VNPay
         paymentUrl:
           type: string
-          description: Payment URL hoặc client token
+          description: URL vpcpay.html của VNPay đã ký; frontend chuyển khách sang đây
         amount:
           type: number
-    WebhookPayload:
+        expiresAt:
+          type: string
+          format: date-time
+          description: Hạn thanh toán, trùng expiresAt của đơn (vnp_ExpireDate)
+    ReconciliationItem:
       type: object
-      required:
-      - providerEventId
-      - providerTransactionId
-      - orderId
-      - amount
-      - status
       properties:
-        providerEventId:
+        paymentId:
           type: string
-          description: UNIQUE, dùng chống xử lý lặp
-        providerTransactionId:
-          type: string
+          format: uuid
         orderId:
           type: string
           format: uuid
-          minLength: 36
-          maxLength: 36
+        orderStatus:
+          $ref: '#/components/schemas/OrderStatus'
+        orderPaymentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Payment đã làm đơn PAID; null khi đơn chưa từng PAID.
+        customerEmail:
+          type: string
+          format: email
         amount:
           type: number
-        status:
+        providerTxnRef:
           type: string
-          enum:
-          - SUCCEEDED
-          - FAILED
-      description: DTO chuẩn hóa nội bộ sau xác minh chữ ký provider, KHÔNG phải wire format webhook công khai. Provider thật có thể gửi query/form/JSON và mã trạng thái khác; C06 chưa chốt.
+        providerTransactionId:
+          type: string
+          description: vnp_TransactionNo, dùng khi hoàn tiền trên cổng VNPay.
+        providerPayDate:
+          type: string
+          description: vnp_PayDate (yyyyMMddHHmmss, giờ Việt Nam).
+        updatedAt:
+          type: string
+          format: date-time
+        reconciledAt:
+          type: string
+          format: date-time
+          nullable: true
+        reconciliationNote:
+          type: string
+          nullable: true
+    VnpayIpnAck:
+      type: object
+      required:
+      - RspCode
+      - Message
+      properties:
+        RspCode:
+          type: string
+          example: '00'
+        Message:
+          type: string
+          example: Confirm Success
     RefundRequest:
       type: object
       required:
@@ -644,14 +873,17 @@ components:
       properties:
         reason:
           type: string
+          maxLength: 1000
     RejectRefundRequest:
       type: object
+      required:
+      - reason
       properties:
         reason:
           type: string
     RefundResponse:
       type: object
-      description: Hoàn khách cả đơn 70% giá mua; ADMIN duyệt. APPROVED/PROCESSING còn có bước chờ, chỉ REFUNDED khi tiền và hủy vé đều hoàn tất.
+      description: Hoàn khách cả đơn 70% giá mua; ADMIN duyệt (C05 rút gọn). REQUESTED → PROCESSING → REFUNDED hoặc FAILED (ADMIN thử lại); REJECTED khi từ chối.
       properties:
         id:
           type: string
@@ -695,6 +927,10 @@ components:
           type: string
           nullable: true
           description: Bổ sung kỹ thuật lưu lý do review vào refund_requests.review_reason; khác reason của người yêu cầu.
+        failureReason:
+          type: string
+          nullable: true
+          description: Lý do FAILED (TICKET_ALREADY_CHECKED_IN, mã lỗi VNPay, PAYMENT_PROVIDER_UNAVAILABLE…)
     ErrorResponse:
       type: object
       required:
@@ -714,6 +950,12 @@ components:
         path:
           type: string
           description: Đường dẫn HTTP của request gây lỗi
+        takenSeatIds:
+          type: array
+          description: Chỉ có khi code = SEAT_TAKEN (C12) — các ghế đã bị người khác giữ hoặc mua, frontend tô xám và yêu cầu chọn lại.
+          items:
+            type: string
+            format: uuid
     HolderResponse:
       type: object
       properties:
@@ -722,6 +964,12 @@ components:
           format: uuid
           minLength: 36
           maxLength: 36
+        seatId:
+          type: string
+          format: uuid
+        seatLabel:
+          type: string
+          example: B-07
         holderName:
           type: string
         holderEmail:
@@ -732,5 +980,6 @@ components:
           type: string
           nullable: true
 x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
-x-implementation-status: partial-2026-11-19
+x-implementation-status: implemented-2026-11-23 (orders + Idempotency-Key, seats, cancel, VNPay payment/IPN/verify/refund, hoàn tiền C04/C05 rút gọn, đối soát ADMIN; refund VNPay chưa thử với sandbox thật)
+x-decisions: C05-simplified C06-vnpay C12-seats C14-idempotency (2026-11-22)
 x-open-decisions: ../project-clarifications.md

@@ -5,7 +5,7 @@ export type TierName = "VIP" | "PREMIUM" | "STANDARD";
 export type TicketStatus =
   "ISSUED" | "CHECKED_IN" | "CHECKED_OUT" | "CANCELLED";
 export type OrderStatus =
-  "PENDING_PAYMENT" | "PAID" | "FAILED" | "EXPIRED" | "REFUNDED";
+  "PENDING_PAYMENT" | "PAID" | "FAILED" | "EXPIRED" | "CANCELLED" | "REFUNDED";
 export interface User {
   id: string;
   name: string;
@@ -13,12 +13,22 @@ export interface User {
   role: Role;
   status: "ACTIVE" | "LOCKED";
 }
+/** Trạng thái một ghế đã có người giữ hoặc mua; ghế không có trong map là còn trống. */
+export type TakenSeatState = "HELD" | "SOLD";
+/** Một hạng vé đồng thời là một zone ngồi (C12). */
 export interface TicketType {
   id: string;
   name: TierName;
   price: number;
+  /** Số hàng ghế organizer nhập cho zone của sự kiện này. */
+  rowCount: number;
+  /** Số ghế mỗi hàng; quota = rowCount × seatsPerRow. */
+  seatsPerRow: number;
   quota: number;
+  /** Số ghế còn trống, luôn bằng quota trừ số ghế trong `taken`. */
   available: number;
+  /** Ghế đã giữ/đã bán theo mã ghế, ví dụ "B-07". */
+  taken: Record<string, TakenSeatState>;
   active: boolean;
 }
 export interface Event {
@@ -40,6 +50,10 @@ export interface Holder {
   name: string;
   email: string;
   tierId: string;
+  /** Mã ghế dạng "<tierId>:<B-07>". */
+  seatId: string;
+  /** Nhãn ghế hiển thị, ví dụ "B-07". */
+  seatLabel: string;
 }
 export interface OrderLine {
   tierId: string;
@@ -68,6 +82,7 @@ export interface Ticket {
   holderName: string;
   holderEmail: string;
   tier: TierName;
+  seatLabel?: string;
   status: TicketStatus;
   scannedAt?: string;
 }

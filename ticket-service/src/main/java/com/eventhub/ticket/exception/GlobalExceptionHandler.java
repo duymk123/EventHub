@@ -30,7 +30,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusiness(BusinessException error, HttpServletRequest request) {
-        return respond(error.getErrorCode(), error.getMessage(), request);
+        ErrorCode code = error.getErrorCode();
+        return ResponseEntity.status(code.httpStatus()).body(new ErrorResponse(code.name(), error.getMessage(),
+                Instant.now(), request.getRequestURI(), error.getTakenSeatIds()));
     }
 
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,

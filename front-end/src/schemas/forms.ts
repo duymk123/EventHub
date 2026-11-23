@@ -6,6 +6,8 @@ export const holderSchema = z.object({
         name: z.string().trim().min(2, "Nhập tên người sử dụng vé").max(100),
         email: z.union([z.email("Email chưa đúng định dạng"), z.literal("")]),
         tierId: z.string(),
+        seatId: z.string(),
+        seatLabel: z.string(),
       }),
     )
     .min(1),

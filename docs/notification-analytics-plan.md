@@ -54,6 +54,6 @@ GET /analytics/events/{id}/dashboard cung cấp snapshot ban đầu, cùng DTO v
 | 3 | Email/Kafka/QR/retry | C02/C03 và hợp đồng producer nguồn |
 | 4 | Analytics API/EventClient/projection sales | S2S, C04/C09, outbox từ Order |
 | 5 | Attendance/WS | C07, projection chịu đảo thứ tự, JWT session/role |
-| 6 | Kiểm tra thủ công xuyên luồng | Provider C06 để sau; triển khai hold/fence/verify/bù theo [C05](architecture/payment-refund-recovery.md), dữ liệu fixture nhất quán |
+| 6 | Kiểm tra thủ công xuyên luồng | Provider C06 là VNPay sandbox; hoàn tiền theo C05 rút gọn (hold/verify/bù 100% là hướng phát triển, [thiết kế đầy đủ](architecture/payment-refund-recovery.md)), dữ liệu fixture nhất quán |
 
 Luồng tiền/vé dùng Testcontainers MySQL/Kafka, kiểm tra đồng thời, duplicate, đảo thứ tự, rollback/crash và job phục hồi. Không gom tính năng vào một thay đổi chỉ để có scaffold. [Workflow](../WORKFLOW.md) quy định chia sẻ thay đổi; xác nhận sửa main ở lượt tài liệu không tự là quyền push.

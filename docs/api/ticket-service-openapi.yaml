@@ -6,7 +6,7 @@ info:
     Hợp đồng mục tiêu đối chiếu BC_32_V2 và xác nhận chủ dự án ngày 2026-10-27. Đã triển khai mọi operation dưới đây (2026-11-19, trạng thái chi tiết ở docs/plans/ticket-service.md); hold/token hoàn tiền C05 và xác thực thiết bị cổng C07 vẫn chờ.
     UUID cho mọi PK/tham chiếu EventHub; provider IDs là string bên ngoài. Xác thực do Keycloak cấp token; issuer/audience/JWK/role mapper/S2S còn chờ cấu hình.
     Đọc docs/architecture/source-decisions.md và docs/project-clarifications.md trước khi triển khai; draft không có nghĩa mọi quy tắc kinh doanh đã chốt.
-    Tồn kho gộp ticket_types; không có ticket_inventory hoặc events cục bộ. Reservation RESERVED/CONFIRMED/RELEASED/EXPIRED. Quét một lần vào, một lần ra; không tái nhập. gateId UUID, owner cổng/xác thực thiết bị còn C07.
+    C12 (2026-11-22, đã triển khai 2026-11-23): bán vé theo ghế. Zone = hạng vé; ghế sinh từ rowCount × seatsPerRow của từng sự kiện; tồn kho là bảng seats (AVAILABLE/HELD/SOLD), không còn bộ đếm available/reserved/sold. Không có ticket_inventory hoặc events cục bộ. Reservation RESERVED/CONFIRMED/RELEASED/EXPIRED. Quét một lần vào, một lần ra; không tái nhập. gateId UUID; C07 quét bằng JWT ORGANIZER/ADMIN trong khung giờ sự kiện, không có bảng thiết bị.
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
@@ -25,6 +25,7 @@ paths:
       description: |
         Role ORGANIZER (owner của Event, kiểm tra qua `GET /internal/events/{id}` của event-service).
         `name` chỉ nhận VIP / PREMIUM / STANDARD, không trùng trong request và với hạng đã có (C08: không bắt buộc đủ ba hạng, quota được bằng 0).
+        C12: mỗi hạng là một zone; Ticket sinh ghế hàng A, B, C… ghế 1..seatsPerRow trong cùng transaction tạo hạng.
         Event Service không phản hồi → 503 EVENT_SERVICE_UNAVAILABLE.
       security:
       - bearerAuth: []
@@ -60,8 +61,8 @@ paths:
       tags:
       - Ticket Type
       operationId: updateTicketType
-      summary: Cập nhật giá, quota, trạng thái
-      description: Tên không đổi. `totalQuota` không được nhỏ hơn số vé đã bán + đang giữ.
+      summary: Cập nhật giá, sơ đồ ghế, trạng thái
+      description: 'Tên không đổi. C12: tăng rowCount thêm hàng mới; giảm rowCount chỉ khi mọi ghế ở các hàng bị bỏ còn AVAILABLE; đổi seatsPerRow chỉ khi zone chưa có ghế HELD/SOLD, ngược lại 409 SEAT_LAYOUT_LOCKED.'
       security:
       - bearerAuth: []
       parameters:
@@ -87,7 +88,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/TicketTypeResponse'
         '400':
-          description: VALIDATION_ERROR hoặc QUOTA_BELOW_SOLD_RESERVED
+          description: VALIDATION_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: SEAT_LAYOUT_LOCKED (bớt hàng có ghế đang giữ/đã bán, hoặc đổi seatsPerRow khi đã có ghế HELD/SOLD)
           content:
             application/json:
               schema:
@@ -107,8 +114,8 @@ paths:
       tags:
       - Ticket Type
       operationId: listTicketTypesByEvent
-      summary: Xem Ticket Type, giá và số vé còn lại
-      description: Public, số lượng gần realtime.
+      summary: Xem các zone (Ticket Type), giá và số ghế còn trống
+      description: Public. C12 dùng cho màn 3D chọn zone; availableSeats đếm từ bảng seats, gần realtime.
       parameters:
       - name: eventId
         in: path
@@ -127,6 +134,35 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/TicketTypeResponse'
+  /ticket-types/{id}/seats:
+    get:
+      tags:
+      - Ticket Type
+      operationId: getSeatMap
+      summary: Sơ đồ ghế của một zone (C12)
+      description: Public. Trả mọi hàng và ghế của zone kèm trạng thái để frontend vẽ sơ đồ và cho chọn ghế. Frontend làm mới mỗi 3–5 giây; trạng thái chỉ để hiển thị, quyết định cuối cùng là lúc giữ ghế.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          minLength: 36
+          maxLength: 36
+      responses:
+        '200':
+          description: Sơ đồ ghế
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeatMapResponse'
+        '404':
+          description: TICKET_TYPE_NOT_FOUND
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /tickets/me:
     get:
       tags:
@@ -187,7 +223,7 @@ paths:
       - Gate
       operationId: checkIn
       summary: Check-in bằng QR
-      description: Chỉ ISSUED → CHECKED_IN bằng CAS, ghi ticket_scans và outbox cùng transaction; CHECKED_OUT không được tái nhập. gateId phải thuộc thiết bị/sự kiện được phép (C07).
+      description: 'C07 (2026-11-22): ORGANIZER chủ sự kiện hoặc ADMIN quét bằng trang web dùng camera, Bearer JWT của chính họ. Chỉ trong khung giờ sự kiện: từ 60 phút trước startTime (cấu hình eventhub.ticket.gate.open-before) đến endTime, ngoài khung 409 SCAN_OUTSIDE_EVENT_TIME. Chỉ ISSUED → CHECKED_IN bằng CAS, ghi ticket_scans và outbox cùng transaction; CHECKED_OUT không được tái nhập. gateId là UUID chọn trên trang quét, không có bảng thiết bị.'
       security:
       - gateAuth: []
       requestBody:
@@ -212,7 +248,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '409':
-          description: INVALID_TICKET_STATE (vé không ở ISSUED)
+          description: INVALID_TICKET_STATE (vé không ở ISSUED) hoặc SCAN_OUTSIDE_EVENT_TIME (ngoài khung giờ quét, C07)
           content:
             application/json:
               schema:
@@ -223,7 +259,7 @@ paths:
       - Gate
       operationId: checkOut
       summary: Check-out bằng QR
-      description: Chỉ CHECKED_IN → CHECKED_OUT bằng CAS, ghi log và outbox cùng transaction. Không có nhánh check-in lại theo Hình 2.56.
+      description: Cùng quyền và khung giờ như check-in (C07). Chỉ CHECKED_IN → CHECKED_OUT bằng CAS, ghi log và outbox cùng transaction. Không có nhánh check-in lại theo Hình 2.56.
       security:
       - gateAuth: []
       requestBody:
@@ -248,7 +284,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '409':
-          description: INVALID_TICKET_STATE (vé không ở CHECKED_IN)
+          description: INVALID_TICKET_STATE (vé không ở CHECKED_IN) hoặc SCAN_OUTSIDE_EVENT_TIME (ngoài khung giờ quét, C07)
           content:
             application/json:
               schema:
@@ -258,10 +294,10 @@ paths:
       tags:
       - Internal
       operationId: reserveTickets
-      summary: Reserve Ticket (Order Service gọi)
+      summary: Giữ ghế (Order Service gọi)
       description: |
-        Giữ nhiều Ticket Type tối đa 3 phút. Idempotent theo `orderId`: request lặp trả lại Reservation cũ.
-        Kiểm tra quota + giảm `available` + tăng `reserved` + tạo Reservation trong một transaction atomic.
+        C12: giữ đúng các ghế khách đã chọn, tối đa 10 phút (C16), tối đa 10 ghế mỗi đơn. Từ chối 409 `TICKET_TYPE_NOT_ON_SALE` khi sự kiện không PUBLISHED hoặc đã tới `startTime` (C17). Idempotent theo `orderId`: request lặp trả lại Reservation cũ.
+        Một transaction: UPDATE seats SET status=HELD, reservation_id WHERE id IN (seatIds) AND status=AVAILABLE, so số dòng đổi được với số ghế; thiếu thì rollback và trả 409 SEAT_TAKEN kèm takenSeatIds. Thành công thì tạo reservation, reservation_items (giá snapshot) và reservation_seats.
         Trả giá chính thức, client không được quyết định giá.
       requestBody:
         required: true
@@ -289,13 +325,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: TICKET_TYPE_NOT_FOUND
+          description: TICKET_TYPE_NOT_FOUND hoặc SEAT_NOT_FOUND (ghế không tồn tại hoặc không thuộc hạng vé/sự kiện)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: INSUFFICIENT_TICKETS, TICKET_TYPE_NOT_ON_SALE (hạng INACTIVE hoặc sự kiện chưa PUBLISHED) hoặc RESERVATION_PAYLOAD_MISMATCH (cùng orderId khác hạng vé/số lượng)
+          description: SEAT_TAKEN (kèm takenSeatIds), TICKET_TYPE_NOT_ON_SALE (hạng INACTIVE hoặc sự kiện chưa PUBLISHED) hoặc RESERVATION_PAYLOAD_MISMATCH (cùng orderId khác danh sách ghế)
           content:
             application/json:
               schema:
@@ -311,7 +347,7 @@ paths:
       - Internal
       operationId: confirmReservation
       summary: Confirm Reservation và phát hành vé
-      description: 'Hình 2.50: CONFIRMED trả vé cũ; RELEASED/EXPIRED hoặc RESERVED đã hết hạn trả 409. CAS RESERVED → CONFIRMED và cập nhật tồn kho + tạo vé/QR trong một transaction. Không có bước phát vé từ consumer order.paid.'
+      description: 'Hình 2.50, C12 mỗi ghế HELD → SOLD và một vé: CONFIRMED trả vé cũ; RELEASED/EXPIRED hoặc RESERVED đã hết hạn trả 409. CAS RESERVED → CONFIRMED và cập nhật tồn kho + tạo vé/QR trong một transaction. Không có bước phát vé từ consumer order.paid.'
       parameters:
       - $ref: '#/components/parameters/ReservationId'
       requestBody:
@@ -399,7 +435,7 @@ paths:
       - Internal
       operationId: cancelTicketsByOrder
       summary: Hủy vé sau Refund thành công
-      description: 'Endpoint cũ cần bổ sung hợp đồng hold token trước bật refund C05. Chuẩn bị giữ quyền hủy toàn bộ ISSUED và >=48 giờ trước provider, chặn scan; sau success commit theo token, không recheck mốc 48 giờ theo giờ mới. Retry không trả quota hai lần. Không dùng check sau provider để thay prepare; hold UNKNOWN không tự mở. Chi tiết docs/architecture/payment-refund-recovery.md.'
+      description: 'C05 rút gọn (2026-11-22): Order gọi sau khi ADMIN duyệt hoàn tiền, trước khi gọi VNPay. Một transaction: khóa mọi vé của đơn, tất cả phải ISSUED (có vé đã quét → 409 TICKET_ALREADY_CHECKED_IN, không hủy vé nào), ISSUED → CANCELLED, ghế SOLD → AVAILABLE (C12), outbox ticket.cancelled. Gọi lại khi đã hủy trả kết quả cũ, không trả ghế hai lần. Mốc 48 giờ do Order kiểm. Hold token là hướng phát triển.'
       parameters:
       - name: orderId
         in: path
@@ -558,8 +594,8 @@ components:
       type: apiKey
       in: header
       name: X-Gate-Token
-      description: X-Gate-Token là placeholder đề xuất của API draft, không phải cơ chế thiết bị đã được chốt. gateId UUID; owner/quyền thiết bị còn C07. Runtime tạm thời (2026-11-19) dùng Bearer JWT của ORGANIZER chủ sự kiện hoặc ADMIN.
-      x-contract-status: pending-C07
+      description: 'Giữ để tương thích tài liệu cũ, không dùng. C07 (2026-11-22) chốt quét bằng Bearer JWT của ORGANIZER chủ sự kiện hoặc ADMIN, không có token thiết bị.'
+      x-contract-status: unused-C07
     serviceAuth:
       type: http
       scheme: bearer
@@ -670,18 +706,26 @@ components:
       required:
       - name
       - price
-      - totalQuota
+      - rowCount
+      - seatsPerRow
       properties:
         name:
           $ref: '#/components/schemas/TicketTypeName'
         price:
           type: number
           example: 1500000
-        totalQuota:
+        rowCount:
           type: integer
           minimum: 0
-          example: 200
-          description: C08 cho quota 0, không âm và không nhỏ hơn lượng reserved+sold. Publish chỉ cần ít nhất một hạng ACTIVE có total_quota > 0.
+          maximum: 30
+          example: 10
+          description: C12 số hàng ghế của zone, nhãn A, B, C… 0 nghĩa là zone chưa mở bán (C08). Publish cần ít nhất một hạng ACTIVE có rowCount × seatsPerRow > 0.
+        seatsPerRow:
+          type: integer
+          minimum: 0
+          maximum: 60
+          example: 20
+          description: C12 số ghế mỗi hàng, các hàng bằng nhau. totalQuota = rowCount × seatsPerRow do server tính.
     CreateTicketTypesRequest:
       type: object
       required:
@@ -706,9 +750,14 @@ components:
       properties:
         price:
           type: number
-        totalQuota:
+        rowCount:
           type: integer
           minimum: 0
+          maximum: 30
+        seatsPerRow:
+          type: integer
+          minimum: 0
+          maximum: 60
         status:
           $ref: '#/components/schemas/TicketTypeStatus'
     TicketTypeResponse:
@@ -728,13 +777,19 @@ components:
           $ref: '#/components/schemas/TicketTypeName'
         price:
           type: number
+        rowCount:
+          type: integer
+        seatsPerRow:
+          type: integer
         totalQuota:
           type: integer
-        availableQuantity:
+          description: rowCount × seatsPerRow
+        availableSeats:
           type: integer
-        reservedQuantity:
+          description: Số ghế AVAILABLE, đếm từ bảng seats
+        heldSeats:
           type: integer
-        soldQuantity:
+        soldSeats:
           type: integer
         status:
           $ref: '#/components/schemas/TicketTypeStatus'
@@ -742,16 +797,22 @@ components:
       type: object
       required:
       - ticketTypeId
-      - quantity
+      - seatIds
       properties:
         ticketTypeId:
           type: string
           format: uuid
           minLength: 36
           maxLength: 36
-        quantity:
-          type: integer
-          minimum: 1
+        seatIds:
+          type: array
+          minItems: 1
+          maxItems: 10
+          uniqueItems: true
+          description: C12 các ghế đã chọn trong zone này; tổng mọi item tối đa 10.
+          items:
+            type: string
+            format: uuid
     ReserveRequest:
       type: object
       required:
@@ -767,7 +828,7 @@ components:
         expiresAt:
           type: string
           format: date-time
-          description: Đề xuất hạn phối hợp giữa hai service; Ticket kiểm tra không vượt TTL 3 phút, hoặc tự cấp khi thiếu. Giá trị trả về là hạn dùng của Order, không gia hạn khi retry.
+          description: Đề xuất hạn phối hợp giữa hai service; Ticket kiểm tra không vượt TTL 10 phút (C16), hoặc tự cấp khi thiếu. Giá trị trả về là hạn dùng của Order, không gia hạn khi retry.
         items:
           type: array
           minItems: 1
@@ -792,6 +853,67 @@ components:
           type: integer
         unitPrice:
           type: number
+        seats:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReservedSeat'
+    ReservedSeat:
+      type: object
+      properties:
+        seatId:
+          type: string
+          format: uuid
+        seatLabel:
+          type: string
+          example: B-07
+    SeatStatus:
+      type: string
+      enum:
+      - AVAILABLE
+      - HELD
+      - SOLD
+    SeatResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        seatNumber:
+          type: integer
+        label:
+          type: string
+          example: B-07
+        status:
+          $ref: '#/components/schemas/SeatStatus'
+    SeatRowResponse:
+      type: object
+      properties:
+        rowIndex:
+          type: integer
+        rowLabel:
+          type: string
+          example: B
+        seats:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeatResponse'
+    SeatMapResponse:
+      type: object
+      properties:
+        ticketTypeId:
+          type: string
+          format: uuid
+        name:
+          $ref: '#/components/schemas/TicketTypeName'
+        price:
+          type: number
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/SeatRowResponse'
+        generatedAt:
+          type: string
+          format: date-time
     ReservationResponse:
       type: object
       properties:
@@ -810,6 +932,11 @@ components:
         expiresAt:
           type: string
           format: date-time
+        eventStartTime:
+          type: string
+          format: date-time
+          nullable: true
+          description: Giờ bắt đầu sự kiện lúc giữ ghế (Event không cho đổi sau publish). Order lưu để kiểm mốc 48 giờ hoàn tiền (C04).
         items:
           type: array
           items:
@@ -828,6 +955,7 @@ components:
       type: object
       required:
       - ticketTypeId
+      - seatId
       - holderName
       - ownerUserId
       properties:
@@ -836,6 +964,10 @@ components:
           format: uuid
           minLength: 36
           maxLength: 36
+        seatId:
+          type: string
+          format: uuid
+          description: C12 ghế của người này, phải thuộc reservation; mỗi ghế đúng một holder.
         holderName:
           type: string
         holderEmail:
@@ -890,6 +1022,12 @@ components:
           maxLength: 36
         ticketTypeName:
           $ref: '#/components/schemas/TicketTypeName'
+        seatId:
+          type: string
+          format: uuid
+        seatLabel:
+          type: string
+          example: B-07
         holderName:
           type: string
         status:
@@ -982,7 +1120,7 @@ components:
       properties:
         code:
           type: string
-          example: INSUFFICIENT_TICKETS
+          example: SEAT_TAKEN
         message:
           type: string
         timestamp:
@@ -991,6 +1129,12 @@ components:
         path:
           type: string
           description: Đường dẫn HTTP của request gây lỗi
+        takenSeatIds:
+          type: array
+          description: Chỉ có khi code = SEAT_TAKEN (C12) — các ghế đã bị người khác giữ hoặc mua, frontend tô xám và yêu cầu chọn lại.
+          items:
+            type: string
+            format: uuid
 x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
-x-implementation-status: implemented-2026-11-19
+x-implementation-status: implemented-2026-11-23 (seats C12, Flyway C15, giữ ghế 10 phút C16, ngừng bán C17, khung giờ quét C07)
 x-open-decisions: ../project-clarifications.md

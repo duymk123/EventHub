@@ -112,7 +112,8 @@ public class SecurityConfig {
                 .requestCache(cache -> cache.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/error").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/events/*/ticket-types").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/events/*/ticket-types", "/api/v1/ticket-types/*/seats")
+                        .permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/ticket-types").hasRole("ORGANIZER")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/ticket-types/*").hasRole("ORGANIZER")
                         .requestMatchers(HttpMethod.GET, "/api/v1/tickets/me", "/api/v1/tickets/*/qr").hasRole("CUSTOMER")

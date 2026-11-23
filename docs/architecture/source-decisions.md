@@ -29,18 +29,21 @@ Bổ sung xác nhận trực tiếp 2026-11-05 cho Notification/Analytics. Email
 | Tồn kho | Bảng 2.5, Hình 2.48/2.50/2.53 | Gộp trong ticket_types; không thêm ticket_inventory riêng. |
 | Người nhận vé | Bảng 2.11–2.12 | order_items lưu dòng số lượng/giá; order_holders lưu từng người nhận. Một vé vật lý ứng với một holder trong hợp đồng kỹ thuật. |
 | Webhook | Bảng 2.13/2.15, Hình 2.64–2.66 | Có payment_webhooks; provider_transaction_id có thể NULL trước khi provider trả về. |
-| Thời hạn và phát vé | Hình 2.48/2.50/2.57/2.64 | Giữ chỗ 3 phút; Order gọi REST confirm; Ticket tạo vé và QR; Kafka phục vụ thông báo/projection sau commit. |
+| Thời hạn và phát vé | Hình 2.48/2.50/2.57/2.64 | Giữ chỗ 10 phút (C16, báo cáo ghi 3 phút); Order gọi REST confirm; Ticket tạo vé và QR; Kafka phục vụ thông báo/projection sau commit. |
+| Giữ chỗ khi tạo đơn | Hình 2.48/2.57 (REST reserve đồng bộ); C11 (Kafka, 2026-11-21) đã thay bằng C12 (2026-11-22) | Giữ REST đồng bộ như Hình 2.57 nhưng theo ghế cụ thể: Order gửi danh sách ghế, Ticket giữ bằng UPDATE có điều kiện trên từng ghế, trùng ghế trả 409 SEAT_TAKEN. Không dùng hàng đợi Kafka cho giữ chỗ. |
+| Ghế và zone | Bảng 2.5 ("đã gộp chung cả thông tin khu vực"), Chương 1 "chọn chỗ/hạng vé"; chủ dự án chốt C12 ngày 2026-11-22 | Zone = hạng VIP/PREMIUM/STANDARD. **Bổ sung so với BC_32_V2**: bảng `seats` sinh theo số hàng × số ghế mỗi hàng organizer nhập cho từng sự kiện; vé gắn với một ghế. |
+| Redis giữ vé 3 phút | BC_32_V2 §1 ("giữ vé 3 phút thông qua Redis"); chủ dự án chọn (a) ngày 2026-11-22 | **Khác báo cáo, báo cáo cần sửa theo thực tế**: giữ ghế (10 phút theo C16) nằm trong MySQL (bảng `seats` + `reservations.expires_at`, worker hết hạn) cùng transaction với reservation. Redis chưa dùng; cache trang sự kiện và giới hạn tần suất ở Gateway là hướng phát triển. |
 | Release | Hình 2.53 | CONFIRMED không được release; trả 409. Gọi lặp RELEASED/EXPIRED không hoàn quota lần hai. |
 | Trạng thái sự kiện | Hình 2.37–2.41 | REJECTED sửa thành DRAFT; CLOSED là ngừng bán, không tự suy ra vé mất hiệu lực. |
 | Quét vé | Hình 2.55–2.56 | ISSUED → CHECKED_IN → CHECKED_OUT, không có nhánh tái nhập. Không cần hỏi lại có check-in lại hay không cho phạm vi này. |
 | Hoàn tiền | Hình 2.61/2.67–2.69 | Kiểm tra PAID, vé chưa dùng, còn ít nhất 48 giờ khi yêu cầu và khi duyệt. Provider lỗi thì không hủy vé. |
 | Dashboard | Hình 2.80–2.81 | Báo cáo theo ngày/hạng vé; WS /ws/dashboard, topic /topic/event/{id}/dashboard. Gateway cần route WS riêng. |
 | C02 email/owner | Chủ dự án chốt 2026-11-05 | Snapshot email buyer đã xác minh lúc tạo đơn; owner là buyer, holder là người dùng vé. Gửi vé tới holderEmail nếu có, thiếu thì về buyer; gom theo địa chỉ. Code buyer-only hiện tại cần cập nhật. |
-| C03 địa điểm | Chủ dự án chốt 2026-11-05 | Một địa điểm, text cấu hình chung cho email QR; chưa cần bảng/cột venue riêng trên Event. Chờ tên/địa chỉ thật. |
+| C03 địa điểm | Chủ dự án chốt 2026-11-05, text ngày 2026-11-22 | Một địa điểm: **141 Đường Chiến Thắng, Hà Nội**, cấu hình `EVENTHUB_VENUE_TEXT` của Notification; chưa cần bảng/cột venue riêng trên Event. |
 | C04 hoàn khách | Chủ dự án chọn cả đơn/70%; Codex chọn quyền và cách tính | 70% snapshot giá mua, giữ 30%, không thêm phí; ADMIN duyệt, mọi vé chưa dùng, >=48 giờ lúc yêu cầu/duyệt. Quantity hủy là cả đơn. |
-| C05 phục hồi lỗi | Chủ dự án giao Codex thiết kế | Giữ quyền hủy vé trước refund; verify khi UNKNOWN, task bền vững, chỉ kết thúc sau tiền và hủy xong. Không cung cấp được vé sau thu tiền thì bù 100% thực thu chưa hoàn; [thiết kế](payment-refund-recovery.md). |
+| C05 phục hồi lỗi | Chủ dự án chốt bản rút gọn 2026-11-22 | ADMIN duyệt → Ticket hủy vé, trả ghế → VNPay hoàn 70% → `order.refunded`; lỗi thì refund FAILED để ADMIN thử lại. Hold/verify/hoàn bù 100% là hướng phát triển; [thiết kế đầy đủ](payment-refund-recovery.md) giữ làm tham khảo. |
 | C08 quota/publish | Chủ dự án chốt quota 0 và giao chọn publish | Cấu hình Ticket sau tạo Event; submit không đòi đủ ba hạng. Publish cần ít nhất một ACTIVE có total_quota > 0; reserve kiểm tra tồn kho hiện tại. |
-| C06/C07 | Chủ dự án yêu cầu để sau | Chưa chọn provider hoặc quyền thiết bị cổng; không suy ra đã tích hợp từ quyết định nghiệp vụ. |
+| C06/C07 | Chủ dự án chốt 2026-11-22 | C06: VNPay sandbox (IPN là kết quả chính thức, `querydr` để đối soát, `refund` để hoàn). C07: ORGANIZER chủ sự kiện và ADMIN quét bằng web camera, chỉ trong khung 60 phút trước `startTime` đến `endTime`; không có bảng thiết bị. |
 | C09 chỉ số | Giữ xác nhận 2026-11-05 đã có trong tài liệu triển khai | Dashboard gộp cả sự kiện, sales tách hoàn/thuần, ngày Asia/Ho_Chi_Minh theo paidAt/refundedAt và giữ lịch sử. |
 
 ## Mâu thuẫn trong chính báo cáo và cách xử lý
@@ -50,7 +53,7 @@ Bổ sung xác nhận trực tiếp 2026-11-05 cho Notification/Analytics. Email
 | Chương 1 và Hình 2.28–2.35 | Keycloak so với Auth tự cấp JWT | Xác nhận mới nhất chọn Keycloak. Không tạo password_hash/refresh_tokens trong DB ứng dụng; không tự chọn TTL 5 hay 15 phút. |
 | Bảng 2.1 so với Hình 2.35/2.82 | role đơn so với roles/users_roles | Phạm vi nghiệp vụ lấy một vai trò trong CUSTOMER/ORGANIZER/ADMIN; cách map và hạn chế role ở Keycloak còn phải cấu hình. |
 | Chương 1 so với Hình 2.50/2.64 | Phát vé bằng consumer order.paid so với REST confirm | Dùng luồng REST chi tiết; không đăng ký thêm consumer phát vé từ order.paid vì có thể phát hai lần. |
-| Hình 2.36/2.43 so với Bảng 2.3–2.5 | Zones A–D và loại vé ở Event DB | Dùng từ điển dữ liệu: Event chỉ events/categories; Ticket sở hữu ticket_types. Chưa triển khai sơ đồ ghế hoặc zone riêng. |
+| Hình 2.36/2.43 so với Bảng 2.3–2.5 | Zones A–D và loại vé ở Event DB | Dùng từ điển dữ liệu: Event chỉ events/categories; Ticket sở hữu ticket_types. Zone A–D không dùng; theo C12 zone trùng ba hạng vé và ghế nằm ở Ticket (bảng `seats`), không ở Event. |
 | §2.3.2.2.2 và Bảng 2.4 | event_categories so với categories | Tên vật lý thống nhất categories. |
 | Bảng 2.10 | DEFAULT PENDING nhưng enum là PENDING_PAYMENT | Sửa DEFAULT thành PENDING_PAYMENT. |
 | Bảng 2.16–2.18 so với Hình 2.75–2.77 | Schema thiếu user/channel/content cho IN_APP; template dùng code PK | Bổ sung dữ liệu in-app, UUID PK template, UNIQUE(code,channel), dedup theo message/recipient. Chỉ EMAIL và IN_APP trong giai đoạn này. |

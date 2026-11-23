@@ -502,7 +502,7 @@ paths:
       - serviceAuth: []
     servers:
     - url: http://localhost:8082
-      description: Gọi trực tiếp service, không qua public Gateway; S2S dùng client_credentials (azp) chứ không qua Gateway
+      description: Gọi trực tiếp service, không qua public Gateway; xác thực bằng token client_credentials của service gọi (Keycloak service account, claim azp)
   /internal/events/ids:
     get:
       tags:
@@ -556,7 +556,7 @@ paths:
       - serviceAuth: []
     servers:
     - url: http://localhost:8082
-      description: Gọi trực tiếp service, không qua public Gateway; S2S dùng client_credentials (azp) chứ không qua Gateway
+      description: Gọi trực tiếp service, không qua public Gateway; xác thực bằng token client_credentials của service gọi (Keycloak service account, claim azp)
   /internal/events:
     get:
       tags:
@@ -614,7 +614,7 @@ paths:
       - serviceAuth: []
     servers:
     - url: http://localhost:8082
-      description: Gọi trực tiếp service, không qua public Gateway; S2S dùng client_credentials (azp) chứ không qua Gateway
+      description: Gọi trực tiếp service, không qua public Gateway; xác thực bằng token client_credentials của service gọi (Keycloak service account, claim azp)
 components:
   securitySchemes:
     bearerAuth:
@@ -625,7 +625,7 @@ components:
     serviceAuth:
       type: http
       scheme: bearer
-      description: 'Placeholder hợp đồng draft: internal bắt buộc xác thực service. Bearer là đề xuất thể hiện yêu cầu, không phải cơ chế S2S đã được chốt; thay khi có cấu hình Keycloak/S2S.'
+      description: 'Bearer JWT do Keycloak cấp cho service account (grant client_credentials), ví dụ eventhub-ticket-service; Event chỉ nhận client nằm trong danh sách internal-clients.'
       x-contract-status: pending-s2s-mechanism
   parameters:
     EventId:

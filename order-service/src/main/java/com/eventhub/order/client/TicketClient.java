@@ -18,6 +18,7 @@ import org.springframework.web.client.RestClientException;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,22 +34,38 @@ import java.util.function.Supplier;
 public class TicketClient {
     private static final Logger log = LoggerFactory.getLogger(TicketClient.class);
     /** Code của Ticket được chuyển nguyên cho client của Order. */
-    private static final Set<String> PASS_THROUGH = Set.of("INSUFFICIENT_TICKETS", "TICKET_TYPE_NOT_ON_SALE",
-            "TICKET_TYPE_NOT_FOUND", "EVENT_NOT_FOUND", "EVENT_SERVICE_UNAVAILABLE", "VALIDATION_ERROR");
+    private static final Set<String> PASS_THROUGH = Set.of("SEAT_TAKEN", "SEAT_NOT_FOUND", "TICKET_TYPE_NOT_ON_SALE",
+            "TICKET_TYPE_NOT_FOUND", "EVENT_NOT_FOUND", "EVENT_SERVICE_UNAVAILABLE", "VALIDATION_ERROR",
+            "RESERVATION_NOT_FOUND", "RESERVATION_RELEASED_OR_EXPIRED", "TICKET_ALREADY_CHECKED_IN", "TICKET_NOT_FOUND");
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record ReservedItem(UUID ticketTypeId, String name, int quantity, BigDecimal unitPrice) {
+    public record ReservedItem(UUID ticketTypeId, String name, int quantity, BigDecimal unitPrice,
+                               List<ReservedSeat> seats) {
+    }
+
+    /** C12: ghế Ticket đã giữ, kèm nhãn snapshot (vd B-07). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ReservedSeat(UUID seatId, String seatLabel) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Reservation(UUID reservationId, UUID orderId, String status, Instant expiresAt,
-                              List<ReservedItem> items) {
+                              Instant eventStartTime, List<ReservedItem> items) {
     }
 
-    public record ReserveItem(UUID ticketTypeId, int quantity) {
+    /** C12: giữ đúng các ghế khách chọn của một zone. */
+    public record ReserveItem(UUID ticketTypeId, List<UUID> seatIds) {
     }
 
     private record ReserveRequest(UUID orderId, UUID eventId, Instant expiresAt, List<ReserveItem> items) {
+    }
+
+    /** C12: một vé cho một ghế; ownerUserId là buyer (C02). */
+    public record ConfirmHolder(UUID ticketTypeId, UUID seatId, String holderName, String holderEmail,
+                                UUID ownerUserId) {
+    }
+
+    private record ConfirmRequest(String customerEmail, List<ConfirmHolder> holders) {
     }
 
     private final RestClient restClient;
@@ -94,6 +111,31 @@ public class TicketClient {
     }
 
     /**
+     * Phát vé cho reservation sau khi đơn PAID (C06). Ticket idempotent: reservation đã CONFIRMED trả lại bộ vé cũ,
+     * nên gọi lại khi lỗi tạm thời là an toàn.
+     */
+    public void confirm(UUID reservationId, String customerEmail, List<ConfirmHolder> holders) {
+        ConfirmRequest body = new ConfirmRequest(customerEmail, holders);
+        withToken(token -> restClient.post().uri("/internal/reservations/{id}/confirm", reservationId)
+                .headers(headers -> headers.setBearerAuth(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .toBodilessEntity());
+    }
+
+    /**
+     * C05 rút gọn: hủy mọi vé của đơn và trả ghế trước khi gọi VNPay hoàn tiền. Ticket idempotent (vé đã hủy trả
+     * kết quả cũ); có vé đã quét → TICKET_ALREADY_CHECKED_IN.
+     */
+    public void cancelByOrder(UUID orderId) {
+        withToken(token -> restClient.post().uri("/internal/tickets/cancel-by-order/{orderId}", orderId)
+                .headers(headers -> headers.setBearerAuth(token))
+                .retrieve()
+                .toBodilessEntity());
+    }
+
+    /**
      * Bù trừ khi lưu đơn lỗi hoặc đơn hết hạn. Lỗi chỉ ghi log: reservation có cùng hạn với đơn nên worker của
      * Ticket vẫn tự trả quota khi hết hạn.
      */
@@ -132,7 +174,7 @@ public class TicketClient {
                 if (code instanceof String value && PASS_THROUGH.contains(value)) {
                     Object message = body.get("message");
                     return new BusinessException(ErrorCode.valueOf(value),
-                            message instanceof String text ? text : value);
+                            message instanceof String text ? text : value, takenSeatIds(body.get("takenSeatIds")));
                 }
             } catch (Exception ignored) {
                 // Body không phải ErrorResponse: coi như lỗi tích hợp.
@@ -140,6 +182,22 @@ public class TicketClient {
         }
         log.warn("Ticket service returned {} for an internal call", error.getStatusCode().value());
         return unavailable();
+    }
+
+    /** C12: chuyển tiếp danh sách ghế đã mất của SEAT_TAKEN; phần tử không phải UUID thì bỏ qua. */
+    private static List<UUID> takenSeatIds(Object raw) {
+        if (!(raw instanceof List<?> list)) {
+            return null;
+        }
+        List<UUID> ids = new ArrayList<>();
+        for (Object item : list) {
+            try {
+                ids.add(UUID.fromString(String.valueOf(item)));
+            } catch (IllegalArgumentException ignored) {
+                // Bỏ phần tử sai định dạng thay vì làm hỏng cả lỗi nghiệp vụ.
+            }
+        }
+        return ids;
     }
 
     private static BusinessException unavailable() {

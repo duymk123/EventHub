@@ -8,20 +8,24 @@ Nguồn: [init.sql](init.sql), schema tham chiếu hiện hành; không tự tri
 
 ```mermaid
 erDiagram
+  ticket_types ||--o{ seats : ticket_type_id
+  reservations ||--o{ seats : reservation_id
   reservations ||--o{ reservation_items : reservation_id
   ticket_types ||--o{ reservation_items : ticket_type_id
+  reservations ||--o{ reservation_seats : reservation_id
+  seats ||--o{ reservation_seats : seat_id
   reservations ||--o{ tickets : reservation_id
   ticket_types ||--o{ tickets : ticket_type_id
+  seats ||--o{ tickets : seat_id
   tickets ||--o{ ticket_scans : ticket_id
   ticket_types {
     CHAR(36) id PK
     CHAR(36) event_id
     VARCHAR(100) name
     DECIMAL(14_2) price
+    INT row_count
+    INT seats_per_row
     INT total_quota
-    INT available_quantity
-    INT reserved_quantity
-    INT sold_quantity
     VARCHAR(20) status
     TIMESTAMP created_at
   }
@@ -33,6 +37,17 @@ erDiagram
     TIMESTAMP created_at
     TIMESTAMP confirmed_at
     TIMESTAMP released_at
+    TIMESTAMP event_start_time
+  }
+  seats {
+    CHAR(36) id PK
+    CHAR(36) ticket_type_id FK
+    INT row_index
+    VARCHAR(3) row_label
+    INT seat_number
+    VARCHAR(10) status
+    CHAR(36) reservation_id FK
+    TIMESTAMP updated_at
   }
   reservation_items {
     CHAR(36) id PK
@@ -41,11 +56,19 @@ erDiagram
     INT quantity
     DECIMAL(14_2) unit_price
   }
+  reservation_seats {
+    CHAR(36) id PK
+    CHAR(36) reservation_id FK
+    CHAR(36) seat_id FK
+    VARCHAR(8) seat_label
+  }
   tickets {
     CHAR(36) id PK
     CHAR(36) reservation_id FK
     CHAR(36) order_id
     CHAR(36) ticket_type_id FK
+    CHAR(36) seat_id FK
+    VARCHAR(8) seat_label
     CHAR(36) owner_user_id
     VARCHAR(100) holder_name
     VARCHAR(255) qr_code_value

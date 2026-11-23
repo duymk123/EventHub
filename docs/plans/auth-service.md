@@ -91,3 +91,17 @@ ErrorCode dự kiến: EMAIL_ALREADY_EXISTS 409, INVALID_CREDENTIALS 401, ACCOUN
 - Cấu hình: `eventhub.keycloak.server-url / realm / client-id / client-secret` (biến `KEYCLOAK_SERVER_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_AUTH_CLIENT_ID`, `KEYCLOAK_AUTH_CLIENT_SECRET`). Realm, client và quyền service account nằm trong [eventhub-realm.json](../../infrastructure/keycloak/eventhub-realm.json); cách chạy local và thử Postman: [infrastructure/keycloak/README.md](../../infrastructure/keycloak/README.md).
 - Token quản trị được cache tới 30 giây trước khi hết hạn; Admin API trả 401 thì xin token mới và thử lại một lần (Keycloak khởi động lại/đổi khóa ký).
 - Đã kiểm thử thủ công với Keycloak 26.8.2 + MySQL local: đăng ký (cả tên tiếng Việt), trùng email/số điện thoại, sai mật khẩu, đăng nhập, me, refresh, dùng lại refresh token cũ, logout, tài khoản bị khóa.
+
+## C13 — Refresh token trong cookie HttpOnly (chốt 2026-11-22, chưa làm)
+
+Frontend giữ access token trong bộ nhớ, không dùng `localStorage`/`sessionStorage`. Refresh token không còn nằm trong body.
+
+| Endpoint | Thay đổi |
+|---|---|
+| POST `/auth/login` | Body trả `accessToken`, `tokenType`, `expiresIn` (bỏ `refreshToken`). Header `Set-Cookie: eh_refresh=<token>; HttpOnly; SameSite=Strict; Path=/api/v1/auth; Max-Age=<refresh_expires_in>` (thêm `Secure` khi chạy HTTPS, cấu hình `eventhub.auth.cookie.secure`). |
+| POST `/auth/refresh` | Không body. Đọc cookie `eh_refresh`; thiếu → 401 `INVALID_REFRESH_TOKEN`. Gọi Keycloak, ghi cookie mới (xoay vòng), trả access token mới. Lỗi reuse/expired → xóa cookie và trả mã lỗi như cũ. |
+| POST `/auth/logout` | Đọc cookie, gọi Keycloak logout (lỗi cũng bỏ qua), luôn xóa cookie (`Max-Age=0`) và trả 204. |
+
+Thời hạn lấy từ realm (`infrastructure/keycloak/eventhub-realm.json`): access 300 giây, phiên 7 ngày, `revokeRefreshToken=true`. Không hardcode trong frontend: dùng `expiresIn` để hẹn refresh trước khi hết hạn và gọi refresh khi gặp 401 (gộp các request đang chờ thành một lần).
+
+CORS và cookie: frontend gọi các endpoint `/auth/*` với `credentials: "include"`; server bật `allowCredentials` với danh sách origin cụ thể (không dùng `*`). Khi chạy local, frontend và API phải cùng tên host (cùng `localhost`, không trộn `localhost` với `127.0.0.1`), nếu không trình duyệt coi là khác site và không gửi cookie `SameSite=Strict`. Khi có Gateway, cookie đi qua Gateway với cùng path.

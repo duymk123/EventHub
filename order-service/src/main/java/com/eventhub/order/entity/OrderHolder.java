@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -18,7 +19,8 @@ import org.hibernate.type.SqlTypes;
 import java.util.UUID;
 
 @Entity
-@Table(name = "order_holders")
+@Table(name = "order_holders",
+        uniqueConstraints = @UniqueConstraint(name = "uk_holder_seat", columnNames = {"order_item_id", "seat_id"}))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -33,6 +35,15 @@ public class OrderHolder {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "order_item_id", nullable = false)
     private OrderItem orderItem;
+
+    /** C12: ghế Ticket đã giữ cho người nhận này (tham chiếu mềm sang ticket-service). */
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "seat_id", nullable = false, length = 36)
+    private UUID seatId;
+
+    /** Snapshot nhãn ghế (vd B-07) từ phản hồi reserve của Ticket. */
+    @Column(name = "seat_label", nullable = false, length = 8)
+    private String seatLabel;
 
     @Column(name = "holder_name", nullable = false, length = 100)
     private String holderName;

@@ -14,6 +14,8 @@
       "ticketId": "60000000-0000-4000-8000-000000000001",
       "ticketTypeId": "50000000-0000-4000-8000-000000000001",
       "ticketTypeName": "VIP",
+      "seatId": "70000000-0000-4000-8000-000000000001",
+      "seatLabel": "B-07",
       "holderName": "Sample Holder",
       "holderEmail": null,
       "qrCodeValue": "sample-opaque-qr-token"
@@ -22,6 +24,8 @@
       "ticketId": "60000000-0000-4000-8000-000000000002",
       "ticketTypeId": "50000000-0000-4000-8000-000000000001",
       "ticketTypeName": "VIP",
+      "seatId": "70000000-0000-4000-8000-000000000002",
+      "seatLabel": "B-08",
       "holderName": "Sample Holder Two",
       "holderEmail": null,
       "qrCodeValue": "sample-opaque-qr-token-two"

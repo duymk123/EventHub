@@ -2,7 +2,9 @@
 
 Đọc sơ đồ publisher → topic → consumer và vị trí KafkaTemplate trong [luồng Kafka](flows.md).
 
-Cập nhật theo BC_32_V2 và xác nhận ngày 2026-10-27. Consumer Notification/Analytics đã triển khai ngày 2026-11-05. Producer Order/Ticket cần nối theo contract và các JSON mẫu trong samples/. [Đối chiếu nguồn](../architecture/source-decisions.md), [điểm cần chốt C01–C09](../project-clarifications.md).
+Cập nhật theo BC_32_V2 và xác nhận ngày 2026-10-27. Consumer Notification/Analytics đã triển khai ngày 2026-11-05. Producer outbox của Ticket (`ticket.issued`, `ticket.checked-in/out`, `ticket.cancelled`) và Order (`order.failed` lý do EXPIRED) đã có code ngày 2026-11-19; `order.paid` có code ngày 2026-11-23 cùng luồng VNPay C06; `order.refunded` có code cùng ngày với hoàn tiền C05 rút gọn. Từ C18 (2026-11-23) Order không phát `order.failed` lý do PAYMENT_FAILED nữa (thanh toán lỗi không làm hỏng đơn); khách tự hủy đơn (C19) cũng không phát message.
+
+Bổ sung 2026-11-22 theo [C12](../project-clarifications.md#c12--đặt-vé-theo-ghế-cụ-thể): bán vé theo ghế cụ thể, giữ ghế bằng REST đồng bộ. Không có topic mới; `ticket.issued` thêm `seatId`/`seatLabel`. Thiết kế giữ chỗ qua Kafka (C11, 2026-11-21) đã bị thay và không còn trong hợp đồng này. [Đối chiếu nguồn](../architecture/source-decisions.md), [quyết định C02–C12](../project-clarifications.md).
 
 ## 1. Envelope, ID và serialization
 
@@ -35,7 +37,7 @@ Producer gửi JSON UTF-8. Khi dùng JsonSerializer, đặt spring.json.add.type
 | notification.dlq | Notification | Vận hành/replay | Key gốc |
 | analytics.dlq | Analytics | Vận hành/replay | Key gốc |
 
-Key là UUID.toString(). Dev: ba partition/topic, replication factor một, group notification-service và analytics-service riêng. infrastructure/kafka/init-topics.sh tạo idempotent. Analytics chỉ tính bán từ order.paid, refund từ order.refunded; Notification không gửi thêm email từ ticket.cancelled để tránh thông báo refund trùng.
+Key là UUID.toString(). Dev: ba partition/topic, replication factor một, group notification-service và analytics-service riêng. infrastructure/kafka/init-topics.sh tạo idempotent; Analytics chỉ tính bán từ order.paid, refund từ order.refunded; Notification không gửi thêm email từ ticket.cancelled để tránh thông báo refund trùng.
 
 ## 3. Payload nghiệp vụ
 
@@ -64,7 +66,7 @@ Phát sau Order PAID **và REST confirm đã phát hành vé thành công** (Hì
 
 ### order.failed
 
-orderId, customerId (UUID), customerEmail (email), reason (PAYMENT_FAILED|EXPIRED), totalAmount (decimal).
+orderId, customerId (UUID), customerEmail (email), reason (PAYMENT_FAILED|EXPIRED), totalAmount (decimal). Hiện chỉ phát EXPIRED (job hết hạn, tiền về sau hạn, hoặc Ticket báo reservation đã hết khi confirm); PAYMENT_FAILED giữ trong hợp đồng để consumer không phải đổi.
 
 Chỉ producer thắng CAS FAILED/EXPIRED phát; webhook trùng/scheduler thua không phát lại. C02 chốt snapshot email buyer đã xác minh lúc tạo đơn; producer dùng snapshot cho customerEmail. Adapter/claim mapper và cột customer_email còn cần triển khai; không lấy email buyer tùy ý từ client hay lookup hồ sơ mới khi retry.
 
@@ -72,13 +74,13 @@ Chỉ producer thắng CAS FAILED/EXPIRED phát; webhook trùng/scheduler thua k
 
 orderId, refundId, customerId (UUID), customerEmail (snapshot C02), currency (VND), amount (decimal dương), refundedAt (instant), items[{ticketTypeId UUID, ticketTypeName, quantity, refundedAmount}].
 
-Phát sau provider xác nhận refund và Ticket commit hủy theo hold hoàn tất. C04 hoàn khách 70% giá mua nhưng quantity là tất cả vé của đơn. C05 prepare hold trước provider; UNKNOWN giữ hold/verify, lỗi commit giữ WAIT_CANCEL/MANUAL_REVIEW và không phát event sớm. Bù kỹ thuật khi chưa phát vé dùng message riêng, không đưa vào sale chưa có.
+Phát sau khi Ticket đã hủy vé, trả ghế (`ticket.cancelled`) **và** VNPay xác nhận hoàn tiền thành công (C05 rút gọn, 2026-11-22). C04 hoàn khách 70% giá mua nhưng quantity là tất cả vé của đơn. VNPay lỗi hoặc timeout thì refund FAILED, không phát event; ADMIN thử lại, chỉ lần thành công mới phát và giữ một messageId cho refund đó.
 
 Consumer Analytics yêu cầu currency và items[].refundedAmount, tổng bằng amount. Order tính 70% line_total từng hạng theo snapshot, xử lý phần lẻ theo [C04](../project-clarifications.md), không chia đều hạng khác giá. samples/order.refunded.json minh họa đơn 1.000.000 hoàn 700.000 với quantity=2. Không dùng giá mới hoặc ghi refund như revenue âm của ngày mua.
 
 ### ticket.issued
 
-orderId (UUID), customerEmail (snapshot email buyer đã xác minh), eventTitle (snapshot string), eventStartTime (instant), venue (nullable tương thích), ownerUserId (UUID buyer), tickets[{ticketId UUID, ticketTypeId UUID, ticketTypeName, holderName, holderEmail nullable C02, qrCodeValue opaque}].
+orderId (UUID), customerEmail (snapshot email buyer đã xác minh), eventTitle (snapshot string), eventStartTime (instant), venue (text cấu hình C03 `141 Đường Chiến Thắng, Hà Nội`; nullable để tương thích message cũ), ownerUserId (UUID buyer), tickets[{ticketId UUID, ticketTypeId UUID, ticketTypeName, seatId UUID, seatLabel (ví dụ "B-07", C12), holderName, holderEmail nullable C02, qrCodeValue opaque}].
 
 Sau transaction confirm tạo vé/QR commit. Event Client lấy title/startTime từ InternalEventResponse. C03 chốt một địa điểm: Notification dùng text cấu hình chung dự kiến EVENTHUB_VENUE_TEXT, snapshot lúc tạo batch; chưa cần venue trong Event DB. venue nullable giữ tương thích message cũ; thiếu cấu hình thật không dùng địa chỉ giả.
 
@@ -88,7 +90,7 @@ C02 mới nhất chốt owner_user_id=customerId buyer. Mỗi vé ưu tiên hold
 
 ticketId, ticketTypeId, gateId (UUID), scannedAt (instant).
 
-Phát sau CAS trạng thái vé + ghi ticket_scans + outbox cùng transaction. gateId UUID đã chốt; nơi cấp và quyền thiết bị còn C07. Theo Hình 2.55–2.56 chỉ một lần vào/ra, không tái nhập. Cùng ticketId làm key **không** giữ thứ tự giữa hai topic.
+Phát sau CAS trạng thái vé + ghi ticket_scans + outbox cùng transaction. gateId UUID đã chốt; C07 quét bằng JWT ORGANIZER/ADMIN trong khung giờ sự kiện, không có bảng thiết bị. Theo Hình 2.55–2.56 chỉ một lần vào/ra, không tái nhập. Cùng ticketId làm key **không** giữ thứ tự giữa hai topic.
 
 ### ticket.cancelled
 
@@ -113,9 +115,11 @@ Replay giữ nguyên messageId, sửa nguyên nhân trước, không đổi ID n
 
 ## 6. Quyết định và phần tích hợp còn thiếu
 
-C02–C05/C08 đã có quyết định trong [project-clarifications](../project-clarifications.md), C09 giữ xác nhận trước đó. C06 provider và C07 thiết bị để sau. Cần triển khai snapshot email, target holder, text địa điểm, quote/hold/fence; realm/JWK/issuer/audience/S2S vẫn cần cấu hình.
+C02–C05/C08/C12 đã có quyết định trong [project-clarifications](../project-clarifications.md), C09 giữ xác nhận trước đó. C06 chọn VNPay sandbox, C07 quét bằng JWT ORGANIZER/ADMIN (2026-11-22). Cần triển khai snapshot email, target holder, text địa điểm, quote 70%; realm/JWK/issuer/audience/S2S vẫn cần cấu hình.
 
-Message payment.compensated là bổ sung dự kiến theo [C05](../architecture/payment-refund-recovery.md): key orderId, Notification nhận kết quả bù khi không cung cấp vé/thu trùng, Analytics không cộng/trừ sales cho khoản chưa có order.paid. Envelope chuẩn kèm paymentId, compensationId, customerId/customerEmail, amount, currency, compensatedAt, reason. Topic/producer/consumer/template chưa có trong runtime hoặc bảng topic trên; triển khai sau adapter C06 đáp ứng query/idempotency.
+C12 cần triển khai: Ticket thêm `seatId`/`seatLabel` vào payload `ticket.issued`; Notification in số ghế trong email QR (field mới là tùy chọn với consumer hiện tại, message cũ không có ghế vẫn đọc được). Chi tiết ở [plan Ticket](../plans/ticket-service.md).
+
+Message `payment.compensated` (hoàn bù 100% khi thu tiền nhưng không phát được vé) là **hướng phát triển** theo thiết kế C05 đầy đủ, không nằm trong phạm vi giai đoạn này; topic/producer/consumer chưa có.
 
 ## 7. Local
 

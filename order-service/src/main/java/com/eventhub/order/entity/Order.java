@@ -57,6 +57,7 @@ public class Order extends BaseEntity {
     private UUID reservationId;
 
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(nullable = false, length = 20)
     private OrderStatus status = OrderStatus.PENDING_PAYMENT;
 
@@ -74,6 +75,34 @@ public class Order extends BaseEntity {
 
     @Column(name = "paid_at")
     private Instant paidAt;
+
+    /**
+     * C21: payment đã làm đơn chuyển PAID. Payment SUCCEEDED khác giá trị này (khách trả hai lần, hoặc tiền về khi đơn
+     * đã hết hạn/hủy) nằm trong danh sách đối soát của ADMIN.
+     */
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "payment_id", length = 36)
+    private UUID paymentId;
+
+    /**
+     * C04: giờ bắt đầu sự kiện lúc giữ ghế (Ticket trả về). Event không cho đổi giờ sau khi publish, nên dùng được
+     * cho mốc 48 giờ hoàn tiền mà không phải gọi Event.
+     */
+    @Column(name = "event_start_time")
+    private Instant eventStartTime;
+
+    /** C06: Ticket đã phát vé cho đơn PAID; NULL khi PAID nghĩa là confirm còn phải thử lại. */
+    @Column(name = "tickets_confirmed_at")
+    private Instant ticketsConfirmedAt;
+
+    /** C14: header Idempotency-Key của POST /orders, duy nhất theo (customer_id, idempotency_key). */
+    @Column(name = "idempotency_key", length = 100)
+    private String idempotencyKey;
+
+    /** C14: SHA-256 (hex) của nội dung request chuẩn hóa, để phát hiện dùng lại key với nội dung khác. */
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "request_hash", length = 64)
+    private String requestHash;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderItem> items = new ArrayList<>();

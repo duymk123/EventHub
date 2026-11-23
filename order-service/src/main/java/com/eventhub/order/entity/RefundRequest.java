@@ -53,6 +53,7 @@ public class RefundRequest {
     private String reason;
 
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(nullable = false, length = 20)
     private RefundStatus status = RefundStatus.REQUESTED;
 
@@ -71,4 +72,16 @@ public class RefundRequest {
 
     @Column(name = "refunded_at")
     private Instant refundedAt;
+
+    /** C05/C06: vnp_RequestId của lần gọi refund gần nhất (mỗi lần retry một id mới). */
+    @Column(name = "provider_request_id", length = 40)
+    private String providerRequestId;
+
+    /** vnp_TransactionNo của giao dịch hoàn do VNPay trả về. */
+    @Column(name = "provider_refund_id", length = 100)
+    private String providerRefundId;
+
+    /** Lý do FAILED (TICKET_ALREADY_CHECKED_IN, mã lỗi VNPay, PAYMENT_PROVIDER_UNAVAILABLE…). */
+    @Column(name = "failure_reason", length = 255)
+    private String failureReason;
 }

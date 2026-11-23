@@ -8,8 +8,8 @@ Sáu file OpenAPI 3.0.3 là **hợp đồng mục tiêu 2.0.0-draft**, không ph
 |---|---|
 | [Auth](auth-service-openapi.yaml) | Giữ UI/API riêng: register/login/refresh/logout/password/me/admin là facade Auth → Keycloak, không tự cấp JWT. |
 | [Event](event-service-openapi.yaml) | events/categories, vòng đời, tìm theo startDate/endDate, `GET /admin/events` (EVT-11) cho ADMIN duyệt, internal response có title/organizerId. |
-| [Ticket](ticket-service-openapi.yaml) | Hạng vé và quota gộp, reserve/confirm/release/cancel, vé cá nhân, quét cổng. |
-| [Order](order-service-openapi.yaml) | Snapshot email buyer, hoàn khách cả đơn 70%/ADMIN, C05 hold/verify/bù 100% có thiết kế; provider C06 để sau. |
+| [Ticket](ticket-service-openapi.yaml) | Hạng vé (zone) và sơ đồ ghế theo C12, giữ ghế/confirm/release/cancel, vé cá nhân, quét cổng. |
+| [Order](order-service-openapi.yaml) | Snapshot email buyer, giữ ghế C12, Idempotency-Key C14, thanh toán VNPay sandbox C06, hoàn 70% cả đơn theo C05 rút gọn. |
 | [Notification](notification-service-openapi.yaml) | In-app có nội dung/phân trang, read idempotent, unread-count, template theo code+channel. |
 | [Analytics](analytics-service-openapi.yaml) | Sales theo ngày/hạng, attendance, dashboard ban đầu và hợp đồng STOMP bổ sung. C10: `/analytics/overview`, `/analytics/events` thống kê gộp cho ADMIN (mọi sự kiện) và ORGANIZER (sự kiện của mình). |
 

@@ -79,7 +79,7 @@ Phần bảng/cột bổ sung còn đề xuất trong [plan](../plans/README.md)
 |---|---|---|
 | [Auth/Keycloak](auth-service/README.md) | Keycloak quản lý identity (credentials, session, token, role); Auth facade gọi Admin REST/OIDC; `user_profiles` optional projection đã implement; xem [trường hiện có](auth-service/fields.md) | userId = Keycloak `sub` (UUID), mapping 1-1 |
 | [Event](event-service/init.sql) | categories, events | organizer_id |
-| [Ticket](ticket-service/init.sql) | ticket_types, reservations/items, tickets, ticket_scans; outbox kỹ thuật | event_id, order_id, owner_user_id, gate_id |
+| [Ticket](ticket-service/init.sql) | ticket_types (zone), seats, reservations/items/seats, tickets, ticket_scans; outbox kỹ thuật | event_id, order_id, owner_user_id, gate_id |
 | [Order](order-service/init.sql) | orders/items/holders, payments, refund_requests, payment_webhooks; outbox kỹ thuật | customer_id, event_id, reservation_id, ticket_type_id, requested_by, approved_by |
 | [Notification](notification-service/init.sql) | notification_templates, notifications, processed_events, notification_batches | recipient_user_id; source_message_id là UUID message |
 | [Analytics](analytics-service/init.sql) | sales_metrics, dashboard_snapshot, attendance_logs, processed_events, attendance_state | event_id, ticket_id, ticket_type_id, gate_id |
@@ -92,7 +92,7 @@ PK/tham chiếu bảng ứng dụng: UUID CHAR(36), không số tự tăng. Mọ
 
 DDL từng service liệt kê đầy đủ cột, kiểu, NULL, unique và index. Tên trường ứng dụng snake_case, DTO camelCase. Ba điểm dễ nhầm:
 
-1. ticket_types đồng thời là loại vé và tồn kho; available + reserved + sold = total_quota. Không có ticket_inventory. Khóa hàng hoặc UPDATE điều kiện, không đọc số lượng rồi ghi lại không có khóa.
+1. ticket_types là loại vé đồng thời là zone ngồi; theo C12 tồn kho là các dòng seats (AVAILABLE/HELD/SOLD), total_quota = row_count × seats_per_row. Không có ticket_inventory. Giữ ghế bằng UPDATE có điều kiện trên đúng các ghế được chọn và kiểm số dòng, không đọc trạng thái rồi ghi lại không có khóa.
 2. order_items là một dòng mỗi hạng vé; order_holders là từng người dùng vé. Kiểm tra số holder bằng quantity và giữ thứ tự/ID holder ổn định khi retry confirm. Đây là invariant service, SQL FK không kiểm tra tổng số dòng con.
 3. processed_events.id là messageId Kafka, không phải eventId sự kiện. dashboard_snapshot.id là UUID PK, event_id UNIQUE; không sinh snapshot mới cho mỗi lần cập nhật.
 
@@ -102,7 +102,7 @@ DDL từng service liệt kê đầy đủ cột, kiểu, NULL, unique và index
 |---|---|---|
 | users/password_hash, refresh_tokens | Không triển khai trong ứng dụng | Quyết định mới chọn Keycloak. Auth facade đã chốt; profile DB chỉ thêm khi cần dữ liệu ngoài Keycloak. |
 | event_categories/categories | categories | Chuẩn hóa theo Bảng 2.4. |
-| zones A–D trong hình cũ | Không có zones/seat trong baseline | Ba hạng ở Ticket; C03 một địa điểm với text cấu hình chung trong email QR, chưa cần bảng venue. |
+| zones A–D trong hình cũ | Zone = hạng vé; ghế ở Ticket theo C12 | Ba hạng ở Ticket, mỗi hạng là một zone; bảng seats sinh theo số hàng × số ghế mỗi hàng của từng sự kiện (C12). C03 một địa điểm với text cấu hình chung trong email QR, chưa cần bảng venue. |
 | order_holders, approved_by | Giữ đúng tên | Không nhét holder trực tiếp vào order_items; không đổi approved_by thành reviewed_by không có mapping. |
 | orders DEFAULT PENDING | PENDING_PAYMENT | Sửa lỗi không khớp máy trạng thái. |
 | provider_event_id UNIQUE | UNIQUE(provider, provider_event_id) | Bổ sung kỹ thuật để các provider không đụng ID; payload_hash không thay chữ ký. |
@@ -120,7 +120,7 @@ DDL từng service liệt kê đầy đủ cột, kiểu, NULL, unique và index
 
 Event bổ sung review_reason để lưu lý do duyệt/từ chối; Order bổ sung refund_requests.review_reason để lưu lý do phản hồi, tách khỏi reason của người yêu cầu. Đây là bổ sung kỹ thuật phục vụ các request review/reject đã có, không phải cột gốc trong từ điển báo cáo.
 
-Reference Ticket bổ sung gate_id theo Hình 2.55/2.79 và UUID đã xác nhận; cancelled_at theo Hình 2.54. Không có bảng gates vì owner còn C07. Outbox trong Ticket/Order là đề xuất kỹ thuật để không mất message khi crash; nó không có nghĩa đã triển khai publisher. Outbox.id phải bằng messageId trong payload.
+Reference Ticket bổ sung gate_id theo Hình 2.55/2.79 và UUID đã xác nhận; cancelled_at theo Hình 2.54. Không có bảng gates: C07 chốt quét bằng tài khoản ORGANIZER/ADMIN, gateId là UUID chọn trên trang quét. Outbox trong Ticket/Order là đề xuất kỹ thuật để không mất message khi crash; nó không có nghĩa đã triển khai publisher. Outbox.id phải bằng messageId trong payload.
 
 DDL giữ holder_email NULL; C02 chốt có email thì gửi holder, thiếu fallback buyer email đã xác minh/snapshot lúc tạo đơn. Order cần migration customer_email và adapter nguồn tin cậy, cột này chưa có trong reference DDL. C03 text địa điểm cấu hình chung, không cần venue NOT NULL trên Event. C04 cả đơn 70% không cần lựa chọn refund_items từng vé nhưng cần lưu quote/allocation; C05 cần operation/hold/fence theo [thiết kế](../architecture/payment-refund-recovery.md), chưa coi storage mới đã có.
 

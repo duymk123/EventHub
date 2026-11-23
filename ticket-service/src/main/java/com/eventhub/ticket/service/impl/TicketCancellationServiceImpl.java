@@ -4,10 +4,9 @@ import com.eventhub.ticket.common.ErrorCode;
 import com.eventhub.ticket.common.TicketStatus;
 import com.eventhub.ticket.dto.response.CancelResponse;
 import com.eventhub.ticket.entity.Ticket;
-import com.eventhub.ticket.entity.TicketType;
 import com.eventhub.ticket.exception.BusinessException;
 import com.eventhub.ticket.repository.TicketRepository;
-import com.eventhub.ticket.repository.TicketTypeRepository;
+import com.eventhub.ticket.repository.SeatRepository;
 import com.eventhub.ticket.service.OutboxWriter;
 import com.eventhub.ticket.service.TicketCancellationService;
 import org.springframework.stereotype.Service;
@@ -19,20 +18,19 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.UUID;
 
 @Service
 public class TicketCancellationServiceImpl implements TicketCancellationService {
     private final TicketRepository tickets;
-    private final TicketTypeRepository types;
+    private final SeatRepository seats;
     private final OutboxWriter outbox;
     private final Clock clock;
 
-    public TicketCancellationServiceImpl(TicketRepository tickets, TicketTypeRepository types, OutboxWriter outbox,
+    public TicketCancellationServiceImpl(TicketRepository tickets, SeatRepository seats, OutboxWriter outbox,
                                          Clock clock) {
         this.tickets = tickets;
-        this.types = types;
+        this.seats = seats;
         this.outbox = outbox;
         this.clock = clock;
     }
@@ -57,21 +55,12 @@ public class TicketCancellationServiceImpl implements TicketCancellationService 
         }
 
         Instant now = clock.instant();
-        Map<UUID, Integer> perType = new TreeMap<>();
         for (Ticket ticket : toCancel) {
             ticket.setStatus(TicketStatus.CANCELLED);
             ticket.setCancelledAt(now);
-            perType.merge(ticket.getTicketType().getId(), 1, Integer::sum);
         }
-        for (TicketType type : types.findAllByIdsForUpdate(perType.keySet())) {
-            int quantity = perType.get(type.getId());
-            if (type.getSoldQuantity() < quantity) {
-                throw new IllegalStateException("Sold counter below cancelled quantity for type " + type.getId());
-            }
-            type.setSoldQuantity(type.getSoldQuantity() - quantity);
-            type.setAvailableQuantity(type.getAvailableQuantity() + quantity);
-        }
-
+        // C12: ghế của vé bị hủy SOLD → AVAILABLE để bán lại; đúng một lần vì chỉ đổi ghế đang SOLD.
+        seats.freeSeats(toCancel.stream().map(ticket -> ticket.getSeat().getId()).toList(), now);
         List<Map<String, Object>> ticketPayload = new ArrayList<>();
         for (Ticket ticket : toCancel) {
             Map<String, Object> entry = new LinkedHashMap<>();

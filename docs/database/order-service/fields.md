@@ -2,7 +2,7 @@
 
 Database mặc định: `eventhub_order`. Order lưu ai mua gì, giá đã chốt, trạng thái thanh toán và yêu cầu hoàn tiền. Ticket mới là nơi giữ số lượng và phát vé; có đơn hàng chưa đồng nghĩa đã có vé hoặc đã thu tiền.
 
-Nguồn đối chiếu: [DDL tham chiếu](init.sql), [entity hiện có](../../../order-service/src/main/java/com/eventhub/order/entity), [enum](../../../order-service/src/main/java/com/eventhub/order/common), [plan Order](../../plans/order-service.md), [Kafka](../../kafka/events.md). Xem [cách đọc kiểu dữ liệu và NULL](../README.md#cach-doc-tu-dien-truong). Bảng dưới lấy kiểu, NULL, DEFAULT và constraint từ DDL. Code đã có entity cho bảy bảng; một số đoạn “model cũ” trong plan chưa phản ánh các entity mới. Cấu hình hiện dùng Hibernate update; không suy từ file rằng DB đang chạy đã có đủ constraint.
+Nguồn đối chiếu: [DDL tham chiếu](init.sql), [entity hiện có](../../../order-service/src/main/java/com/eventhub/order/entity), [enum](../../../order-service/src/main/java/com/eventhub/order/common), [plan Order](../../plans/order-service.md), [Kafka](../../kafka/events.md). Xem [cách đọc kiểu dữ liệu và NULL](../README.md#cach-doc-tu-dien-truong). Bảng dưới lấy kiểu, NULL, DEFAULT và constraint từ DDL. Code đã có entity cho bảy bảng; một số đoạn “model cũ” trong plan chưa phản ánh các entity mới. C15: schema do Flyway tạo từ `order-service/src/main/resources/db/migration/V1__init.sql` (nội dung bằng DDL tham chiếu), Hibernate chỉ `validate`.
 
 ## 1. `orders` — Đơn mua vé
 
@@ -14,21 +14,28 @@ Một dòng là một đơn của một khách cho một sự kiện. Một đơ
 | `customer_id` | CHAR(36), bắt buộc | Tài khoản mua đơn, lấy từ danh tính đã xác minh. ID mềm sang hệ thống identity, khác tên người dùng vé. | UUID khách U |
 | `event_id` | CHAR(36), bắt buộc | Sự kiện khách đang mua vé; ID mềm sang Event. | UUID sự kiện E |
 | `reservation_id` | CHAR(36), bắt buộc | ID lần giữ chỗ do Ticket trả về, dùng confirm/release. Không có FK xuyên sang Ticket DB. | UUID R |
-| `status` | VARCHAR(20), bắt buộc, DEFAULT PENDING_PAYMENT | Trạng thái tổng thể đơn: chờ trả tiền, đã trả, thất bại, hết hạn hoặc hoàn tiền; xem bảng trạng thái bên dưới. | `PENDING_PAYMENT` |
+| `status` | VARCHAR(20), bắt buộc, DEFAULT PENDING_PAYMENT | Trạng thái tổng thể đơn: chờ trả tiền, đã trả, hết hạn, khách hủy hoặc hoàn tiền; xem bảng trạng thái bên dưới. | `PENDING_PAYMENT` |
 | `subtotal` | DECIMAL(14,2), bắt buộc, >= 0 | Tổng các dòng vé trước điều chỉnh: cộng line_total của order_items. Tính từ giá server đã chốt. | `1300000.00` |
 | `total_amount` | DECIMAL(14,2), bắt buộc, >= 0 | Tổng số tiền đơn yêu cầu thanh toán. Khi không có phí/giảm giá thì bằng subtotal; schema có hai cột không có nghĩa đã có nghiệp vụ voucher/phí. | `1300000.00` |
 | `currency` | VARCHAR(3), bắt buộc, DEFAULT VND | Đơn vị tiền của số tiền trên đơn; không phải tỉ giá. Phạm vi hiện mô tả VND. | `VND` |
-| `expires_at` | TIMESTAMP, bắt buộc | Hạn thanh toán của đơn, cần đồng bộ với hạn giữ chỗ Ticket trả về. Worker tìm đơn chờ thanh toán đã quá hạn theo trường này. | `2026-10-29T03:03:00Z` |
+| `expires_at` | TIMESTAMP, bắt buộc | Hạn thanh toán của đơn, cần đồng bộ với hạn giữ chỗ Ticket trả về. Worker tìm đơn chờ thanh toán đã quá hạn theo trường này. Hạn 10 phút (C16), cũng là `vnp_ExpireDate` gửi VNPay. | `2026-10-29T03:10:00Z` |
 | `paid_at` | TIMESTAMP, được NULL | Thời điểm thanh toán thành công được xác nhận; không lấy từ lúc trình duyệt quay lại trang thành công. | `2026-10-29T03:01:00Z` |
+| `tickets_confirmed_at` | TIMESTAMP, được NULL | C06: lúc Ticket xác nhận đã phát vé cho đơn PAID (sau đó mới ghi outbox `order.paid`). Đơn PAID mà còn NULL là chưa phát vé xong; job thử lại gọi confirm Ticket (idempotent) tới khi thành công. | `2026-10-29T03:01:03Z` |
+| `payment_id` | CHAR(36), được NULL | C21: payment đã làm đơn chuyển PAID; hoàn tiền dùng giao dịch của payment này. Payment SUCCEEDED khác giá trị này (khách trả hai lần, tiền về sau khi đơn hết hạn/hủy) nằm trong danh sách đối soát của ADMIN. Tham chiếu mềm, không FK vì `payments` đã có FK ngược về `orders`. | `7c1e…` |
+| `idempotency_key` | VARCHAR(100), được NULL | C14: giá trị header `Idempotency-Key` của `POST /orders`. UNIQUE `(customer_id, idempotency_key)`: gửi lại cùng key trả lại đúng đơn này. NULL khi client không gửi header. | `f3b1…` (UUID client tự sinh) |
+| `request_hash` | CHAR(64), được NULL | C14: SHA-256 của nội dung request đã chuẩn hóa (sự kiện, ghế, holder). Cùng key mà hash khác trả 409 `IDEMPOTENCY_KEY_REUSED`. | `9a7c…` |
 | `created_at` | TIMESTAMP, bắt buộc | Thời điểm tạo dòng đơn; entity nhận từ BaseEntity của Order. | `2026-10-29T03:00:00Z` |
 | `updated_at` | TIMESTAMP, bắt buộc | Thời điểm ghi cập nhật dòng đơn gần nhất; khác paid_at là một mốc nghiệp vụ cụ thể. | `2026-10-29T03:01:02Z` |
+| `event_start_time` | TIMESTAMP, được NULL | C04: giờ bắt đầu sự kiện Ticket trả về lúc giữ ghế (Event không cho đổi sau publish). Dùng cho mốc 48 giờ hoàn tiền. | `2026-11-28T12:00:00Z` |
+| `pending_slot` | VARCHAR(73), cột sinh (STORED) | C20: bằng `customer_id:event_id` khi status = PENDING_PAYMENT, NULL khi khác. UNIQUE `uk_order_pending_slot` bảo đảm mỗi khách chỉ một đơn chờ thanh toán cho mỗi sự kiện, kể cả khi hai request chạy song song. Entity không ánh xạ cột này. | `5b2f…:9e41…` |
 
 | Giá trị status | Cách hiểu |
 |---|---|
 | PENDING_PAYMENT | Đơn đang chờ thanh toán trong hạn giữ chỗ. |
 | PAID | Đã xác nhận thu tiền. Cần theo dõi confirm Ticket đến khi phát vé thành công; không coi cột này một mình là bằng chứng đã phát vé. |
-| FAILED | Đơn thất bại theo luồng xử lý thanh toán. |
-| EXPIRED | Đơn quá hạn; success đến muộn cần xác minh/fence phát vé rồi hoàn bù 100% thực thu chưa hoàn theo C05, provider C06 để sau. |
+| FAILED | Giữ lại cho tương thích; từ C18 (2026-11-23) không còn gán: thanh toán lỗi chỉ làm payment FAILED, đơn vẫn chờ để thanh toán lại. |
+| EXPIRED | Đơn quá hạn, ghế đã trả. Tiền VNPay về sau khi hết hạn: payment SUCCEEDED, đơn giữ EXPIRED, payment vào danh sách đối soát (C21); hoàn bù tự động là hướng phát triển (C05). |
+| CANCELLED | Khách tự hủy đơn chưa thanh toán (C19), ghế đã trả. Không phát Kafka. |
 | REFUNDED | Hoàn khách cả đơn 70% giá mua và hủy tất cả vé đã hoàn tất theo C04/C05. |
 
 Chỉ mục customer_id/created_at phục vụ lịch sử đơn của tôi; status/expires_at phục vụ tìm đơn quá hạn. DDL kiểm tra số tiền không âm nhưng không tự kiểm tra subtotal bằng tổng dòng con; service phải đảm bảo các số khớp nhau.
@@ -57,11 +64,13 @@ Một dòng là thông tin một người nhận/sử dụng một vé. Với it
 |---|---|---|---|
 | `id` | CHAR(36), PK, bắt buộc | ID thông tin một người sử dụng vé; không phải userId hoặc ticketId. | UUID holder H1 |
 | `order_item_id` | CHAR(36), bắt buộc, FK | Dòng hạng vé người này được phân vào, trỏ order_items.id. | UUID I-VIP |
+| `seat_id` | CHAR(36), bắt buộc | C12: ghế Ticket đã giữ cho người này; ID mềm sang Ticket seats.id, không FK. Mỗi holder đúng một ghế. | UUID ghế S-B07 |
+| `seat_label` | VARCHAR(8), bắt buộc | Nhãn ghế chụp lại để hiển thị đơn mà không gọi Ticket. | `B-07` |
 | `holder_name` | VARCHAR(100), bắt buộc | Tên người sẽ dùng vé, có thể khác tên tài khoản đã mua. | `Nguyễn Lan` |
 | `holder_email` | VARCHAR(255), được NULL | C02 gửi QR các vé của holder tới email này nếu có; thiếu thì gửi buyer email đã xác minh và snapshot lúc tạo đơn. Không tự cấp quyền owner cho holder. | `lan@example.com` hoặc NULL |
 | `holder_phone` | VARCHAR(20), được NULL | Số điện thoại liên hệ của người dùng vé, nếu có. Lưu chuỗi để giữ dấu + và số 0 đầu. | `0900000000` |
 
-SQL có FK nhưng không tự kiểm tra số holder bằng quantity; đó là kiểm tra nghiệp vụ. Không có order_holders.ticket_id trong DDL này; cần quy tắc ánh xạ ổn định khi confirm/retry, không suy rằng đã có FK từ holder sang vé.
+SQL có FK nhưng không tự kiểm tra số holder bằng quantity; đó là kiểm tra nghiệp vụ. UNIQUE `(order_item_id, seat_id)` không cho một ghế xuất hiện hai lần trong cùng dòng. Không có order_holders.ticket_id trong DDL này; theo C12, confirm ánh xạ holder sang vé qua `seat_id`, mỗi ghế đúng một vé.
 
 ## 4. `payments` — Lần thanh toán qua nhà cung cấp
 
@@ -71,11 +80,16 @@ SQL có FK nhưng không tự kiểm tra số holder bằng quantity; đó là k
 |---|---|---|---|
 | `id` | CHAR(36), PK, bắt buộc | ID bản ghi thanh toán bên EventHub; khác mã giao dịch provider. | UUID payment P |
 | `order_id` | CHAR(36), bắt buộc, FK | Đơn được thanh toán, trỏ orders.id. | UUID O |
-| `provider` | VARCHAR(50), bắt buộc | Tên cổng xử lý thanh toán; nhà cung cấp cụ thể còn C06. | `SANDBOX_DEMO`, chỉ là tên giả minh họa |
-| `provider_transaction_id` | VARCHAR(100), được NULL | Mã giao dịch cổng cấp sau khi tạo/nhận kết quả. NULL trước phản hồi là hợp lệ; đây là chuỗi bên ngoài, không ép UUID. | `txn-demo-001` |
+| `provider` | VARCHAR(50), bắt buộc | Tên cổng thanh toán; C06 chọn VNPay sandbox. | `VNPAY` |
+| `provider_txn_ref` | VARCHAR(40), bắt buộc | C06: `vnp_TxnRef` gửi VNPay, duy nhất theo provider. Dùng mã payment bỏ dấu gạch (32 ký tự hex) để IPN tìm lại payment. | `3f2a…9c1d` |
+| `provider_transaction_id` | VARCHAR(100), được NULL | `vnp_TransactionNo` VNPay cấp khi có kết quả. NULL trước phản hồi là hợp lệ; chuỗi bên ngoài, không ép UUID. Cần cho API hoàn tiền. | `14123456` |
+| `provider_pay_date` | VARCHAR(14), được NULL | `vnp_PayDate` dạng `yyyyMMddHHmmss` giờ Việt Nam; VNPay bắt buộc gửi lại khi hoàn tiền (`vnp_TransactionDate`). | `20261129190512` |
 | `amount` | DECIMAL(14,2), bắt buộc | Số tiền của lần thanh toán, cần đối chiếu với đơn và webhook. DDL bảng này không có CHECK số tiền dương. | `1300000.00` |
 | `status` | VARCHAR(20), bắt buộc, DEFAULT CREATED | CREATED mới tạo nội bộ; PENDING chờ kết quả; SUCCEEDED đã xác minh thành công; FAILED thất bại. | `PENDING` |
-| `payment_url` | TEXT, được NULL | Đường dẫn provider trả để khách tiếp tục thanh toán. NULL khi chưa nhận URL hoặc luồng không dùng URL. | `https://payments.example/checkout/demo` |
+| `reconciled_at` | TIMESTAMP, được NULL | C21: lúc ADMIN đánh dấu khoản đối soát đã xử lý (đã hoàn tay trên cổng VNPay). Khác NULL thì payment rời danh sách đối soát. | `2026-11-24T02:00:00Z` |
+| `reconciled_by` | CHAR(36), được NULL | C21: id ADMIN đã đánh dấu. | `9d0e…` |
+| `reconciliation_note` | VARCHAR(500), được NULL | C21: ghi chú cách xử lý (bắt buộc khi đánh dấu). | `Đã hoàn trên cổng VNPay` |
+| `payment_url` | TEXT, được NULL | URL `vpcpay.html` của VNPay đã ký, frontend chuyển khách sang trang này. | `https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?…` |
 | `idempotency_key` | VARCHAR(100), bắt buộc, UNIQUE | Khóa nhận biết cùng yêu cầu tạo thanh toán khi client retry, để trả kết quả cũ thay vì tạo thêm lần thu tiền. Không phải messageId Kafka. | `checkout-request-demo-001` |
 | `created_at` | TIMESTAMP, bắt buộc | Thời điểm tạo bản ghi payment; Hibernate gán qua BaseEntity. | `2026-10-29T03:00:10Z` |
 | `updated_at` | TIMESTAMP, bắt buộc | Thời điểm cập nhật payment gần nhất, ví dụ nhận kết quả thành công. | `2026-10-29T03:01:00Z` |
@@ -99,6 +113,9 @@ Tạo yêu cầu hoàn chưa có nghĩa tiền đã được trả lại. Các m
 | `requested_at` | TIMESTAMP, bắt buộc | Thời điểm khách tạo yêu cầu hoàn. Dùng kiểm tra điều kiện tại lúc yêu cầu. | `2026-11-10T03:00:00Z` |
 | `reviewed_at` | TIMESTAMP, được NULL | Thời điểm người có quyền xem xét/duyệt/từ chối yêu cầu. Điều kiện hoàn cần được kiểm tra lại khi duyệt. | `2026-11-10T04:00:00Z` |
 | `refunded_at` | TIMESTAMP, được NULL | Thời điểm ghi nhận tiền đã hoàn theo kết quả provider/luồng hoàn; chưa hoàn xong thì NULL. Không phải requested_at. | `2026-11-10T04:02:00Z` |
+| `provider_request_id` | VARCHAR(40), được NULL | C06: `vnp_RequestId` của lần gọi API hoàn tiền gần nhất; mỗi lần thử lại sinh mã mới. | `a81f…` |
+| `provider_refund_id` | VARCHAR(100), được NULL | Mã giao dịch hoàn VNPay trả về khi thành công. | `14123999` |
+| `failure_reason` | VARCHAR(255), được NULL | C05 rút gọn: lý do refund FAILED (vé đã dùng, mã lỗi VNPay, timeout) để ADMIN xem trước khi thử lại. Không chứa dữ liệu nhạy cảm. | `VNPAY_94` |
 
 | Giá trị status | Cách hiểu |
 |---|---|
@@ -118,8 +135,8 @@ Webhook là request cổng thanh toán gửi vào server. Provider có thể g�
 | Trường | Kiểu / ràng buộc theo SQL | Ý nghĩa và lúc sử dụng | Ví dụ minh họa |
 |---|---|---|---|
 | `id` | CHAR(36), PK, bắt buộc | ID bản ghi webhook bên EventHub, không phải mã provider gửi. | UUID webhook W |
-| `provider` | VARCHAR(50), bắt buộc | Cổng gửi request, dùng cùng mã sự kiện provider để phân biệt bản trùng. | `SANDBOX_DEMO` |
-| `provider_event_id` | VARCHAR(100), bắt buộc | ID sự kiện do provider cấp; không phải events.id của EventHub và không bắt buộc là UUID. | `evt-demo-001` |
+| `provider` | VARCHAR(50), bắt buộc | Cổng gửi request, dùng cùng mã sự kiện provider để phân biệt bản trùng. | `VNPAY` |
+| `provider_event_id` | VARCHAR(100), bắt buộc | Khóa chống xử lý lặp IPN: `vnp_TxnRef` + `:` + `vnp_TransactionNo`. Không phải events.id của EventHub. | `3f2a…9c1d:14123456` |
 | `order_id` | CHAR(36), bắt buộc, FK | Đơn đã được xác định từ webhook, trỏ orders.id. | UUID O |
 | `payload_hash` | VARCHAR(255), bắt buộc | Dấu băm nội dung để phát hiện cùng provider_event_id nhưng nội dung khác. Không thay thế kiểm tra chữ ký/xác thực request của provider. | `<hash-của-payload>` |
 | `received_at` | TIMESTAMP, bắt buộc | Thời điểm server nhận và ghi webhook. Không nhất thiết bằng thời điểm khách trả tiền. | `2026-10-29T03:01:01Z` |

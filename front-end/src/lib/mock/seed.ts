@@ -1,4 +1,5 @@
 import type { DemoState, Event, TicketType } from "@/types";
+import { seatCodes, withTaken } from "@/lib/seats";
 export const VENUE = "Không gian sự kiện EventHub, TP. Hồ Chí Minh";
 export const roleNames = {
   CUSTOMER: "Khách hàng",
@@ -25,31 +26,56 @@ export const statusLabels: Record<string, string> = {
   ACTIVE: "Hoạt động",
   LOCKED: "Đã khóa",
 };
-const tiers = (id: string, multiplier = 1): TicketType[] => [
-  {
-    id: `${id}-standard`,
-    name: "STANDARD",
-    price: 450000 * multiplier,
-    quota: 186,
-    available: 186,
-    active: true,
-  },
-  {
-    id: `${id}-premium`,
-    name: "PREMIUM",
-    price: 850000 * multiplier,
-    quota: id === "indie" ? 66 : 64,
-    available: 64,
-    active: true,
-  },
-  {
-    id: `${id}-vip`,
-    name: "VIP",
-    price: 1500000 * multiplier,
-    quota: 12,
-    available: 12,
-    active: true,
-  },
+/** Hash ổn định để ghế "đã bán sẵn" giống nhau sau mỗi lần reset demo. */
+function seatHash(text: string) {
+  let h = 2166136261;
+  for (const ch of text) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return (h >>> 0) % 100;
+}
+const zone = (
+  id: string,
+  name: TicketType["name"],
+  price: number,
+  rowCount: number,
+  seatsPerRow: number,
+  soldPercent: number,
+  sold: string[] = [],
+): TicketType => {
+  const taken: Record<string, "SOLD"> = {};
+  for (const code of seatCodes({ rowCount, seatsPerRow }))
+    if (seatHash(`${id}:${code}`) < soldPercent || sold.includes(code))
+      taken[code] = "SOLD";
+  return withTaken(
+    {
+      id,
+      name,
+      price,
+      rowCount,
+      seatsPerRow,
+      quota: 0,
+      available: 0,
+      taken: {},
+      active: true,
+    },
+    taken,
+  );
+};
+const tiers = (
+  id: string,
+  multiplier = 1,
+  onSale = true,
+): TicketType[] => [
+  zone(`${id}-standard`, "STANDARD", 450000 * multiplier, 10, 18, onSale ? 26 : 0),
+  zone(
+    `${id}-premium`,
+    "PREMIUM",
+    850000 * multiplier,
+    4,
+    16,
+    onSale ? 32 : 0,
+    id === "indie" ? ["C-07", "C-08"] : [],
+  ),
+  zone(`${id}-vip`, "VIP", 1500000 * multiplier, 2, 6, onSale ? 40 : 0),
 ];
 const event = (
   id: string,
@@ -71,7 +97,7 @@ const event = (
   organizerId: "organizer",
   organizerName: "EventHub Live",
   status,
-  ticketTypes: tiers(id, multiplier),
+  ticketTypes: tiers(id, multiplier, ["PUBLISHED", "CLOSED"].includes(status)),
   description:
     "Một đêm để tạm gác những bộn bề và sống trọn trong từng khoảnh khắc. Cùng những người bạn yêu quý, hòa mình vào không gian âm nhạc, ánh sáng và những kết nối thật gần. Chương trình được thiết kế để bạn có một trải nghiệm trọn vẹn từ lúc bước vào đến giai điệu cuối cùng.",
 });
@@ -214,11 +240,15 @@ export function seedState(): DemoState {
             name: "Nguyễn Minh Anh",
             email: "minhanh@example.com",
             tierId: "indie-premium",
+            seatId: "indie-premium:C-07",
+            seatLabel: "C-07",
           },
           {
             name: "Trần Hoài An",
             email: "hoaian@example.com",
             tierId: "indie-premium",
+            seatId: "indie-premium:C-08",
+            seatLabel: "C-08",
           },
         ],
         total: 1020000,
@@ -237,6 +267,7 @@ export function seedState(): DemoState {
         holderName: "Nguyễn Minh Anh",
         holderEmail: "minhanh@example.com",
         tier: "PREMIUM",
+        seatLabel: "C-07",
         status: "ISSUED",
       },
       {
@@ -247,6 +278,7 @@ export function seedState(): DemoState {
         holderName: "Trần Hoài An",
         holderEmail: "hoaian@example.com",
         tier: "PREMIUM",
+        seatLabel: "C-08",
         status: "ISSUED",
       },
     ],

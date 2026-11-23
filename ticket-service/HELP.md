@@ -2,7 +2,7 @@
 
 Thiết kế: [services.md](../services.md), [API](../docs/api/ticket-service-openapi.yaml), [quyết định BC_32_V2](../docs/architecture/source-decisions.md). Database: eventhub_ticket.
 
-ticket_types gộp quota/counters; ba tên VIP/PREMIUM/STANDARD. Reserve 3 phút trong DB transaction với khóa hàng/UPDATE điều kiện, UNIQUE(order_id), giá snapshot. Confirm CAS và phát vé/QR trong cùng transaction, lặp trả kết quả cũ. Release CONFIRMED trả 409; RELEASED/EXPIRED gọi lại không trả quota hai lần. Check-in/out CAS và ticket_scans cùng transaction. Không tái nhập. gateId UUID nhưng owner/quyền thiết bị chờ C07. Cancel sau refund chỉ vé chưa dùng và >=48 giờ; khoảng trống sau provider refund chờ C05. Redis hỗ trợ khóa/cache, DB là nguồn chính.
+ticket_types gộp quota/counters; ba tên VIP/PREMIUM/STANDARD. Reserve 10 phút (C16) trong DB transaction với khóa hàng/UPDATE điều kiện, UNIQUE(order_id), giá snapshot. Confirm CAS và phát vé/QR trong cùng transaction, lặp trả kết quả cũ. Release CONFIRMED trả 409; RELEASED/EXPIRED gọi lại không trả quota hai lần. Check-in/out CAS và ticket_scans cùng transaction. Không tái nhập. gateId UUID nhưng owner/quyền thiết bị chờ C07. Cancel sau refund chỉ vé chưa dùng và >=48 giờ; khoảng trống sau provider refund chờ C05. Redis hỗ trợ khóa/cache, DB là nguồn chính.
 
 ## Chạy và kiểm tra
 

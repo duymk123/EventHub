@@ -13,7 +13,7 @@ const failures = [];
 const escape = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 const layouts = {
   event: { categories:[0,0], events:[1,0] },
-  ticket: { ticket_types:[0,0], reservations:[1,0], outbox_events:[2,0], reservation_items:[0,1], tickets:[1,1], ticket_scans:[2,1] },
+  ticket: { ticket_types:[0,0], reservations:[1,0], outbox_events:[2,0], seats:[0,1], reservation_items:[1,1], reservation_seats:[2,1], tickets:[0,2], ticket_scans:[1,2] },
   order: { orders:[1,0], order_items:[0,1], payments:[1,1], refund_requests:[2,1], order_holders:[0,2], payment_webhooks:[1,2], outbox_events:[2,2] },
   notification: { notification_templates:[0,0], notifications:[1,0], processed_events:[2,0], notification_batches:[0,1] },
   analytics: { sales_metrics:[0,0], dashboard_snapshot:[1,0], attendance_logs:[0,1], processed_events:[1,1], attendance_state:[2,1] }
@@ -48,7 +48,7 @@ function parse(sql,service) {
       if(!col||/^(?:PRIMARY|FOREIGN|UNIQUE|CHECK|INDEX|CONSTRAINT)$/i.test(col[1]))return [];
       const type=col[2].replaceAll(' ','').toUpperCase();
       const isId=col[1]==='id'||col[1].endsWith('_id')||['requested_by','approved_by','reviewed_by'].includes(col[1]);
-      if(isId&&!['provider_event_id','provider_transaction_id'].includes(col[1])&&type!=='CHAR(36)')throw Error(service+'.'+match[1]+'.'+col[1]+' must use CHAR(36)');
+      if(isId&&!['provider_event_id','provider_transaction_id','provider_request_id','provider_refund_id'].includes(col[1])&&type!=='CHAR(36)')throw Error(service+'.'+match[1]+'.'+col[1]+' must use CHAR(36)');
       return [{name:col[1],type,primary:/\bPRIMARY KEY\b/i.test(field),foreign:false}];
     });
     const foreignKeys=fields.flatMap(field=>{

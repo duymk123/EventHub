@@ -34,15 +34,18 @@ public record OrderResponse(UUID id, UUID customerId, UUID eventId, UUID reserva
         static OrderItemResponse from(OrderItem item) {
             return new OrderItemResponse(item.getTicketTypeId(), item.getTicketTypeName(), item.getQuantity(),
                     item.getUnitPrice(), item.getLineTotal(),
-                    item.getHolders().stream().sorted(Comparator.comparing(OrderHolder::getId))
+                    item.getHolders().stream().sorted(Comparator.comparing(OrderHolder::getSeatLabel))
                             .map(HolderResponse::from).toList());
         }
     }
 
-    public record HolderResponse(UUID id, String holderName, String holderEmail, String holderPhone) {
+    /** C12: mỗi holder gắn một ghế; seatLabel là snapshot lúc giữ ghế. */
+    public record HolderResponse(UUID id, UUID seatId, String seatLabel, String holderName, String holderEmail,
+                                 String holderPhone) {
 
         static HolderResponse from(OrderHolder holder) {
-            return new HolderResponse(holder.getId(), holder.getHolderName(), holder.getHolderEmail(), holder.getHolderPhone());
+            return new HolderResponse(holder.getId(), holder.getSeatId(), holder.getSeatLabel(),
+                    holder.getHolderName(), holder.getHolderEmail(), holder.getHolderPhone());
         }
     }
 }

@@ -32,19 +32,22 @@ public class TicketType {
     private UUID id;
     @JdbcTypeCode(SqlTypes.CHAR) @Column(name = "event_id", nullable = false, length = 36)
     private UUID eventId;
-    @Enumerated(EnumType.STRING) @Column(nullable = false, length = 100)
+    @Enumerated(EnumType.STRING) @JdbcTypeCode(SqlTypes.VARCHAR) @Column(nullable = false, length = 100)
     private TicketTypeName name;
     @Column(nullable = false, precision = 14, scale = 2)
     private BigDecimal price;
+    /** C12: số hàng ghế organizer nhập; 0 = zone chưa mở bán (C08). */
+    @Column(name = "row_count", nullable = false)
+    private int rowCount;
+
+    /** C12: số ghế mỗi hàng, các hàng bằng nhau. */
+    @Column(name = "seats_per_row", nullable = false)
+    private int seatsPerRow;
+
+    /** = rowCount × seatsPerRow (CHECK trong DDL). Tồn kho thật là bảng seats theo trạng thái. */
     @Column(name = "total_quota", nullable = false)
     private int totalQuota;
-    @Column(name = "available_quantity", nullable = false)
-    private int availableQuantity;
-    @Column(name = "reserved_quantity", nullable = false)
-    private int reservedQuantity;
-    @Column(name = "sold_quantity", nullable = false)
-    private int soldQuantity;
-    @Enumerated(EnumType.STRING) @Column(nullable = false, length = 20)
+    @Enumerated(EnumType.STRING) @JdbcTypeCode(SqlTypes.VARCHAR) @Column(nullable = false, length = 20)
     private TicketTypeStatus status = TicketTypeStatus.ACTIVE;
     @CreationTimestamp @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

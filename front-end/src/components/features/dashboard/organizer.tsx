@@ -28,6 +28,12 @@ import { mock } from "@/lib/mock/engine";
 import { eventSchema, type EventForm } from "@/schemas/forms";
 import { money, dateLabel, cn } from "@/lib/utils";
 import {
+  MAX_ROWS,
+  MAX_SEATS_PER_ROW,
+  rowLabel,
+  withTaken,
+} from "@/lib/seats";
+import {
   PageTitle,
   DataBoundary,
   Status,
@@ -211,14 +217,22 @@ export function EventEditor({ id }: { id?: string }) {
   const { busy, run } = useAction();
   const [types, setTypes] = useState<TicketType[]>(
     existing?.ticketTypes ??
-      (["STANDARD", "PREMIUM", "VIP"] as const).map((name, i) => ({
-        id: `new-${name}`,
-        name,
-        price: [450000, 850000, 1500000][i],
-        quota: [500, 250, 100][i],
-        available: [500, 250, 100][i],
-        active: true,
-      })),
+      (["STANDARD", "PREMIUM", "VIP"] as const).map((name, i) =>
+        withTaken(
+          {
+            id: `new-${name}`,
+            name,
+            price: [450000, 850000, 1500000][i],
+            rowCount: [12, 6, 3][i],
+            seatsPerRow: [20, 16, 10][i],
+            quota: 0,
+            available: 0,
+            taken: {},
+            active: true,
+          },
+          {},
+        ),
+      ),
   );
   const local = (date: string) =>
     new Date(Date.parse(date) + 7 * 3600000).toISOString().slice(0, 16);
@@ -254,18 +268,21 @@ export function EventEditor({ id }: { id?: string }) {
         description="Chỉ sự kiện nháp hoặc bị từ chối thuộc sở hữu của bạn mới được chỉnh sửa."
       />
     );
-  function updateTier(index: number, field: "price" | "quota", value: string) {
+  function updateTier(
+    index: number,
+    field: "price" | "rowCount" | "seatsPerRow",
+    value: string,
+  ) {
+    const limit =
+      field === "rowCount"
+        ? MAX_ROWS
+        : field === "seatsPerRow"
+          ? MAX_SEATS_PER_ROW
+          : Number.MAX_SAFE_INTEGER;
+    const next = Math.min(limit, Math.max(0, Math.floor(Number(value) || 0)));
     setTypes((ts) =>
       ts.map((t, i) =>
-        i === index
-          ? {
-              ...t,
-              [field]: Math.max(0, Number(value) || 0),
-              ...(field === "quota"
-                ? { available: Math.max(0, Number(value) || 0) }
-                : {}),
-            }
-          : t,
+        i === index ? withTaken({ ...t, [field]: next }, {}) : t,
       ),
     );
   }
@@ -388,8 +405,9 @@ export function EventEditor({ id }: { id?: string }) {
               <Info size={17} />
               <p>
                 Bản trải nghiệm dùng ảnh sân khấu mẫu và địa điểm minh họa
-                chung. Bạn có thể lưu nháp với quota 0; khi mở bán cần ít nhất
-                một hạng đang hoạt động có quota lớn hơn 0.
+                chung. Mỗi hạng vé là một khu ngồi: nhập số hàng và số ghế mỗi
+                hàng, hệ thống tự đánh số ghế (A-01, A-02…). Khu có 0 hàng là
+                chưa mở bán; khi mở bán cần ít nhất một khu đang hoạt động có ghế.
               </p>
             </div>
           </section>
@@ -431,21 +449,47 @@ export function EventEditor({ id }: { id?: string }) {
                       onChange={(e) => updateTier(i, "price", e.target.value)}
                     />
                   </div>
-                  <div>
-                    <label className="field-label" htmlFor={`tier-quota-${i}`}>
-                      Số lượng
-                    </label>
-                    <Input
-                      id={`tier-quota-${i}`}
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={t.quota}
-                      onChange={(e) => updateTier(i, "quota", e.target.value)}
-                    />
+                  <div className="tier-layout-inputs">
+                    <div>
+                      <label className="field-label" htmlFor={`tier-rows-${i}`}>
+                        Số hàng
+                      </label>
+                      <Input
+                        id={`tier-rows-${i}`}
+                        type="number"
+                        min="0"
+                        max={MAX_ROWS}
+                        step="1"
+                        value={t.rowCount}
+                        onChange={(e) =>
+                          updateTier(i, "rowCount", e.target.value)
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="field-label" htmlFor={`tier-seats-${i}`}>
+                        Ghế mỗi hàng
+                      </label>
+                      <Input
+                        id={`tier-seats-${i}`}
+                        type="number"
+                        min="0"
+                        max={MAX_SEATS_PER_ROW}
+                        step="1"
+                        value={t.seatsPerRow}
+                        onChange={(e) =>
+                          updateTier(i, "seatsPerRow", e.target.value)
+                        }
+                      />
+                    </div>
                   </div>
                 </div>
-                <p className="text-xs muted mt-3">{money(t.price)} / vé</p>
+                <p className="text-xs muted mt-3">
+                  {money(t.price)} / vé · {t.quota} ghế
+                  {t.rowCount > 0 && t.seatsPerRow > 0
+                    ? ` (hàng A–${rowLabel(t.rowCount)}, ghế 1–${t.seatsPerRow})`
+                    : " · chưa mở bán khu này"}
+                </p>
               </div>
             ))}
           </section>

@@ -113,5 +113,6 @@ Write-ReferenceDiagram 'order' '1.JPEG' @{
 }
 Write-ReferenceDiagram 'ticket' '1.jpeg' @{
     ticket_types=@(0,0); reservations=@(1,0); outbox_events=@(2,0)
-    reservation_items=@(0,1); tickets=@(1,1); ticket_scans=@(2,1)
+    seats=@(0,1); reservation_items=@(1,1); reservation_seats=@(2,1)
+    tickets=@(0,2); ticket_scans=@(1,2)
 }
