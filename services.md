@@ -25,10 +25,21 @@ Role CUSTOMER/ORGANIZER/ADMIN và ACTIVE/LOCKED trong DTO là mapping ứng dụ
 | POST | `/auth/refresh` | AUTH-UC03 Refresh token (rotation) | Facade Auth → Keycloak |
 | POST | `/auth/logout` | AUTH-UC04 Đăng xuất | Facade Auth → Keycloak |
 | GET | `/auth/me` | AUTH-UC05 Thông tin tài khoản hiện tại | Facade Auth → Keycloak |
-| POST | `/auth/change-password` | AUTH-UC06 Đổi mật khẩu | Facade Auth → Keycloak |
-| PATCH | `/admin/users/{userId}/lock` | AUTH-UC08 Khóa tài khoản | Facade Auth → Keycloak |
-| PATCH | `/admin/users/{userId}/unlock` | AUTH-UC09 Mở khóa tài khoản | Facade Auth → Keycloak |
-| PATCH | `/admin/users/{userId}/role` | AUTH-UC07 Gán / chuyển role | Facade Auth → Keycloak |
+| POST | `/auth/change-password` | AUTH-UC06 Đổi mật khẩu (user tự đổi) | Facade Auth → Keycloak |
+| POST | `/auth/forgot-password` | AUTH-UC10 Yêu cầu reset mật khẩu | Facade Auth → Keycloak |
+| POST | `/auth/reset-password` | AUTH-UC11 Đặt lại mật khẩu bằng token | Facade Auth → Keycloak |
+| POST | `/auth/verify-email` | AUTH-UC12 Xác thực email | Facade Auth → Keycloak |
+| POST | `/auth/resend-verification` | AUTH-UC13 Gửi lại email xác thực | Facade Auth → Keycloak |
+| GET | `/auth/me/sessions` | AUTH-UC14 Xem session của mình | Facade Auth → Keycloak |
+| DELETE | `/auth/me/sessions/{sessionId}` | AUTH-UC15 Revoke một session của mình | Facade Auth → Keycloak |
+| GET | `/admin/users` | AUTH-UC07 Danh sách user (phân trang, tìm kiếm, lọc) | Facade Auth → Keycloak |
+| GET | `/admin/users/{userId}` | AUTH-UC08 Xem chi tiết user | Facade Auth → Keycloak |
+| PATCH | `/admin/users/{userId}/lock` | AUTH-UC09 Khóa tài khoản | Facade Auth → Keycloak |
+| PATCH | `/admin/users/{userId}/unlock` | AUTH-UC10 Mở khóa tài khoản | Facade Auth → Keycloak |
+| PATCH | `/admin/users/{userId}/role` | AUTH-UC11 Gán / chuyển role | Facade Auth → Keycloak |
+| POST | `/admin/users/{userId}/reset-password` | AUTH-UC12 Reset mật khẩu bởi admin | Facade Auth → Keycloak |
+| GET | `/admin/users/{userId}/sessions` | AUTH-UC13 Xem session của user | Facade Auth → Keycloak |
+| DELETE | `/admin/users/{userId}/sessions` | AUTH-UC14 Revoke tất cả session của user | Facade Auth → Keycloak |
 
 ## event-service
 
@@ -38,7 +49,7 @@ Chỉ owner ORGANIZER được sửa/submit/publish/close; ADMIN review. Chỉ D
 
 **Trạng thái:** DRAFT → SUBMITTED → APPROVED → PUBLISHED → CLOSED; SUBMITTED → REJECTED → DRAFT khi sửa.
 
-Schema/kiểu/NULL/unique: [DDL](docs/database/event-service/init.sql), [ERD](docs/database/event-service/erd.md). OpenAPI: [event](docs/api/event-service-openapi.yaml).
+Schema/kiểu/NULL/unique: [DDL tham chiếu](docs/database/event-service/init.sql) (nguồn chuẩn là Flyway [`V1__init.sql`](event-service/src/main/resources/db/migration/V1__init.sql), Hibernate chỉ validate), [ERD](docs/database/event-service/erd.md), [từ điển cột](docs/database/event-service/fields.md). OpenAPI: [event](docs/api/event-service-openapi.yaml).
 
 | Method | Đường dẫn (chưa gồm prefix public) | Mục đích | Trạng thái |
 |---|---|---|---|
@@ -49,6 +60,7 @@ Schema/kiểu/NULL/unique: [DDL](docs/database/event-service/init.sql), [ERD](do
 | POST | `/events/{id}/submit` | EVT-03 Nộp duyệt | Mục tiêu V2 |
 | POST | `/events/{id}/publish` | EVT-05 Publish Event | Mục tiêu V2 |
 | POST | `/events/{id}/close` | EVT-06 Đóng bán vé | Mục tiêu V2 |
+| GET | `/admin/events` | EVT-11 Admin xem danh sách Event chờ duyệt (lọc `status`, phân trang) | Mục tiêu V2 |
 | PATCH | `/admin/events/{id}/review` | EVT-04 Admin duyệt / từ chối Event | Mục tiêu V2 |
 | GET | `/organizer/events` | EVT-09 Event của tôi | Mục tiêu V2 |
 | GET | `/categories` | CAT-02 Danh sách Category (public) | Mục tiêu V2 |
@@ -56,6 +68,8 @@ Schema/kiểu/NULL/unique: [DDL](docs/database/event-service/init.sql), [ERD](do
 | PUT | `/categories/{id}` | CAT-03 Cập nhật Category | Mục tiêu V2 |
 | DELETE | `/categories/{id}` | CAT-04 Xóa Category | Mục tiêu V2 |
 | GET | `/internal/events/{id}` | INT-01 Thông tin Event cho service khác | Mục tiêu V2 |
+| GET | `/internal/events/ids?organizerId=` | INT-03 ID Event của một organizer (C10) | Đã có |
+| GET | `/internal/events?ids=` | INT-02 Batch Event theo danh sách ID (C10) | Đã có |
 
 ## ticket-service
 

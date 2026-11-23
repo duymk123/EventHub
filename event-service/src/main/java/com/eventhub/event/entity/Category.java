@@ -36,6 +36,7 @@ public class Category extends BaseEntity {
     @Column(name = "name", nullable = false, length = 100, unique = true)
     private String name;
 
+    /** TEXT trong V1; cột nullable nên @Builder để null là hợp lệ. */
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 }

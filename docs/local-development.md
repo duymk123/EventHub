@@ -1,6 +1,6 @@
 # Chạy service trên máy, Kafka và Redis bằng Docker
 
-MySQL chạy trực tiếp trên máy tại `localhost:3306`. Các service Java chạy bằng IntelliJ/Maven. File Compose riêng chạy Kafka, bước tạo topic, Redis và các giao diện quản lý; không yêu cầu mật khẩu MySQL Docker.
+MySQL chạy trực tiếp trên máy tại `localhost:3306` cho **hầu hết service**; riêng **auth-service dùng cổng 33101** (container `eventhub-auth-db-1` của Keycloak stack). Các service Java chạy bằng IntelliJ/Maven. File Compose riêng chạy Kafka, bước tạo topic, Redis và các giao diện quản lý; không yêu cầu mật khẩu MySQL Docker.
 
 ## Khởi động hạ tầng
 
@@ -38,19 +38,30 @@ Chờ `docker logs -f eventhub-keycloak` hiện `Listening on`. Sau đó chạy 
 
 Cấu hình local nằm trực tiếp trong `src/main/resources/application.yml` của từng service; không cần profile `local` hoặc file YAML riêng. Bật MySQL trên máy với tài khoản `root`, mật khẩu `root`, chọn cấu hình chạy của service trong IntelliJ rồi nhấn Shift+F10.
 
-| Service | Database trên localhost:3306 | Cổng HTTP |
-|---|---|---:|
-| api-gateway | eventhub_gateway | 8080 |
-| auth-service | eventhub_auth | 8081 |
-| event-service | eventhub_event | 8082 |
-| ticket-service | eventhub_ticket | 8083 |
-| order-service | eventhub_order | 8084 |
-| notification-service | eventhub_notification | 8085 |
-| analytics-service | eventhub_analytics | 8086 |
+| Service | Database | Cổng DB | Cổng HTTP |
+|---|---|---:|---:|
+| api-gateway | eventhub_gateway | 3306 | 8080 |
+| auth-service | eventhub_auth | **33101** ⚠️ | 8081 |
+| event-service | eventhub_event | 3306 (Flyway V1 + `validate`) | 8082 |
+| ticket-service | eventhub_ticket | 3306 | 8083 |
+| order-service | eventhub_order | 3306 | 8084 |
+| notification-service | eventhub_notification | 3306 | 8085 |
+| analytics-service | eventhub_analytics | 3306 | 8086 |
 
-Connector/J tạo database nếu chưa tồn tại và tài khoản có quyền tạo database. Gateway và cả 6 service dùng Hibernate `ddl-auto: update` để tạo/cập nhật bảng từ entity; Flyway tắt ở Notification và Analytics. Kafka của Notification/Analytics vẫn dùng `localhost:29092`.
+Connector/J tạo database nếu chưa tồn tại và tài khoản có quyền tạo database. **event-service** dùng Flyway `V1__init.sql` + `ddl-auto: validate`: DB rỗng thì chỉ cần chạy service, Flyway tự tạo bảng (`SPRING_FLYWAY_ENABLED` mặc định `true`). Gateway, auth/ticket/order dùng Hibernate `ddl-auto: update`; Flyway tắt ở Notification và Analytics. Kafka của Notification/Analytics vẫn dùng `localhost:29092`.
 
-Username/password mặc định là `root/root`. Có thể ghi đè bằng `DB_USERNAME`/`DB_PASSWORD` khi cần. Nếu trước đây đã khai báo `SPRING_PROFILES_ACTIVE=local`, có thể bỏ biến này. Kiểm tra và xóa/sửa các biến `DB_URL`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` hoặc `SPRING_DATASOURCE_*` trong Run Configuration nếu chúng ghi đè cấu hình local. Các biến `SPRING_JPA_HIBERNATE_DDL_AUTO` và `SPRING_FLYWAY_ENABLED` cũng có thể ghi đè YAML.
+> ⚠️ **event-service: đừng bật `validate` trên DB cũ chưa đồng bộ.** DB do Hibernate `update` tạo từ trước phải baseline có kiểm soát — quy trình ở [`EVENT-STATUS.md` §7](../event-service/EVENT-STATUS.md#7-nâng-cấp-database-cũ-ddl-auto-update--flyway). Biến `SPRING_JPA_HIBERNATE_DDL_AUTO`/tham số dòng lệnh ghi đè `application.yml` nên dễ vô tình quay lại `update`. Đã áp `V1` thì không sửa `V1__init.sql`, thay đổi schema dùng `V2__*.sql`.
+
+Username/password mặc định là `root/root`. Có thể ghi đè bằng `DB_USERNAME`/`DB_PASSWORD` khi cần.
+
+> ⚠️ **auth-service là ngoại lệ.** `application.yml` của auth-service đặt mặc định `DB_PORT:33101` (DB do Docker Compose của Keycloak stack quản lý), không phải 3306. Chạy `./mvnw spring-boot:run` mà không set env sẽ cố kết nối 33101 với password `root` và fail. Cách chạy đúng:
+
+```bash
+set -a && . .env.auth.local && set +a
+./mvnw -pl auth-service spring-boot:run
+```
+
+File `.env.auth.local` (đã gitignore) chứa `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` và cấu hình Keycloak thật của máy bạn. Nếu auth-service báo `Access denied for user 'root'@...` hoặc `Unable to determine Dialect`, kiểm tra lại biến `DB_PORT`/`DB_PASSWORD` trước khi nghĩ tới lỗi code. Nếu trước đây đã khai báo `SPRING_PROFILES_ACTIVE=local`, có thể bỏ biến này. Kiểm tra và xóa/sửa các biến `DB_URL`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` hoặc `SPRING_DATASOURCE_*` trong Run Configuration nếu chúng ghi đè cấu hình local. Các biến `SPRING_JPA_HIBERNATE_DDL_AUTO` và `SPRING_FLYWAY_ENABLED` cũng có thể ghi đè YAML.
 
 Analytics hiện chưa có Redis dependency hoặc nghiệp vụ dùng Redis. Các service có tích hợp Spring Data Redis có thể kết nối bằng `spring.data.redis.host: localhost` và `spring.data.redis.port: 6379`.
 
@@ -73,4 +84,4 @@ Nếu là một bản Notification đã chạy trong IntelliJ, dừng bản cũ 
 docker compose -f docker-compose.infra.yml stop
 ```
 
-Khi chuyển sang chạy toàn bộ bằng Docker sau này, Compose đã có biến kết nối tới MySQL Docker; database MySQL Docker độc lập với database trên máy. Nếu muốn quay lại quản lý schema bằng Flyway cho Notification/Analytics, cần cấu hình lại Flyway/Hibernate phù hợp. Không bật Flyway trực tiếp trên database đã được Hibernate tạo bảng mà chưa đối chiếu schema và xử lý baseline/migration.
+Khi chuyển sang chạy toàn bộ bằng Docker sau này, Compose đã có biến kết nối tới MySQL Docker; database MySQL Docker độc lập với database trên máy. Nếu muốn quay lại quản lý schema bằng Flyway cho Notification/Analytics, cần cấu hình lại Flyway/Hibernate phù hợp. Không bật Flyway trực tiếp trên database đã được Hibernate tạo bảng mà chưa đối chiếu schema và xử lý baseline/migration (event-service đã làm đúng đường này, xem `EVENT-STATUS.md` §7).

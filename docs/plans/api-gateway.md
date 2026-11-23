@@ -10,7 +10,7 @@ Cập nhật 2026-10-31. Gateway là thành phần hạ tầng thứ bảy, bên
 | `application.yml`: datasource/JPA, cổng mặc định 8080 | Bỏ datasource/JPA, thêm downstream URI, JWT, CORS, timeout và giới hạn request theo môi trường. |
 | Application trong `com.eventhub.gateway` | Giữ package này; thêm config/filter/security/exception, không thêm entity/repository. |
 | Compose có `api-gateway-db`, DB env và phụ thuộc DB | Bỏ phụ thuộc/env DB và service DB của Gateway khi triển khai, cập nhật tài liệu hạ tầng. Giữ volume dữ liệu cũ, không chạy xóa volume. |
-| Chưa có route/security/filter | Route đủ 47 REST operations public trong OpenAPI; 5 operations internal không đưa lên Gateway. WS là route riêng. |
+| Chưa có route/security/filter | Route đủ 48 REST operations public trong OpenAPI; 5 operations internal không đưa lên Gateway. WS là route riêng. |
 
 Không thay phiên bản stack chỉ vì viết plan. Boot `3.5.16` hiện tại tương ứng Cloud `2025.0.x` theo [bảng Spring](https://spring.io/projects/spring-cloud/); chọn và khóa service release BOM cụ thể lúc triển khai, kiểm tra hỗ trợ trước khi dùng môi trường thật. Import `spring-cloud-dependencies` qua dependencyManagement, ưu tiên scope module Gateway để tránh tác động sáu service khác. Thêm `spring-cloud-starter-gateway-server-webflux`, `spring-boot-starter-security`, `spring-boot-starter-oauth2-resource-server`, `spring-boot-starter-actuator`; phiên bản để BOM/Boot quản lý. Redis reactive chỉ thêm khi làm rate limit phân tán.
 
@@ -20,16 +20,23 @@ Giữ nguyên `/api/v1`, body/query/status và schema phân trang của owner. K
 
 | Route ID đề xuất | Method + path | Owner | Chính sách đầu vào |
 |---|---|---|---|
-| auth-public | POST `/api/v1/auth/register`, `/login`, `/refresh`, `/logout` dưới cùng `/api/v1/auth` | Auth | Không yêu cầu access JWT; Auth vẫn kiểm tra dữ liệu/refresh token/session. |
+| auth-public | POST `/api/v1/auth/register`, `/login`, `/refresh`, `/logout`, `/forgot-password`, `/reset-password`, `/verify-email`, `/resend-verification` dưới cùng `/api/v1/auth` | Auth | Không yêu cầu access JWT; Auth vẫn kiểm tra dữ liệu/refresh token/session. |
 | auth-me | GET `/api/v1/auth/me` | Auth | Business actor hợp lệ. |
 | auth-password | POST `/api/v1/auth/change-password` | Auth | Business actor hợp lệ. |
-| auth-admin | PATCH `/api/v1/admin/users/{userId}/lock`, `/unlock`, `/role` dưới cùng userId | Auth | ADMIN. |
+| auth-sessions | GET `/api/v1/auth/me/sessions`, DELETE `/api/v1/auth/me/sessions/{sessionId}` | Auth | Business actor hợp lệ. |
+| auth-admin-list | GET `/api/v1/admin/users` | Auth | ADMIN. |
+| auth-admin-detail | GET `/api/v1/admin/users/{userId}` | Auth | ADMIN. |
+| auth-admin-lock | PATCH `/api/v1/admin/users/{userId}/lock` | Auth | ADMIN. |
+| auth-admin-unlock | PATCH `/api/v1/admin/users/{userId}/unlock` | Auth | ADMIN. |
+| auth-admin-role | PATCH `/api/v1/admin/users/{userId}/role` | Auth | ADMIN. |
+| auth-admin-resetpass | POST `/api/v1/admin/users/{userId}/reset-password` | Auth | ADMIN. |
+| auth-admin-sessions | GET `/api/v1/admin/users/{userId}/sessions`, DELETE `/api/v1/admin/users/{userId}/sessions` | Auth | ADMIN. |
 | event-public | GET `/api/v1/events`, `/api/v1/events/{id}` | Event | Public; Event chỉ trả PUBLISHED. |
 | event-create | POST `/api/v1/events` | Event | ORGANIZER. |
 | event-update | PUT `/api/v1/events/{id}` | Event | ORGANIZER + owner tại Event. |
 | event-transition | POST `/api/v1/events/{id}/submit`, `/publish`, `/close` dưới cùng id | Event | ORGANIZER + owner/trạng thái tại Event. |
 | event-organizer | GET `/api/v1/organizer/events` | Event | ORGANIZER. |
-| event-review | PATCH `/api/v1/admin/events/{id}/review` | Event | ADMIN. |
+| event-review | GET `/api/v1/admin/events`; PATCH `/api/v1/admin/events/{id}/review` | Event | ADMIN; danh sách lọc `status`, phân trang. |
 | category-public | GET `/api/v1/categories` | Event | Public. |
 | category-write | POST `/api/v1/categories`; PUT, DELETE `/api/v1/categories/{id}` | Event | ADMIN. |
 | ticket-types-public | GET `/api/v1/events/{eventId}/ticket-types` | Ticket | Public theo contract; Ticket kiểm tra event được phép xem. |
@@ -49,7 +56,7 @@ Giữ nguyên `/api/v1`, body/query/status và schema phân trang của owner. K
 | analytics-admin (đề xuất C10) | GET `/api/v1/analytics/overview`, GET `/api/v1/analytics/events` (đúng path, không có `{id}`) | Analytics | ADMIN và ORGANIZER; Analytics tự giới hạn ORGANIZER vào sự kiện mình sở hữu. Khai báo route cụ thể, không mở `/api/v1/analytics/**`. |
 | analytics-ws | Upgrade `/ws/dashboard` | Analytics | Origin/giới hạn kết nối ở handshake; JWT CONNECT và quyền SUBSCRIBE tại Analytics. |
 
-Tên rút gọn `/login`, `/publish` trong một ô luôn nối với prefix được ghi trong ô; khi code phải khai báo đầy đủ từng path. Route có nhiều method/path phải tách khi các tổ hợp không cùng hợp lệ, tránh mở PUT collection hoặc POST item ngoài bảng. 47 public operations gồm Auth 9, Event 13, Ticket 7, Order 9, Notification 6, Analytics 3. Năm internal operations gồm Event 1 và Ticket 4; các API internal đề xuất mới cũng bị chặn. C10 khi triển khai: Analytics 5 public (tổng 49), internal thêm Event INT-02, INT-03 và Ticket capacity (tổng 8), các internal đều không route qua Gateway.
+Tên rút gọn `/login`, `/publish` trong một ô luôn nối với prefix được ghi trong ô; khi code phải khai báo đầy đủ từng path. Route có nhiều method/path phải tách khi các tổ hợp không cùng hợp lệ, tránh mở PUT collection hoặc POST item ngoài bảng. 48 public operations gồm Auth 9, Event 14, Ticket 7, Order 9, Notification 6, Analytics 3. Năm internal operations gồm Event 1 và Ticket 4; các API internal đề xuất mới cũng bị chặn. C10 khi triển khai: Analytics 5 public (tổng 50), internal thêm Event INT-02, INT-03 và Ticket capacity (tổng 8), các internal đều không route qua Gateway.
 
 Đặt `ticket-types-public` trước route events rộng nếu sau này dùng wildcard; ưu tiên exact patterns để giảm chồng lấn. Không route `/api/v1/admin/**` về một owner. Endpoint chưa implement ở downstream vẫn có thể trả 404; có route không chứng minh tính năng đã hoàn tất.
 
@@ -130,7 +137,7 @@ Gateway dùng API reactive `Mono<Void>`; không tạo service/repository giả c
 | Bước | Việc phải làm | Điều kiện hoàn tất |
 |---|---|---|
 | G1 — runtime | Chọn BOM tương thích, chuyển dependency MVC → WebFlux, bỏ DB config/phụ thuộc Compose của Gateway. | Module build, khởi động không cần MySQL Gateway; không thay dữ liệu volume. |
-| G2 — routing | Khai báo URI host/Docker; route theo bảng, giữ prefix/query, deny internal/default deny. | Kiểm đủ 47 operations public theo hợp đồng; 5 internal không bao giờ tới downstream qua Gateway. |
+| G2 — routing | Khai báo URI host/Docker; route theo bảng, giữ prefix/query, deny internal/default deny. | Kiểm đủ 48 operations public theo hợp đồng; 5 internal không bao giờ tới downstream qua Gateway. |
 | G3 — REST security | Chốt Keycloak issuer/audience/role/sub; Resource Server tại Gateway và service; header hygiene/CORS/ErrorResponse. | Chạy thử public/JWT/role/owner/preflight, không tin header giả. Chưa có Keycloak thì chỉ xác nhận routing, chưa tuyên bố security hoàn tất. |
 | G4 — payment/gate | Provider C06 và GateActor C07 để sau; C04 chọn ADMIN-only refund, C05 hold/verify/bù có thiết kế. | Webhook giữ chữ ký và Order xác minh; quyền refund ADMIN tại Gateway/service. Route provider/gate chưa đủ adapter/identity chưa bật. |
 | G5 — WS | Route ws riêng, Origin, CONNECT auth/timeout/expiry/SUBSCRIBE ở Analytics. | Browser nối được, sai JWT/owner bị từ chối, hết hạn đóng session, reconnect GET hội tụ. |

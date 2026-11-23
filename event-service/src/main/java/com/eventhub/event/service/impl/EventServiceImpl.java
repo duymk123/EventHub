@@ -83,6 +83,7 @@ public class EventServiceImpl implements EventService {
                 .startTime(request.startTime())
                 .endTime(request.endTime())
                 .build();
+        // category đã có trong bộ nhớ nên không cần đi thêm DB khi map response.
         return EventResponse.from(events.saveAndFlush(event));
     }
 
@@ -137,8 +138,10 @@ public class EventServiceImpl implements EventService {
     @Override
     public EventStatusResponse publish(Actor organizer, UUID eventId) {
         // 1) Kiểm tra nhanh không khóa để không gọi Ticket cho request chắc chắn bị từ chối.
+        //    Dùng findWithCategoryById (không phải findById): lúc commit, entity đang attached được Hibernate
+        //    kiểm tra và flush; category lazy chưa nạp sẽ ném LazyInitializationException (open-in-view: false).
         tx.executeWithoutResult(status -> {
-            Event event = events.findById(eventId).orElseThrow(EventServiceImpl::eventNotFound);
+            Event event = events.findWithCategoryById(eventId).orElseThrow(EventServiceImpl::eventNotFound);
             requireOwner(organizer, event);
             requireStatus(event, EnumSet.of(EventStatus.APPROVED));
             requireNotStarted(event);
@@ -212,6 +215,14 @@ public class EventServiceImpl implements EventService {
         Page<Event> result = status == null
                 ? events.findByOrganizerId(organizer.userId(), page)
                 : events.findByOrganizerIdAndStatus(organizer.userId(), status, page);
+        return result.map(EventResponse::from);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<EventResponse> getAll(EventStatus status, Pageable pageable) {
+        Pageable page = stable(pageable, Sort.by("updatedAt").descending());
+        Page<Event> result = status == null ? events.findAll(page) : events.findByStatus(status, page);
         return result.map(EventResponse::from);
     }
 

@@ -1,6 +1,6 @@
 # Database EventHub — cách đọc và schema hiện hành
 
-Nguồn: BC_32_V2 §2.3 kết hợp xác nhận UUID/Keycloak của chủ dự án. [Đối chiếu nguồn](../architecture/source-decisions.md), [câu hỏi còn mở](../project-clarifications.md). Tất cả DDL trong docs là tài liệu tham chiếu; Notification/Analytics phải chạy migration Flyway trong module, không chạy thêm init.sql thủ công.
+Nguồn: BC_32_V2 §2.3 kết hợp xác nhận UUID/Keycloak của chủ dự án. [Đối chiếu nguồn](../architecture/source-decisions.md), [câu hỏi còn mở](../project-clarifications.md). Tất cả DDL trong docs là tài liệu tham chiếu; Event/Notification/Analytics phải chạy migration Flyway trong module, không chạy thêm init.sql thủ công.
 
 ## Bắt đầu từ tài liệu giải thích từng trường
 
@@ -8,7 +8,7 @@ Bộ tài liệu cập nhật 2026-10-29 dành cho việc đọc hiểu database
 
 | Service | Tài liệu | Những điểm được giải thích |
 |---|---|---|
-| Auth | [Giải thích trường Auth](auth-service/fields.md) | User local trong code, audit và ranh giới Keycloak; chưa có DDL Auth được duyệt. |
+| Auth | [Giải thích trường Auth](auth-service/fields.md) | Không có User entity local; Keycloak sở hữu identity; `user_profiles` optional projection đã implement; audit và ranh giới Keycloak. |
 | Event | [Giải thích trường Event](event-service/fields.md) | Danh mục, người tổ chức, duyệt/công bố, thời gian sự kiện và khác biệt audit của entity. |
 | Ticket | [Giải thích trường Ticket](ticket-service/fields.md) | Giá/quota, available/reserved/sold, giữ chỗ, vé QR, quét vào/ra và outbox. |
 | Order | [Giải thích trường Order](order-service/fields.md) | Đơn, dòng mua, từng người dùng vé, thanh toán, webhook và yêu cầu hoàn. |
@@ -17,7 +17,7 @@ Bộ tài liệu cập nhật 2026-10-29 dành cho việc đọc hiểu database
 
 Ví dụ chỉ minh họa ý nghĩa, không phải dữ liệu seed hoặc xác nhận chính sách chưa chốt. UUID có thể được viết ngắn thành E (sự kiện), U (tài khoản), O (đơn), R (giữ chỗ), T (vé), M (message) trong lời giải thích; khi lưu thật phải là UUID hợp lệ, ví dụ `30000000-0000-4000-8000-000000000001`.
 
-Nguồn được phân biệt rõ: init.sql là schema tham chiếu; V1 là migration nền Notification/Analytics; entity là mapping hiện có. Các file có thể khác nhau và không thay thế việc xem database đang chạy. API Gateway không có bảng nghiệp vụ riêng trong bộ DDL này; datasource scaffold không có nghĩa có thêm bảng cần tự suy ra.
+Nguồn được phân biệt rõ: init.sql là schema tham chiếu; V1 là migration nền Event/Notification/Analytics (Event: `V1__init.sql`, helper nâng cấp DB cũ `helper_legacy_datetime.sql` không mang tiền tố `V<n>__` nên Flyway không tự chạy); entity là mapping hiện có. Các file có thể khác nhau và không thay thế việc xem database đang chạy. API Gateway không có bảng nghiệp vụ riêng trong bộ DDL này; datasource scaffold không có nghĩa có thêm bảng cần tự suy ra.
 
 <a id="cach-doc-tu-dien-truong"></a>
 
@@ -41,6 +41,7 @@ Nguồn được phân biệt rõ: init.sql là schema tham chiếu; V1 là migr
 | DECIMAL(14,2) | Số chính xác tối đa 14 chữ số tổng cộng, trong đó 2 số sau dấu thập phân; Java BigDecimal, ví dụ 500000.00. |
 | DATE | Chỉ có ngày, không có giờ; metric_date=2026-10-29. Cần quy tắc nghiệp vụ để xếp giao dịch vào ngày nào. |
 | TIMESTAMP | Mốc thời gian; quy ước UTC, ví dụ 03:00Z là 10:00 tại Việt Nam. Ghi/đọc cần cấu hình timezone phù hợp. |
+| DATETIME(6) | Mốc thời gian UTC không kèm logic timezone của MySQL; kiểu của Event V1 để Hibernate `validate` khớp `Instant` và tránh giới hạn năm 2038 của TIMESTAMP. Các service còn lại vẫn dùng TIMESTAMP trong init.sql tham chiếu. |
 | LocalDateTime trong entity | Ngày giờ không có offset/múi giờ; không tự đảm bảo UTC. Phân biệt với Instant và DDL mục tiêu. |
 | JSON | Dữ liệu có cấu trúc trong một cột; key trong payload không tự là các cột riêng. |
 
@@ -61,8 +62,8 @@ Phân biệt ID: **eventId là sự kiện khách tham dự; messageId là một
 
 | Service | Ảnh SVG và mô tả đầy đủ cột |
 |---|---|
-| Auth | [Sơ đồ ranh giới Keycloak](auth-service/erd.md); mapping User local hiện có được giải thích trong [từ điển trường](auth-service/fields.md), chưa có DDL local được duyệt |
-| Event | [ERD](event-service/erd.md) |
+| Auth | [Sơ đồ ranh giới Keycloak](auth-service/erd.md); không có User entity local; `user_profiles` optional projection đã implement; xem [từ điển trường](auth-service/fields.md) |
+| Event | [ERD](event-service/erd.md) — schema V1 (`event-service/src/main/resources/db/migration/V1__init.sql`), ERD sinh từ [init.sql](event-service/init.sql) có cùng nội dung |
 | Ticket | [ERD](ticket-service/erd.md) |
 | Order | [ERD](order-service/erd.md) |
 | Notification | [ERD V1 + V2](notification-service/erd.md) |
@@ -76,7 +77,7 @@ Phần bảng/cột bổ sung còn đề xuất trong [plan](../plans/README.md)
 
 | Nguồn dữ liệu | Bảng chính | ID sang service khác |
 |---|---|---|
-| [Auth/Keycloak](auth-service/README.md) | Keycloak quản lý identity; local User đã có trong code Auth, chưa có DDL local được duyệt; xem [trường hiện có](auth-service/fields.md) | userId/sub mapping cần cấu hình/đồng bộ |
+| [Auth/Keycloak](auth-service/README.md) | Keycloak quản lý identity (credentials, session, token, role); Auth facade gọi Admin REST/OIDC; `user_profiles` optional projection đã implement; xem [trường hiện có](auth-service/fields.md) | userId = Keycloak `sub` (UUID), mapping 1-1 |
 | [Event](event-service/init.sql) | categories, events | organizer_id |
 | [Ticket](ticket-service/init.sql) | ticket_types, reservations/items, tickets, ticket_scans; outbox kỹ thuật | event_id, order_id, owner_user_id, gate_id |
 | [Order](order-service/init.sql) | orders/items/holders, payments, refund_requests, payment_webhooks; outbox kỹ thuật | customer_id, event_id, reservation_id, ticket_type_id, requested_by, approved_by |
@@ -129,7 +130,7 @@ Migration Analytics V1 là nền, **chưa đủ chống đảo thứ tự check-
 
 Analytics/Notification đã có đủ bảy entity ánh xạ V1 và enums; metadata đã được đối chiếu với migration. File test đã được xóa theo yêu cầu chủ dự án. Chủ dự án chọn giữ schema hiện tại và bỏ qua BaseEntity: không thêm create_at/update_at/created_by/updated_by/deleted, không thêm migration audit. ProcessedEvent.id phải được gán bằng messageId; các entity nghiệp vụ còn lại dùng UUID generator. Timestamps nghiệp vụ của Analytics được service/projection gán, không thay bằng clock audit.
 
-Đối chiếu file ngày 2026-10-29: Notification/Analytics có migration V1, nhưng application.yml hiện đặt Flyway disabled và Hibernate update, khác thiết kế Flyway + validate được ghi trong tài liệu trước đó. Các module khác cũng đang cấu hình Hibernate update. Môi trường chạy có thể override qua biến môi trường; chưa kiểm tra schema/setting DB trực tiếp trong bộ từ điển này. Không chạy init.sql vào DB có dữ liệu hoặc sửa V1 đã áp dụng để đồng bộ tài liệu. Đổi schema cần migration phù hợp. [Seed](../../infrastructure/mysql/seed/README.md).
+Đối chiếu file ngày 2026-10-29: Notification/Analytics có migration V1, nhưng application.yml hiện đặt Flyway disabled và Hibernate update, khác thiết kế Flyway + validate được ghi trong tài liệu trước đó. Từ 2026-11-22, Event dùng Flyway V1 + `ddl-auto: validate` (đã kiểm chứng trên MySQL 8.4, có đường nâng cấp DB cũ); Notification/Analytics vẫn cần đối chiếu lại khi triển khai. Các module khác cũng đang cấu hình Hibernate update. Môi trường chạy có thể override qua biến môi trường; chưa kiểm tra schema/setting DB trực tiếp trong bộ từ điển này. Không chạy init.sql vào DB có dữ liệu hoặc sửa V1 đã áp dụng để đồng bộ tài liệu. Đổi schema cần migration phù hợp. [Seed](../../infrastructure/mysql/seed/README.md).
 
 Ảnh [Order](order-service/1.JPEG) và [Ticket](ticket-service/1.jpeg) đã được tạo lại từ cùng model với SVG hiện hành: PK và ID tham chiếu đều là UUID `CHAR(36)`. Có thể tạo lại bằng [render-erd.ps1](render-erd.ps1) trên Windows; `init.sql` và `erd.md` mô tả đầy đủ constraint/quan hệ. SVG là bản đọc bằng mã để đối chiếu tên/kiểu cột, JPEG là bản tương thích để xem.
 

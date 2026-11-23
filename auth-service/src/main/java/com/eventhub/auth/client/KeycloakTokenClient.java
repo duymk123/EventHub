@@ -57,7 +57,15 @@ public class KeycloakTokenClient {
     }
 
     /**
-     * Đăng nhập bằng email/mật khẩu. Sai thông tin → INVALID_CREDENTIALS; tài khoản bị khóa → ACCOUNT_LOCKED.
+     * Đăng nhập bằng email/mật khẩu.
+     *
+     * <p>Phân biệt ba trường hợp bị từ chối, vì frontend hiển thị theo mã lỗi chứ không theo message:
+     * <ul>
+     *   <li>đúng mật khẩu nhưng còn required action chưa hoàn tất (chưa xác minh email) → {@code EMAIL_NOT_VERIFIED}</li>
+     *   <li>tài khoản bị ADMIN khoá → {@code ACCOUNT_LOCKED}</li>
+     *   <li>còn lại → {@code INVALID_CREDENTIALS}</li>
+     * </ul>
+     * Trước đây hai trường hợp đầu dùng chung {@code ACCOUNT_LOCKED}, khiến user chưa xác minh bị báo nhầm là bị khoá.
      */
     public TokenResponse login(String email, String password) {
         MultiValueMap<String, String> form = clientForm("password");
@@ -72,7 +80,8 @@ public class KeycloakTokenClient {
                 throw new BusinessException(ErrorCode.ACCOUNT_LOCKED, "Account is locked");
             }
             if (error.getStatusCode().is4xxClientError() && description.contains("not fully set up")) {
-                throw new BusinessException(ErrorCode.ACCOUNT_LOCKED, "Account requires further setup");
+                throw new BusinessException(ErrorCode.EMAIL_NOT_VERIFIED,
+                        "Email has not been verified yet");
             }
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS, "Invalid email or password");
         }
