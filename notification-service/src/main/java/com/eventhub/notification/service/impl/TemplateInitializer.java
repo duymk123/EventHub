@@ -15,6 +15,9 @@ import java.util.UUID;
 @Component
 public class TemplateInitializer implements SmartInitializingSingleton {
     private final JdbcTemplate jdbc;
+    /** Phần đuôi mẫu email vé mặc định trước C03/C12, để nâng cấp DB đã seed mà không đè mẫu ADMIN đã sửa. */
+    private static final String LEGACY_TICKET_EMAIL_TAIL = "<p>{{eventStartTime}} {{venue}}</p>{{#tickets}}"
+            + "<p>{{holderName}} — {{ticketTypeName}}</p><img src=\"cid:{{cid}}\" alt=\"QR\">{{/tickets}}";
 
     public TemplateInitializer(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -44,20 +47,25 @@ public class TemplateInitializer implements SmartInitializingSingleton {
     private void seed(String code, String subject, String content) {
         for (String channel : new String[]{"IN_APP", "EMAIL"}) {
             String body = content;
+            String previous = content;
             if ("EMAIL".equals(channel)) {
                 body = "<p>" + content + "</p>";
                 if ("TICKET_ISSUED".equals(code)) {
-                    body += "<p>{{eventStartTime}} {{venue}}</p>{{#tickets}}"
-                            + "<p>{{holderName}} — {{ticketTypeName}}</p><img src=\"cid:{{cid}}\" alt=\"QR\">{{/tickets}}";
+                    previous = body + LEGACY_TICKET_EMAIL_TAIL;
+                    // C03 + C12: giờ Việt Nam, địa điểm chung, khu và ghế của từng vé.
+                    body += "<p>Thời gian: {{eventStartTime}}<br>Địa điểm: {{venue}}</p>{{#tickets}}"
+                            + "<p>{{holderName}} — Khu {{ticketTypeName}} · Ghế {{seatLabel}}</p>"
+                            + "<img src=\"cid:{{cid}}\" alt=\"QR vé {{seatLabel}}\">{{/tickets}}";
                 }
             }
             // Tên code/channel cho UUID seed ổn định qua các lần restart.
             String id = UUID.nameUUIDFromBytes((code + ":" + channel).getBytes(StandardCharsets.UTF_8)).toString();
-            // Nhánh trùng unique giữ mẫu ADMIN đang có trong database.
+            // Nhánh trùng unique giữ mẫu ADMIN đã sửa; chỉ nâng cấp khi nội dung còn đúng mẫu mặc định cũ.
             jdbc.update("""
                     INSERT INTO notification_templates(id, code, channel, subject, body_template, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id
-                    """, id, code, channel, subject, body, Timestamp.from(Instant.now()));
+                    VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE
+                        body_template = IF(body_template = ?, VALUES(body_template), body_template)
+                    """, id, code, channel, subject, body, Timestamp.from(Instant.now()), previous);
         }
     }
 }
