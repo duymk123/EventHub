@@ -28,34 +28,43 @@ public class NotificationBatchService {
         this.clock = clock;
     }
 
+    /** Một email cần gửi: địa chỉ và model riêng (C02: mỗi địa chỉ chỉ thấy QR của vé gửi cho mình). */
+    public record EmailTarget(String email, Map<String, Object> model) {
+    }
+
     /**
-     * Giữ khóa batch theo messageId, kiểm tra fingerprint rồi trả target đã có hoặc tạo đủ EMAIL/IN_APP trong
-     * cùng transaction. Nội dung được render và lưu một lần, giá trị trả về là danh sách notificationId để
-     * delivery tiếp tục.
+     * Giữ khóa batch theo messageId, kiểm tra fingerprint rồi trả target đã có hoặc tạo đủ target trong cùng
+     * transaction: một IN_APP cho người mua (model đầy đủ) và một EMAIL cho mỗi địa chỉ. Nội dung được render và
+     * lưu một lần, giá trị trả về là danh sách notificationId để delivery tiếp tục.
      */
     @Transactional
     public List<UUID> prepare(UUID messageId, String fingerprint, String code, UUID buyerId,
-                              String email, Map<String, Object> model) {
+                              Map<String, Object> inAppModel, List<EmailTarget> emails) {
         Instant now = clock.instant();
         // Khóa theo messageId nằm trong transaction prepare, bao quanh cả bước kiểm tra và tạo target.
-        delivery.lockBatch(messageId, fingerprint, now);
+        delivery.lockBatch(messageId, fingerprint, 1 + emails.size(), now);
         List<UUID> existing = delivery.targets(messageId);
         if (!existing.isEmpty()) {
             // Retry dùng lại nội dung đã lưu, kể cả ADMIN đã sửa template sau khi batch được tạo.
             return existing;
         }
-        for (NotificationChannel channel : NotificationChannel.values()) {
-            // Mỗi kênh có một mẫu riêng, hiện tạo một EMAIL và một IN_APP cho người mua.
-            var template = templates.findByCodeAndChannel(code, channel)
-                    .orElseThrow(() -> new IllegalStateException("Notification template unavailable"));
-            String title = renderer.render(template.getSubject(), model).replaceAll("[\\r\\n]", " ");
-            if (title.length() > 255) {
-                throw new IllegalStateException("Rendered notification title is too long");
-            }
-            delivery.create(messageId, buyerId, email, channel.name(), code,
-                    title, renderer.render(template.getBodyTemplate(), model), model, now);
+        create(messageId, code, NotificationChannel.IN_APP, buyerId, null, inAppModel, now);
+        for (EmailTarget target : emails) {
+            create(messageId, code, NotificationChannel.EMAIL, buyerId, target.email(), target.model(), now);
         }
         return delivery.targets(messageId);
+    }
+
+    private void create(UUID messageId, String code, NotificationChannel channel, UUID buyerId, String email,
+                        Map<String, Object> model, Instant now) {
+        var template = templates.findByCodeAndChannel(code, channel)
+                .orElseThrow(() -> new IllegalStateException("Notification template unavailable"));
+        String title = renderer.render(template.getSubject(), model).replaceAll("[\\r\\n]", " ");
+        if (title.length() > 255) {
+            throw new IllegalStateException("Rendered notification title is too long");
+        }
+        delivery.create(messageId, buyerId, email, channel.name(), code,
+                title, renderer.render(template.getBodyTemplate(), model), model, now);
     }
 
     /**

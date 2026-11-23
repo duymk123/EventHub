@@ -72,3 +72,5 @@ eventhub:
     algorithm: ${EVENTHUB_JWT_ALGORITHM:RS256}
   notification:
     mail-from: ${MAIL_FROM:noreply@eventhub.local}
+    # C03: một địa điểm chung cho mọi sự kiện; dùng khi ticket.issued không có venue.
+    venue-text: ${EVENTHUB_VENUE_TEXT:141 Đường Chiến Thắng, Hà Nội}

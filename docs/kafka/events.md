@@ -82,9 +82,9 @@ Consumer Analytics yêu cầu currency và items[].refundedAmount, tổng bằng
 
 orderId (UUID), customerEmail (snapshot email buyer đã xác minh), eventTitle (snapshot string), eventStartTime (instant), venue (text cấu hình C03 `141 Đường Chiến Thắng, Hà Nội`; nullable để tương thích message cũ), ownerUserId (UUID buyer), tickets[{ticketId UUID, ticketTypeId UUID, ticketTypeName, seatId UUID, seatLabel (ví dụ "B-07", C12), holderName, holderEmail nullable C02, qrCodeValue opaque}].
 
-Sau transaction confirm tạo vé/QR commit. Event Client lấy title/startTime từ InternalEventResponse. C03 chốt một địa điểm: Notification dùng text cấu hình chung dự kiến EVENTHUB_VENUE_TEXT, snapshot lúc tạo batch; chưa cần venue trong Event DB. venue nullable giữ tương thích message cũ; thiếu cấu hình thật không dùng địa chỉ giả.
+Sau transaction confirm tạo vé/QR commit. Event Client lấy title/startTime từ InternalEventResponse. C03 chốt một địa điểm: Notification dùng text cấu hình chung `eventhub.notification.venue-text` (biến EVENTHUB_VENUE_TEXT) khi venue trống, snapshot lúc tạo batch; chưa cần venue trong Event DB. venue nullable giữ tương thích message cũ; thiếu cấu hình thật không dùng địa chỉ giả.
 
-C02 mới nhất chốt owner_user_id=customerId buyer. Mỗi vé ưu tiên holderEmail, thiếu fallback buyer customerEmail; gom cùng địa chỉ, mỗi email chỉ nhận QR nhóm vé gửi tới mình. Một IN_APP thuộc buyer, không suy tài khoản holder từ email. Order chuyển email vào confirm/outbox để retry không tra dữ liệu mới. Code Notification hiện buyer-only với hai target cố định cần mở rộng theo quyết định mới; chưa coi đã hỗ trợ gửi holder. Không log QR/email trong lỗi.
+C02 mới nhất chốt owner_user_id=customerId buyer. Mỗi vé ưu tiên holderEmail, thiếu fallback buyer customerEmail; gom cùng địa chỉ, mỗi email chỉ nhận QR nhóm vé gửi tới mình. Một IN_APP thuộc buyer, không suy tài khoản holder từ email. Order chuyển email vào confirm/outbox để retry không tra dữ liệu mới. Đã có code ngày 2026-11-23: batch gồm một IN_APP và một EMAIL cho mỗi địa chỉ (`expected_count` = 1 + số địa chỉ), mỗi email chỉ nhúng QR của vé gửi tới địa chỉ đó; email in giờ Việt Nam, địa điểm (C03) và "Khu … · Ghế …" (C12). Không log QR/email trong lỗi.
 
 ### ticket.checked-in / ticket.checked-out
 

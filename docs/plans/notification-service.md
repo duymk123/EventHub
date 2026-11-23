@@ -96,8 +96,11 @@ Nếu target đang được worker khác lease, không coi message đã xong; re
 
 ErrorCode API: NOTIFICATION_NOT_FOUND/TEMPLATE_NOT_FOUND 404, FORBIDDEN 403, VALIDATION_ERROR 400; delivery phân loại retry riêng. C02/C03 đã chốt (text địa điểm: 141 Đường Chiến Thắng, Hà Nội); multi-target và cấu hình text cần triển khai. payment.compensated là hướng phát triển (C05 đầy đủ), không có consumer/template ở giai đoạn này.
 
-## Chốt 2026-11-22: text địa điểm và số ghế (chưa làm)
+## Chốt 2026-11-22: text địa điểm, số ghế và người nhận (đã làm 2026-11-23)
 
 - **C03:** thêm cấu hình `eventhub.notification.venue-text: ${EVENTHUB_VENUE_TEXT:141 Đường Chiến Thắng, Hà Nội}`. Khi tạo batch `ticket.issued`, dùng `venue` trong message nếu có, nếu không dùng text cấu hình; snapshot vào model để retry không đổi theo cấu hình mới.
 - **C12:** `TicketIssuedEvent.tickets[]` thêm `seatId`, `seatLabel` (tùy chọn để message cũ vẫn đọc được); template email in "Khu {{ticketTypeName}} · Ghế {{seatLabel}}" cho từng vé.
 - **C05 rút gọn:** `order.refunded` chỉ phát khi VNPay hoàn thành công nên email hoàn tiền giữ nguyên; không có `payment.compensated` ở giai đoạn này.
+- **C02 (code 2026-11-23):** `NotificationProcessingServiceImpl.handleTicketIssued` gom vé theo địa chỉ (holderEmail nếu có, thiếu thì customerEmail; so không phân biệt hoa thường). `NotificationBatchService.prepare` nhận một model IN_APP (đủ vé, cho người mua) và danh sách `EmailTarget(email, model)`; `lockBatch` lưu `expected_count = 1 + số email`. `order.failed`/`order.refunded` vẫn một email cho người mua.
+- **Mẫu email:** `TemplateInitializer` chỉ nâng cấp mẫu `TICKET_ISSUED`/EMAIL khi nội dung còn đúng mẫu mặc định cũ; mẫu ADMIN đã sửa giữ nguyên. Giờ hiển thị `HH:mm dd/MM/yyyy` giờ Việt Nam.
+- **Kiểm tra (2026-11-23):** mua 3 ghế (1 holder có email) → IPN → Ticket phát vé → Kafka → Notification → Mailpit: holder nhận 1 email với đúng 1 QR, người mua nhận 1 email với 2 QR còn lại; có ghế, địa điểm, giờ Việt Nam; ảnh QR giải mã ra đúng `qr_code_value` của vé trong DB (11/11).

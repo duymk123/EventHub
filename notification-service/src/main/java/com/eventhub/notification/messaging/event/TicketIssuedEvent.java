@@ -46,14 +46,18 @@ public record TicketIssuedEvent(
      * @param ticketTypeId UUID hạng vé, là khóa nhóm số liệu theo từng hạng.
      * @param ticketTypeName Tên hạng vé được snapshot, nhận VIP, PREMIUM hoặc STANDARD.
      * @param holderName Tên người sử dụng vé để hiển thị trong email.
-     * @param holderEmail Email người sử dụng vé trong payload, luồng hiện tại gửi email về người mua.
+     * @param holderEmail Email người sử dụng vé; có thì email QR gửi tới địa chỉ này (C02), thiếu thì gửi người mua.
      * @param qrCodeValue Token QR opaque đã được Ticket cấp, dùng mã hóa PNG gửi email.
+     * @param seatId UUID ghế (C12), tùy chọn để message cũ vẫn đọc được.
+     * @param seatLabel Nhãn ghế như B-07 (C12), in trong email; tùy chọn.
      */
     public record Ticket(
             @NotNull UUID ticketId, @NotNull UUID ticketTypeId,
             @NotNull @Pattern(regexp = "VIP|PREMIUM|STANDARD") String ticketTypeName,
             @NotBlank @Size(max = 255) String holderName,
             @Email @Size(max = 255) String holderEmail,
-            @NotBlank @Size(max = 2048) String qrCodeValue) {
+            @NotBlank @Size(max = 2048) String qrCodeValue,
+            UUID seatId,
+            @Size(max = 8) String seatLabel) {
     }
 }

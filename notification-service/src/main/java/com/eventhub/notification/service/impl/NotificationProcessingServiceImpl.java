@@ -4,8 +4,11 @@ import com.eventhub.notification.messaging.InvalidEventException;
 import com.eventhub.notification.messaging.event.*;
 import com.eventhub.notification.service.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import java.security.MessageDigest;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
@@ -17,12 +20,18 @@ public class NotificationProcessingServiceImpl implements NotificationProcessing
     private final NotificationBatchService batches;
     private final NotificationDeliveryService delivery;
     private final ObjectMapper mapper;
+    private final String venueText;
+    /** Giờ hiển thị trong email theo giờ Việt Nam, ví dụ 19:30 28/11/2026. */
+    private static final DateTimeFormatter DISPLAY_TIME =
+            DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy").withZone(ZoneId.of("Asia/Ho_Chi_Minh"));
 
     public NotificationProcessingServiceImpl(NotificationBatchService batches,
-            NotificationDeliveryService delivery, ObjectMapper mapper) {
+            NotificationDeliveryService delivery, ObjectMapper mapper,
+            @Value("${eventhub.notification.venue-text:141 Đường Chiến Thắng, Hà Nội}") String venueText) {
         this.batches = batches;
         this.delivery = delivery;
         this.mapper = mapper;
+        this.venueText = venueText;
     }
 
     /**
@@ -38,7 +47,7 @@ public class NotificationProcessingServiceImpl implements NotificationProcessing
         // Luồng điều phối dùng chung cho ba topic. prepare trả các ID target đã lưu, deliver xử lý từng target,
         // complete chỉ chấp nhận batch khi tất cả target SENT. Batch đang chờ worker khác ném
         // DeliveryInProgressException để được retry.
-        process(event, "ORDER_FAILED", event.customerId(), event.customerEmail(), model);
+        process(event, "ORDER_FAILED", event.customerId(), model, buyerOnly(event.customerEmail(), model));
     }
 
     /**
@@ -52,38 +61,59 @@ public class NotificationProcessingServiceImpl implements NotificationProcessing
         // Luồng điều phối dùng chung cho ba topic. prepare trả các ID target đã lưu, deliver xử lý từng target,
         // complete chỉ chấp nhận batch khi tất cả target SENT. Batch đang chờ worker khác ném
         // DeliveryInProgressException để được retry.
-        process(event, "ORDER_REFUNDED", event.customerId(), event.customerEmail(), model);
+        process(event, "ORDER_REFUNDED", event.customerId(), model, buyerOnly(event.customerEmail(), model));
     }
 
     /**
-     * Kiểm tra email người mua và các ticketId duy nhất, dựng model gồm thông tin sự kiện, vé và Content-ID cho
-     * ảnh QR, rồi gửi cả lô về người mua.
+     * Kiểm tra email người mua và các ticketId duy nhất, dựng model gồm thông tin sự kiện, vé (kèm ghế) và
+     * Content-ID cho ảnh QR. C02: vé có holderEmail gửi tới địa chỉ đó, thiếu thì gửi người mua; vé cùng địa chỉ
+     * gom một email và mỗi địa chỉ chỉ nhận QR của vé mình. IN_APP cho người mua liệt kê đủ vé. C03: venue trống
+     * thì dùng text địa điểm cấu hình, snapshot vào model nên retry không đổi.
      */
     @Override
     public void handleTicketIssued(TicketIssuedEvent event) {
         if (event.customerEmail() == null || event.customerEmail().isBlank()) {
             throw new InvalidEventException("Buyer email snapshot is required for ticket delivery");
         }
+        String buyerEmail = event.customerEmail().trim();
         Set<UUID> ids = new HashSet<>();
-        List<Map<String, Object>> tickets = new ArrayList<>();
+        List<Map<String, Object>> allTickets = new ArrayList<>();
+        // Khóa nhóm là email viết thường; giữ cách viết của lần xuất hiện đầu để gửi.
+        Map<String, String> addressOf = new LinkedHashMap<>();
+        Map<String, List<Map<String, Object>>> byAddress = new LinkedHashMap<>();
         for (var ticket : event.tickets()) {
             if (!ids.add(ticket.ticketId())) {
                 throw new InvalidEventException("Duplicate ticket in issued event");
             }
-            tickets.add(Map.of("ticketId", ticket.ticketId().toString(), "holderName", ticket.holderName(),
-                    "ticketTypeName", ticket.ticketTypeName(), "qrCodeValue", ticket.qrCodeValue(),
-                    "cid", "ticket-" + ticket.ticketId()));
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("ticketId", ticket.ticketId().toString());
+            item.put("holderName", ticket.holderName());
+            item.put("ticketTypeName", ticket.ticketTypeName());
+            item.put("seatLabel", ticket.seatLabel() == null ? "" : ticket.seatLabel());
+            item.put("qrCodeValue", ticket.qrCodeValue());
+            item.put("cid", "ticket-" + ticket.ticketId());
+            allTickets.add(item);
+            String recipient = ticket.holderEmail() == null || ticket.holderEmail().isBlank()
+                    ? buyerEmail : ticket.holderEmail().trim();
+            String key = recipient.toLowerCase(Locale.ROOT);
+            addressOf.putIfAbsent(key, recipient);
+            byAddress.computeIfAbsent(key, k -> new ArrayList<>()).add(item);
         }
-        Map<String, Object> model = new LinkedHashMap<>();
-        model.put("orderId", event.orderId().toString());
-        model.put("eventTitle", event.eventTitle());
-        model.put("eventStartTime", event.eventStartTime().toString());
-        model.put("venue", event.venue() == null ? "" : event.venue());
-        model.put("tickets", tickets);
-        // Luồng điều phối dùng chung cho ba topic. prepare trả các ID target đã lưu, deliver xử lý từng target,
-        // complete chỉ chấp nhận batch khi tất cả target SENT. Batch đang chờ worker khác ném
-        // DeliveryInProgressException để được retry.
-        process(event, "TICKET_ISSUED", event.ownerUserId(), event.customerEmail(), model);
+        Map<String, Object> base = new LinkedHashMap<>();
+        base.put("orderId", event.orderId().toString());
+        base.put("eventTitle", event.eventTitle());
+        base.put("eventStartTime", DISPLAY_TIME.format(event.eventStartTime()));
+        base.put("venue", event.venue() == null || event.venue().isBlank() ? venueText : event.venue());
+
+        Map<String, Object> inApp = new LinkedHashMap<>(base);
+        inApp.put("tickets", allTickets);
+        List<NotificationBatchService.EmailTarget> emails = new ArrayList<>();
+        byAddress.forEach((key, tickets) -> {
+            Map<String, Object> model = new LinkedHashMap<>(base);
+            model.put("tickets", tickets);
+            emails.add(new NotificationBatchService.EmailTarget(addressOf.get(key), model));
+        });
+        process(event, "TICKET_ISSUED", event.ownerUserId(), inApp, emails);
     }
 
     /**
@@ -91,10 +121,10 @@ public class NotificationProcessingServiceImpl implements NotificationProcessing
      * complete chỉ chấp nhận batch khi tất cả target SENT. Batch đang chờ worker khác ném
      * DeliveryInProgressException để được retry.
      */
-    private void process(BusinessEvent event, String code, UUID buyerId, String email, Map<String, Object> model) {
+    private void process(BusinessEvent event, String code, UUID buyerId, Map<String, Object> inAppModel,
+                         List<NotificationBatchService.EmailTarget> emails) {
         // Bước 1 ghi batch và snapshot target vào DB, hoặc lấy lại đúng các target của lần trước.
-        List<UUID> targets = batches.prepare(event.messageId(), fingerprint(event), code,
-                buyerId, email.trim(), model);
+        List<UUID> targets = batches.prepare(event.messageId(), fingerprint(event), code, buyerId, inAppModel, emails);
         // Bước 2 thử giao từng target. Repository chỉ cho claim EMAIL chưa SENT và lease đã rảnh.
         for (UUID target : targets) {
             delivery.deliver(target);
@@ -103,6 +133,10 @@ public class NotificationProcessingServiceImpl implements NotificationProcessing
         if (!batches.complete(event.messageId())) {
             throw new com.eventhub.notification.messaging.DeliveryInProgressException();
         }
+    }
+
+    private static List<NotificationBatchService.EmailTarget> buyerOnly(String email, Map<String, Object> model) {
+        return List.of(new NotificationBatchService.EmailTarget(email.trim(), model));
     }
 
     /**

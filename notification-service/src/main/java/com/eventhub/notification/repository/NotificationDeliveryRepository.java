@@ -30,11 +30,12 @@ public class NotificationDeliveryRepository {
      * Tạo batch nếu thiếu rồi SELECT FOR UPDATE theo messageId để tuần tự hóa các lần prepare. So fingerprint
      * và báo lỗi nếu messageId cũ đi kèm dữ liệu nguồn khác, caller cần đang ở trong transaction.
      */
-    public void lockBatch(UUID id, String fingerprint, Instant now) {
+    public void lockBatch(UUID id, String fingerprint, int expectedCount, Instant now) {
+        // expectedCount = 1 IN_APP + số địa chỉ email (C02). Cùng payload luôn ra cùng số, nên retry giữ giá trị cũ.
         jdbc.update("""
                 INSERT INTO notification_batches(id, target_fingerprint, expected_count, status, created_at)
-                VALUES (?, ?, 2, 'PENDING', ?) ON DUPLICATE KEY UPDATE id = id
-                """, id.toString(), fingerprint, Timestamp.from(now));
+                VALUES (?, ?, ?, 'PENDING', ?) ON DUPLICATE KEY UPDATE id = id
+                """, id.toString(), fingerprint, expectedCount, Timestamp.from(now));
         // Khóa nằm trong transaction prepare của caller, các worker cùng message phải chờ lượt.
         String existing = jdbc.queryForObject(
                 "SELECT target_fingerprint FROM notification_batches WHERE id = ? FOR UPDATE",

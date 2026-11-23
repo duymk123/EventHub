@@ -400,5 +400,5 @@ components:
           type: integer
           minimum: 0
 x-source: BC_32_V2 §2.2–2.3 + xác nhận trực tiếp chủ dự án
-x-implementation-status: implemented-pending-team-identity-and-producer-integration
+x-implementation-status: implemented-2026-11-23 (consumer order.failed/order.refunded/ticket.issued với producer thật; email QR theo C02/C03/C12 đã thử qua Mailpit)
 x-open-decisions: ../project-clarifications.md

@@ -41,7 +41,7 @@ Các mục “Codex chọn” ghi rõ nguồn thiết kế, không phải lời 
 - tickets.owner_user_id = orders.customer_id. Holder có email không tự có quyền GET /tickets/me hoặc lấy QR bằng tài khoản khác.
 - Order chuyển snapshot email người mua và holder qua confirm; Ticket giữ trong outbox ticket.issued để retry không tra email hiện tại.
 - Mỗi vé gửi holderEmail nếu có và hợp lệ; thiếu thì dùng buyer snapshot. Gom cùng địa chỉ; mỗi địa chỉ chỉ nhận QR các vé gửi cho họ. IN_APP thuộc người mua, không tạo tài khoản holder suy từ email.
-- Cập nhật này thay chính sách gom mọi QR về buyer trong code Notification hiện có. Xử lý/batch cần đổi theo chính sách mới; sửa tài liệu chưa làm code hỗ trợ nhiều người nhận.
+- Cập nhật này thay chính sách gom mọi QR về buyer. Notification đã có code nhiều người nhận ngày 2026-11-23 (một email cho mỗi địa chỉ, IN_APP cho người mua).
 
 ## C03 — Một địa điểm dùng chung
 
