@@ -38,12 +38,14 @@ public class AuthServiceImpl implements AuthService {
     private final KeycloakTokenClient tokenClient;
     private final KeycloakUserClient userClient;
     private final UserProfileRepository profiles;
+    private final EmailRateLimiter emailRateLimiter;
 
     public AuthServiceImpl(KeycloakTokenClient tokenClient, KeycloakUserClient userClient,
-                           UserProfileRepository profiles) {
+                           UserProfileRepository profiles, EmailRateLimiter emailRateLimiter) {
         this.tokenClient = tokenClient;
         this.userClient = userClient;
         this.profiles = profiles;
+        this.emailRateLimiter = emailRateLimiter;
     }
 
     @Override
@@ -130,6 +132,12 @@ public class AuthServiceImpl implements AuthService {
         KeycloakUser user = userClient.getUser(userId);
         if (user.emailVerified()) {
             throw new BusinessException(ErrorCode.EMAIL_ALREADY_VERIFIED, "Email is already verified");
+        }
+        // Link xác minh không chứa mật khẩu nên không ai khác mở thay được. Không gắn requiredActions trước:
+        // send-verify-email đã mang action trong link, gắn trước sẽ chặn đăng nhập của user.
+        if (!emailRateLimiter.tryAcquire(user.email().toLowerCase(Locale.ROOT))) {
+            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS,
+                    "Verification email was sent recently, please check your inbox");
         }
         userClient.sendVerifyEmail(userId);
     }

@@ -7,11 +7,17 @@ spring:
     password: "${DB_PASSWORD:root}"
   jpa:
     hibernate:
-      ddl-auto: update
+      # Schema do Flyway tạo; Hibernate chỉ kiểm tra mapping khớp schema, không tự sửa bảng.
+      ddl-auto: validate
     open-in-view: false
     properties:
       hibernate.jdbc.time_zone: UTC
       hibernate.type.preferred_uuid_jdbc_type: CHAR
+  flyway:
+    # V1 tạo schema nền. DB đã có bảng từ thời ddl-auto: update: xem EVENT-STATUS.md §7 trước khi chạy.
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+    baseline-on-migrate: false
   data:
     web:
       pageable:

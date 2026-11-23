@@ -14,6 +14,11 @@ public enum ErrorCode {
     REFRESH_TOKEN_REUSED(401),
     FORBIDDEN(403),
     ACCOUNT_LOCKED(403),
+    /**
+     * User đúng mật khẩu nhưng bị Keycloak chặn vì còn required action chưa hoàn tất (thường là chưa xác minh
+     * email). Tách khỏi ACCOUNT_LOCKED để không báo nhầm là "tài khoản bị khoá".
+     */
+    EMAIL_NOT_VERIFIED(403),
     USER_NOT_FOUND(404),
     PROFILE_NOT_FOUND(404),
     EMAIL_ALREADY_EXISTS(409),
@@ -26,6 +31,8 @@ public enum ErrorCode {
     CANNOT_MODIFY_OWN_ACCOUNT(409),
     /** Sau khi đổi role user vẫn mang hai business role, thường do role mặc định của realm còn chứa CUSTOMER. */
     ROLE_MAPPING_CONFLICT(409),
+    /** Gửi mail quá nhiều lần trong một khoảng thời gian (chống spam hộp thư người khác). */
+    TOO_MANY_REQUESTS(429),
     INTERNAL_ERROR(500),
     AUTH_PROVIDER_UNAVAILABLE(503);
 

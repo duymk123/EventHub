@@ -15,3 +15,6 @@ out/
 .DS_Store
 Thumbs.db
 *.yaml
+
+# Giữ file test Postman dùng chung cho team; chỉ bỏ qua file local của từng máy.
+postman/EventHub-Local.postman_environment.json

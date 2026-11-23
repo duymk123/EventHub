@@ -2,9 +2,11 @@
 
 Database mặc định: `eventhub_event`. Event lưu thông tin sự kiện và danh mục. Giá vé, số lượng và QR nằm ở Ticket; người mua và tiền thanh toán nằm ở Order.
 
-Nguồn đối chiếu: [DDL tham chiếu](init.sql), [entity hiện có](../../../event-service/src/main/java/com/eventhub/event/entity), [EventStatus](../../../event-service/src/main/java/com/eventhub/event/common/EventStatus.java), [plan Event](../../plans/event-service.md). Xem [cách đọc kiểu dữ liệu và NULL](../README.md#cach-doc-tu-dien-truong).
+Nguồn đối chiếu: [DDL tham chiếu](init.sql), migration [`V1__init.sql`](../../../event-service/src/main/resources/db/migration/V1__init.sql), [entity](../../../event-service/src/main/java/com/eventhub/event/entity), [EventStatus](../../../event-service/src/main/java/com/eventhub/event/common/EventStatus.java), [plan Event](../../plans/event-service.md). Xem [cách đọc kiểu dữ liệu và NULL](../README.md#cach-doc-tu-dien-truong).
 
-Hai bảng đầu giải thích schema tham chiếu. Entity hiện có khác schema ở các trường audit và một số mapping; phần 3 ghi riêng các khác biệt, không gộp chúng thành một schema đã đồng bộ. Cấu hình hiện dùng Hibernate update, chưa xác nhận database đang chạy giống DDL.
+**Nguồn sự thật của schema là migration Flyway V1.** [application.yml](../../../event-service/src/main/resources/application.yml) đặt `spring.flyway.enabled: true` và `ddl-auto: validate`: Hibernate chỉ kiểm tra mapping khớp cột thật, không tự tạo/sửa bảng. [init.sql](init.sql) là bản tham chiếu cùng nội dung V1 (chạy tay khi cần dựng DB mẫu, không chạy trên DB đã có dữ liệu). Entity được dựng khớp cột/cột thời gian nên không còn mục "khác DDL" như bản tài liệu 2026-10-29.
+
+Mọi cột ID dùng `CHAR(36)` lưu UUID (Hibernate `@JdbcTypeCode(SqlTypes.CHAR)`), không dùng `BINARY(16)`. Mọi cột thời gian dùng `DATETIME(6)` lưu **giờ UTC**: service ghi/đọc bằng `java.time.Instant` với `hibernate.jdbc.time_zone: UTC` và `forceConnectionTimeZoneToSession=true`, nên giá trị đọc trực tiếp trong MySQL là UTC, không phải giờ Việt Nam.
 
 ## 1. `categories` — Danh mục sự kiện
 
@@ -12,76 +14,70 @@ Một dòng là một danh mục để nhóm nhiều sự kiện, ví dụ Âm n
 
 | Trường | Kiểu / ràng buộc theo SQL | Ý nghĩa và lúc sử dụng | Ví dụ minh họa |
 |---|---|---|---|
-| `id` | CHAR(36), PK, bắt buộc | ID danh mục, được events.category_id tham chiếu. | UUID danh mục C |
-| `name` | VARCHAR(100), bắt buộc, UNIQUE | Tên danh mục dùng hiển thị/lọc sự kiện. UNIQUE ngăn hai dòng trùng tên theo quy tắc so sánh của DB. | `Âm nhạc` |
-| `description` | TEXT, được NULL | Giải thích danh mục này bao gồm những sự kiện nào; có thể không nhập. | `Các chương trình biểu diễn âm nhạc.` |
-| `created_at` | TIMESTAMP, bắt buộc | Thời điểm tạo danh mục theo DDL tham chiếu; SQL không có DEFAULT tự lấy giờ. | `2026-10-29T02:00:00Z` |
+| `id` | CHAR(36), PK, bắt buộc | ID danh mục, được `events.category_id` tham chiếu. | UUID danh mục C |
+| `name` | VARCHAR(100), bắt buộc, `UNIQUE KEY uk_categories_name` | Tên danh mục dùng hiển thị/lọc sự kiện. UNIQUE ngăn hai dòng trùng tên theo collation MySQL (không phân biệt hoa/thường) — đây là chốt cuối khi hai ADMIN tạo cùng lúc; service trả 409 `CATEGORY_NAME_EXISTS`. | `Âm nhạc` |
+| `description` | TEXT, được NULL | Giải thích danh mục bao gồm những sự kiện nào; có thể không nhập. | `Các chương trình biểu diễn âm nhạc.` |
+| `created_at` | DATETIME(6), bắt buộc | Thời điểm tạo, UTC. Không có DEFAULT trong SQL; Hibernate `@CreationTimestamp` điền khi insert. | `2026-10-29 02:00:00` (UTC) |
+| `updated_at` | DATETIME(6), bắt buộc | Thời điểm cập nhật gần nhất, UTC; Hibernate `@UpdateTimestamp` điền khi update. | `2026-10-29 03:00:00` (UTC) |
 
-Một category có thể được nhiều events sử dụng. Không xóa danh mục đang được sự kiện tham chiếu mà bỏ qua FK/quy tắc nghiệp vụ.
+Một danh mục dùng được cho nhiều sự kiện. Xoá danh mục đang có sự kiện bị chặn: service kiểm `existsByCategoryId` trả 409 `CATEGORY_IN_USE`, và FK `fk_events_category` là chốt cuối ở tầng DB.
 
 ## 2. `events` — Thông tin và trạng thái sự kiện
 
 | Trường | Kiểu / ràng buộc theo SQL | Ý nghĩa và lúc sử dụng | Ví dụ minh họa |
 |---|---|---|---|
-| `id` | CHAR(36), PK, bắt buộc | ID chương trình/sự kiện mà khách mua vé tham dự. Đây là eventId nghiệp vụ, khác messageId Kafka. | UUID sự kiện E |
-| `organizer_id` | CHAR(36), bắt buộc | Tài khoản tổ chức/sở hữu sự kiện; dùng kiểm tra ai được sửa và xem báo cáo. ID mềm, không có FK xuyên sang Auth/Keycloak. | UUID tài khoản ORGANIZER |
-| `category_id` | CHAR(36), bắt buộc, FK | Danh mục của sự kiện, trỏ categories.id trong Event DB. | UUID danh mục Âm nhạc |
+| `id` | CHAR(36), PK, bắt buộc | ID chương trình/sự kiện mà khách mua vé tham dự. Đây là `eventId` nghiệp vụ dùng ở Ticket/Analytics, khác `messageId` Kafka. | UUID sự kiện E |
+| `organizer_id` | CHAR(36), bắt buộc | Tài khoản tổ chức sở hữu sự kiện; dùng kiểm tra ai được sửa và xem báo cáo. **Khóa mềm**: là Keycloak `sub`, không có FK sang Auth/Keycloak. | UUID tài khoản ORGANIZER |
+| `category_id` | CHAR(36), bắt buộc, FK `fk_events_category` → `categories.id` | Danh mục của sự kiện, trong cùng DB Event. Index cùng tên `fk_events_category` giúp kiểm tra FK khi xoá danh mục. | UUID danh mục Âm nhạc |
 | `title` | VARCHAR(255), bắt buộc | Tên chương trình hiển thị cho khách và có thể chụp lại vào nội dung vé/email. Không phải tên topic Kafka. | `Đêm nhạc tháng 11` |
 | `description` | TEXT, được NULL | Nội dung giới thiệu, thông tin chi tiết về sự kiện. | `Chương trình biểu diễn của các ban nhạc…` |
-| `status` | VARCHAR(20), bắt buộc, DEFAULT DRAFT | Giai đoạn duyệt/công bố/ngừng bán của sự kiện; xem bảng trạng thái bên dưới. | `PUBLISHED` |
-| `start_time` | TIMESTAMP, bắt buộc | Thời điểm bắt đầu sự kiện, dùng hiển thị và kiểm tra điều kiện hoàn trước ít nhất 48 giờ. | `2026-11-15T12:00:00Z` = 19:00 giờ Việt Nam |
-| `end_time` | TIMESTAMP, bắt buộc | Thời điểm kết thúc dự kiến; DDL yêu cầu start_time nhỏ hơn end_time. Không phải hạn giữ chỗ ba phút. | `2026-11-15T15:00:00Z` = 22:00 giờ Việt Nam |
-| `created_at` | TIMESTAMP, bắt buộc | Thời điểm tạo bản ghi sự kiện theo DDL. Không phải thời điểm chương trình diễn ra. | `2026-10-29T02:10:00Z` |
-| `updated_at` | TIMESTAMP, bắt buộc | Thời điểm cập nhật bản ghi gần nhất theo DDL; khác end_time. | `2026-10-29T03:00:00Z` |
-| `review_reason` | TEXT, được NULL | Nhận xét/lý do khi admin xem xét, nhất là khi từ chối để người tổ chức biết cần sửa gì. Là cột bổ sung kỹ thuật trong DDL, entity hiện chưa có. | `Cần bổ sung nội dung chương trình.` |
+| `status` | VARCHAR(20), bắt buộc, DEFAULT `'DRAFT'`, CHECK `chk_events_status` | Giai đoạn duyệt/công bố/ngừng bán; xem bảng trạng thái bên dưới. | `PUBLISHED` |
+| `start_time` | DATETIME(6), bắt buộc, UTC | Thời điểm bắt đầu sự kiện; dùng hiển thị, kiểm tra chưa tới giờ mới cho submit/publish, và điều kiện hoàn vé trước 48 giờ (Order). | `2026-11-15 12:00:00` (UTC) = 19:00 giờ Việt Nam |
+| `end_time` | DATETIME(6), bắt buộc, UTC, CHECK `chk_events_time` (`start_time < end_time`) | Thời điểm kết thúc dự kiến. Không phải hạn giữ chỗ ba phút của Ticket. | `2026-11-15 15:00:00` (UTC) = 22:00 giờ Việt Nam |
+| `created_at` | DATETIME(6), bắt buộc, UTC | Thời điểm tạo bản ghi. Không phải thời điểm chương trình diễn ra. | `2026-10-29 02:10:00` (UTC) |
+| `updated_at` | DATETIME(6), bắt buộc, UTC | Thời điểm cập nhật gần nhất; cũng là khóa sắp xếp mặc định của `GET /api/v1/admin/events`. Khác `end_time`. | `2026-10-29 03:00:00` (UTC) |
+| `review_reason` | TEXT, được NULL | Lý do ADMIN từ chối, để organizer biết cần sửa gì. API trả tên trường `rejectReason`. Xoá khi APPROVE và khi organizer sửa lại event REJECTED (bắt đầu vòng duyệt mới). | `Cần bổ sung nội dung chương trình.` |
 
 | Giá trị status | Cách hiểu trong luồng nghiệp vụ |
 |---|---|
-| DRAFT | Bản nháp đang được người tổ chức chuẩn bị. |
+| DRAFT | Bản nháp đang được người tổ chức chuẩn bị; sửa được. |
 | SUBMITTED | Đã gửi duyệt, chờ admin xem xét. |
 | APPROVED | Đã được duyệt, chưa tự đồng nghĩa đã công khai để bán. |
-| REJECTED | Bị từ chối; sửa nội dung đưa về DRAFT rồi có thể gửi lại. |
-| PUBLISHED | Đã công bố; luồng tìm kiếm public chỉ trả sự kiện trạng thái này. |
-| CLOSED | Đã ngừng bán. Không tự có nghĩa hủy sự kiện, hủy vé hoặc mọi vé mất hiệu lực. |
+| REJECTED | Bị từ chối, có `review_reason`; sửa nội dung đưa về DRAFT rồi gửi lại. |
+| PUBLISHED | Đã công bố và mở bán; luồng tìm kiếm public chỉ trả sự kiện trạng thái này. |
+| CLOSED | Đã ngừng bán. Không tự có nghĩa hủy sự kiện, hủy vé hay mọi vé mất hiệu lực. |
 
-Luồng chính: DRAFT → SUBMITTED → APPROVED → PUBLISHED → CLOSED. Nhánh sửa: SUBMITTED → REJECTED → DRAFT. Quyền sửa/submit/publish/close còn gắn với organizer_id; một tài khoản có role ORGANIZER không được sửa mọi sự kiện.
+Luồng chính: DRAFT → SUBMITTED → APPROVED → PUBLISHED → CLOSED. Nhánh từ chối: SUBMITTED → REJECTED → (sửa) DRAFT. Quyền sửa/submit/publish/close còn gắn với `organizer_id`; tài khoản có role ORGANIZER không sửa được sự kiện của người khác (403 `FORBIDDEN_NOT_OWNER`).
 
-Chỉ mục `(status, start_time)` phục vụ tìm public theo thời gian, organizer_id/created_at phục vụ sự kiện của tôi. C03 chốt một địa điểm với text cấu hình chung trong email QR; DDL chưa cần venue/location/zone/seat, không suy có locations từ comment entity. C08 cho quota 0, publish cần một ACTIVE quota > 0 tại Ticket, không đòi mọi hạng dương hoặc JOIN DB Ticket.
+Chỉ mục: `idx_events_public (status, start_time)` cho tìm public theo trạng thái/khoảng thời gian, `idx_events_owner (organizer_id, created_at)` cho "sự kiện của tôi". C03 chốt một địa điểm với text cấu hình chung trong email QR; schema chưa có venue/location/zone/seat. C08: quota 0 không đủ để publish, cần ít nhất một hạng ACTIVE có `total_quota > 0` ở Ticket — Event chỉ gọi API Ticket, không JOIN DB Ticket.
 
-## 3. Trường audit có trong entity hiện tại, khác DDL tham chiếu
+## 3. Ánh xạ entity ↔ cột
 
-[BaseEntity.java](../../../event-service/src/main/java/com/eventhub/event/entity/BaseEntity.java) là lớp cha của Category và Event. Nó không có bảng riêng; các trường kế thừa được ánh xạ trên bảng con. Bảng dưới mô tả tên **theo annotation Java**, không khẳng định đã có cột tương ứng trong database đang chạy.
+[BaseEntity.java](../../../event-service/src/main/java/com/eventhub/event/entity/BaseEntity.java) là lớp cha `@MappedSuperclass` của `Category` và `Event`; nó không có bảng riêng, hai cột dưới được ánh xạ lên cả hai bảng.
 
-| Trường | Kiểu / khai báo trong entity | Ý nghĩa dễ hiểu | Ví dụ minh họa |
-|---|---|---|---|
-| `create_at` | LocalDateTime, nullable=false, không cập nhật lại | Thời điểm tạo dòng theo mapping BaseEntity. Tên thực tế thiếu chữ d so với created_at của DDL. | `2026-10-29T02:10:00` theo quy ước timezone được cấu hình |
-| `update_at` | LocalDateTime, cho phép NULL theo @Column | Thời điểm cập nhật gần nhất theo mapping; khác tên updated_at trong DDL. | `2026-10-29T03:00:00` |
-| `created_by` | String, cho phép NULL theo @Column | Danh tính người tạo do cơ chế auditing cung cấp, không phải organizer_id được client tùy ý gửi. | UUID người thao tác dạng chuỗi |
-| `updated_by` | String, cho phép NULL theo @Column | Danh tính người thực hiện thay đổi gần nhất. Không phải lúc nào cũng trùng người tạo. | UUID người sửa dạng chuỗi |
-| `deleted` | boolean, nullable=false | Cờ đánh dấu xóa mềm nếu nghiệp vụ sử dụng: false còn hoạt động, true đánh dấu xóa. Java mặc định false, không phải DEFAULT trong DDL tham chiếu. | `false` |
+| Cột | Entity | Ghi chú |
+|---|---|---|
+| `created_at` | `BaseEntity.createdAt` — `Instant`, `nullable = false`, `updatable = false`, `@CreationTimestamp` | Hibernate điền khi insert, không cần bật JPA Auditing. |
+| `updated_at` | `BaseEntity.updatedAt` — `Instant`, `nullable = false`, `@UpdateTimestamp` | Hibernate điền mỗi lần update. |
 
-Các annotation @CreatedDate/@LastModifiedDate/@CreatedBy/@LastModifiedBy cần cấu hình auditing/provider phù hợp mới tự điền được. Có cờ deleted không tự làm repository.delete thành xóa mềm, cũng không tự lọc các query. LocalDateTime không mang thông tin múi giờ; không đọc giá trị đó như UTC chỉ vì DDL mục tiêu dùng TIMESTAMP.
-
-Các khác biệt đáng chú ý để tránh nhầm khi đọc file:
-
-| DDL tham chiếu | Entity hiện có |
-|---|---|
-| categories.created_at; events.created_at/updated_at | Cả Category và Event kế thừa create_at/update_at cùng created_by/updated_by/deleted. Không phải tên cột đồng nghĩa tự động. |
-| categories.name có UNIQUE; description là TEXT | Category.name chưa khai báo unique; description khai báo length=255. |
-| events.status VARCHAR(20); organizer_id CHAR(36) | Event.status length=50; organizerId đang là String. Phải phân biệt kiểu Java và schema tham chiếu. |
-| start_time/end_time theo TIMESTAMP UTC | Entity dùng LocalDateTime, cần cấu hình/chuyển đổi phù hợp trước khi coi đúng quy ước UTC. |
-| events.review_reason | Chưa có field tương ứng trong Event.java hiện tại. |
-
-Đây là ghi nhận khác biệt để đọc hiểu, không phải migration đã đổi tên cột. Tài liệu này không sửa schema/entity.
+| Cột | Entity | Ghi chú |
+|---|---|---|
+| `categories.id`, `events.id` | `@Id @UuidGenerator @JdbcTypeCode(SqlTypes.CHAR)`, `length = 36` | UUID do Hibernate sinh, không dùng AUTO_INCREMENT. |
+| `categories.name` | `@Column(length = 100, unique = true)` | Trùng `uk_categories_name` của V1. |
+| `categories.description`, `events.description`, `events.review_reason` | `@Column(columnDefinition = "TEXT")` | Khai báo tường minh để validate khớp TEXT. |
+| `events.organizer_id` | `UUID organizerId`, `@JdbcTypeCode(SqlTypes.CHAR)`, `updatable = false` | So sánh với `sub` của token; đổi chủ sở hữu không được phép. |
+| `events.category_id` | `@ManyToOne(fetch = LAZY, optional = false) @JoinColumn(name = "category_id")` | Trong Java là đối tượng `Event.category`; không có cột chứa JSON danh mục. Truy vấn đọc DTO đều fetch-join để tránh `LazyInitializationException` (`open-in-view: false`). |
+| `events.status` | `EventStatus status` với `@Enumerated(EnumType.STRING)`, `length = 20` | Enum Java nằm ở `common`, không ở `entity`. DB là VARCHAR chứ không phải kiểu ENUM của MySQL. |
+| `events.start_time`, `end_time` | `Instant`, `nullable = false` | Kiểm `start < end` ở cả service (400) và CHECK ở DB. |
 
 ## 4. Ví dụ đọc một sự kiện
 
 Người tổ chức A tạo sự kiện E, danh mục Âm nhạc C, diễn ra tối 15/11:
 
-1. events lưu organizer_id=A, category_id=C, title và start_time/end_time; ban đầu status=DRAFT.
-2. Khi gửi duyệt, status=SUBMITTED. Admin từ chối thì cần phản hồi ở review_reason theo DDL; người tổ chức sửa lại và gửi lại.
-3. APPROVED là đã duyệt; sau thao tác publish mới thành PUBLISHED để khách tìm kiếm.
-4. Ticket tạo các ticket_types với event_id=E trong DB riêng. Event không lưu price/quota của từng hạng.
-5. Analytics nhận eventId=E trong message và dùng organizer_id của Event để kiểm tra ai được xem báo cáo.
+1. `events` lưu `organizer_id = A`, `category_id = C`, `title`, `start_time/end_time` (UTC); ban đầu `status = DRAFT`.
+2. Gửi duyệt → `status = SUBMITTED`. Admin từ chối thì `review_reason` ghi lý do; người tổ chức sửa lại (về DRAFT, xoá lý do) rồi gửi lại.
+3. APPROVED là đã duyệt; sau thao tác publish (qua preflight Ticket) mới thành PUBLISHED và khách tìm kiếm được.
+4. Ticket tạo các `ticket_types` với `event_id = E` trong DB riêng. Event không lưu price/quota của từng hạng.
+5. Analytics nhận `eventId = E` trong message và dùng `organizer_id` để kiểm tra ai được xem báo cáo.
 
-Trong Java `Event.category` là quan hệ ánh xạ cột category_id; không có cột category chứa nguyên JSON danh mục. Xem [ERD](erd.md), [API Event](../../api/event-service-openapi.yaml) và các câu hỏi [C03/C08](../../project-clarifications.md).
+Xem [ERD](erd.md), [API Event](../../api/event-service-openapi.yaml) và các câu hỏi [C03/C08](../../project-clarifications.md).

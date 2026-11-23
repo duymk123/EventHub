@@ -32,9 +32,11 @@ import java.util.UUID;
 @NoArgsConstructor
 @Builder
 @Entity
+// Tên index/FK/CHECK trùng V1 nên Hibernate chỉ thấy chúng là đã đúng; ddl-auto không tạo lại thứ đã có.
 @Table(name = "events", indexes = {
         @Index(name = "idx_events_public", columnList = "status, start_time"),
-        @Index(name = "idx_events_owner", columnList = "organizer_id, created_at")
+        @Index(name = "idx_events_owner", columnList = "organizer_id, created_at"),
+        @Index(name = "fk_events_category", columnList = "category_id")
 })
 public class Event extends BaseEntity {
 
@@ -55,6 +57,7 @@ public class Event extends BaseEntity {
     @Column(name = "title", nullable = false, length = 255)
     private String title;
 
+    /** TEXT trong V1: khai báo tường minh thay vì để Hibernate tự đoán kiểu cột. */
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 

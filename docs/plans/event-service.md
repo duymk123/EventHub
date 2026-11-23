@@ -1,5 +1,10 @@
 # Plan code event-service
 
+> **Trạng thái:** đã triển khai, 17/17 endpoint chạy thật. Xem
+> [`event-service/EVENT-STATUS.md`](../../event-service/EVENT-STATUS.md) để biết cái gì xong, cái gì còn thiếu.
+> §6 đã làm Flyway + `ddl-auto: validate` (2026-11-22); Testcontainers và test đồng thời **vẫn chưa làm** theo
+> quy ước không thêm file test mới khi chưa được yêu cầu.
+
 Ngày 2026-10-28. Nguồn: [quy ước chung](00-cross-service-contracts.md), [OpenAPI Event](../api/event-service-openapi.yaml), [DDL](../database/event-service/init.sql), [ERD UUID](../database/event-service/erd.md). Event sở hữu `categories/events`, không sở hữu ticket_types, tồn kho, zone A–D hoặc bảng người dùng.
 
 ## 1. Entity, DTO và package
@@ -51,7 +56,7 @@ Tất cả extends JpaRepository với UUID. Method ghi/lock chỉ chạy trong 
 | `findByOrganizerId(UUID organizerId, Pageable page): Page<Event>` | Dựa idx_events_owner; có thể dùng Specification cho status filter. |
 | `findAll(Specification<Event> filters, Pageable page): Page<Event>` | JpaSpecificationExecutor; public filter luôn kèm status PUBLISHED ở service/spec builder tin cậy. |
 | `existsByCategoryId(UUID categoryId): boolean` | Chặn xóa category đang dùng; FK DB vẫn bắt race. |
-| `compareAndSetStatus(UUID id, UUID ownerId, EventStatus from, EventStatus to, Instant updatedAt): int` | Phương án thay pessimistic lock cho owner transitions; admin review dùng điều kiện phù hợp và review_reason cùng update. Không dùng owner giả cho ADMIN. |
+| ~~`compareAndSetStatus(...)`~~ | **Không dùng.** Đã chốt hướng pessimistic lock (`findByIdForUpdate`). Dòng này giữ lại làm ghi chú phương án đã cân nhắc, không phải API đang có. |
 | `CategoryRepository.existsByName(String normalizedName): boolean` | UX kiểm tra trước; UNIQUE là chốt chống race. |
 | `existsByNameAndIdNot(String name, UUID id): boolean` | Update không tự đụng tên chính nó. |
 | `findAllByOrderByNameAscIdAsc(): List<Category>` | Danh mục public ổn định. |
@@ -66,6 +71,7 @@ Chốt cách chuẩn hóa/collation tên với UNIQUE của MySQL: không dựa 
 | POST `/api/v1/events` | create |
 | PUT `/api/v1/events/{id}` | update |
 | POST `/api/v1/events/{id}/submit` | submit |
+| GET `/api/v1/admin/events` (EVT-11, ADMIN) | getAll(status, pageable) — sort mặc định `updatedAt desc`, lọc `status` |
 | PATCH `/api/v1/admin/events/{id}/review` | review |
 | POST `/api/v1/events/{id}/publish` | publish |
 | POST `/api/v1/events/{id}/close` | close |
@@ -82,8 +88,24 @@ C08 yêu cầu kiểm tra Ticket trước publish, không trước submit. Bổ 
 
 ## 6. Migration, lỗi và kiểm tra
 
-Event chưa có Flyway/entity: tạo migration đầu tiên dựa DDL tham chiếu, đổi ddl-auto validate cùng thay đổi triển khai, dùng UUID CHAR(36) và các index hiện có. Với DB đã có bảng dùng mapping cũ phải kiểm tra/baseline có kiểm soát; không bật tự động để che khác schema.
+**Trạng thái: ĐÃ LÀM (2026-11-22).** `src/main/resources/db/migration/V1__init.sql` là nguồn schema chuẩn (UUID CHAR(36), `DATETIME(6)` UTC, index `idx_events_public/idx_events_owner/fk_events_category`, UNIQUE `uk_categories_name`, FK `fk_events_category`, CHECK `chk_events_status/chk_events_time`); `application.yml` đặt `ddl-auto: validate` và bật Flyway. `docs/database/event-service/init.sql` là bản tham chiếu cùng nội dung, đã so bằng `information_schema` thấy giống hệt V1.
 
-ErrorCode: EVENT_NOT_FOUND/CATEGORY_NOT_FOUND 404, FORBIDDEN_NOT_OWNER/FORBIDDEN 403, INVALID_EVENT_STATE/CATEGORY_ALREADY_EXISTS/CATEGORY_IN_USE/TICKET_CONFIGURATION_NOT_READY 409, INVALID_DATE_RANGE/VALIDATION_ERROR 400, TICKET_SERVICE_UNAVAILABLE 503 cho preflight C08.
+DB đã có bảng từ thời `ddl-auto: update` phải baseline có kiểm soát — quy trình và giới hạn (Hibernate `update` **không** thêm FK khi index FK đã tồn tại, **không** đổi ENUM sang VARCHAR) ghi ở [`EVENT-STATUS.md` §7](../../event-service/EVENT-STATUS.md#7-nâng-cấp-database-cũ-ddl-auto-update--flyway); helper tay `db/migration/helper_legacy_datetime.sql` không mang tiền tố `V<n>__` nên Flyway không tự chạy. Sau khi áp V1 không sửa V1: thay đổi schema phải là `V2__*.sql`.
 
-Test cần có: role+owner; DRAFT→SUBMITTED→APPROVED→PUBLISHED→CLOSED; REJECTED edit→DRAFT; hai review/edit đồng thời chỉ một trạng thái hợp lệ; public không thấy draft/closed; internal vẫn đọc được; filter ngày/page ổn định; xóa category đua create Event bị FK chặn; schema UUID cột organizer/category. Unit service + WebMvcTest, MySQL Testcontainers cho lock/FK/unique. C03/C08 chỉ chặn nhánh phụ thuộc, không chặn toàn bộ Category/Event core.
+ErrorCode: EVENT_NOT_FOUND/CATEGORY_NOT_FOUND 404, FORBIDDEN_NOT_OWNER/FORBIDDEN 403, INVALID_EVENT_STATE/CATEGORY_NAME_EXISTS/CATEGORY_IN_USE/TICKET_CONFIGURATION_NOT_READY 409, INVALID_DATE_RANGE/VALIDATION_ERROR 400, TICKET_SERVICE_UNAVAILABLE 503 cho preflight C08.
+
+Test cần có — đánh dấu cái nào đã có:
+
+- [x] role + owner (`SecurityConfigTest`)
+- [x] DRAFT→SUBMITTED→APPROVED→PUBLISHED→CLOSED (`fullLifecycle`)
+- [x] REJECTED edit→DRAFT (`rejectNeedsReasonAndEditingRejectedEventReturnsToDraft`)
+- [x] public không thấy draft/closed (kiểm thật end-to-end)
+- [x] internal vẫn đọc được event CLOSED (kiểm thật end-to-end)
+- [ ] **hai review/edit đồng thời chỉ một trạng thái hợp lệ** — CHƯA CÓ
+- [ ] **filter ngày/page ổn định** — CHƯA CÓ test riêng
+- [ ] **xóa category đua create Event bị FK chặn** — CHƯA CÓ test (code có xử lý, chưa chứng minh)
+- [x] **schema UUID cột organizer/category** — có trong V1 (CHAR(36) mọi PK/ID tham chiếu), chứng minh bằng so `information_schema`
+- [x] **Flyway + `ddl-auto: validate` trên MySQL thật** — DB rỗng, DB cũ + helper, DB cũ + baseline (EVENT-STATUS §3, §7)
+- [ ] **MySQL Testcontainers cho lock/FK/unique** — CHƯA CÓ
+
+Hiện có 14 test (7 unit + 7 WebMvcTest), đều PASS. Phần Testcontainers và test đồng thời là lỗ hổng lớn nhất: code dùng `PESSIMISTIC_WRITE` nhưng chưa có test nào chứng minh nó chống được race. C03/C08 chỉ chặn nhánh phụ thuộc, không chặn toàn bộ Category/Event core.

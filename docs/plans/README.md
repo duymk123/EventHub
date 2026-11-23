@@ -4,12 +4,28 @@ Cập nhật 2026-10-28, viết trực tiếp trên `main` theo yêu cầu chủ
 
 Bổ sung 2026-10-31: [plan API Gateway](api-gateway.md) và [tài liệu nhập môn kèm luồng request](../architecture/api-gateway.md). Gateway là thành phần hạ tầng bên cạnh sáu service nghiệp vụ.
 
+## Trạng thái tài liệu — đọc trước khi tin
+
+Các plan dưới đây viết **trước** khi code, nên có chỗ mô tả thứ chưa tồn tại. Bảng này cho biết tài liệu nào đã được đối chiếu với code thật.
+
+| Plan | Đã đối chiếu với code? | Tài liệu trạng thái | Ghi chú |
+|---|---|---|---|
+| [auth-service](auth-service.md) | ✅ Có, 2026-11-21 | `auth-service/AUTH-STATUS.md` | 17 endpoint chạy thật; OpenAPI khớp 17/17 |
+| [event-service](event-service.md) | ✅ Có, 2026-11-22 | `event-service/EVENT-STATUS.md` | 17 endpoint chạy thật (thêm EVT-11 `GET /admin/events`); test 14/14 PASS; Flyway V1 + `ddl-auto: validate` đã xong; còn thiếu Testcontainers/test đồng thời |
+| [ticket-service](ticket-service.md) | 🔲 Chưa | — | |
+| [order-service](order-service.md) | 🔲 Chưa | — | |
+| [notification-service](notification-service.md) | 🔲 Chưa | — | |
+| [analytics-service](analytics-service.md) | 🔲 Chưa | — | |
+| [api-gateway](api-gateway.md) | 🔲 Chưa | — | Module hiện chỉ có 1 class, **chưa có routing nào** |
+
+**Quy ước:** plan là *kế hoạch*, không phải *hợp đồng*. Khi code và plan khác nhau, **code + `docs/api/*-openapi.yaml` là sự thật**, plan phải sửa theo.
+
 ## Đọc theo thứ tự
 
 | Tài liệu | Phạm vi |
 |---|---|
 | [Quy ước và phối hợp](00-cross-service-contracts.md) | UUID, transaction, outbox, task retry, API nội bộ cần bổ sung, trình tự triển khai |
-| [API Gateway](api-gateway.md) | Route 47 REST operations public, chặn internal, JWT/CORS, webhook, WS, timeout và triển khai từng bước |
+| [API Gateway](api-gateway.md) | Route 48 REST operations public, chặn internal, JWT/CORS, webhook, WS, timeout và triển khai từng bước |
 | [Auth](auth-service.md) | UI/API riêng, adapter Keycloak; không tự tạo DB mật khẩu/token |
 | [Event](event-service.md) | Danh mục, CRUD/vòng đời sự kiện, internal response và ownership |
 | [Ticket](ticket-service.md) | Hạng vé/tồn kho, reserve/confirm/release/expire, QR, check-in/out/cancel |
@@ -35,7 +51,7 @@ Tiến độ riêng Notification/Analytics ngày 2026-11-05 đã có REST securi
 
 | Service | Đã có | Cần xây |
 |---|---|---|
-| Auth | Application | Facade + Keycloak clients, mapping identity/role và security |
+| Auth | Application, UserProfile entity/controller, SecurityConfig | Facade + Keycloak clients (TokenClient, UserClient), IdentityMapper, AdminUserController, mapping identity/role và security |
 | Event | Application | Toàn bộ nghiệp vụ, entity/repository/Flyway |
 | Ticket | Application | Toàn bộ nghiệp vụ, entity/repository/Flyway/outbox |
 | Order | BaseEntity UUID, Order/OrderItem/Payment/Refund | Refactor model còn lệch hợp đồng; các tầng nghiệp vụ/worker/migration |
@@ -57,7 +73,7 @@ API Gateway là phần phụ thuộc chung, có [plan riêng](api-gateway.md), k
 
 | Service | Ảnh đọc được bằng mã | Mô tả |
 |---|---|---|
-| Auth | [Sơ đồ ranh giới](../database/auth-service/erd.svg) | Chưa có bảng profile local được yêu cầu; không bịa schema nội bộ Keycloak |
+| Auth | [Sơ đồ ranh giới](../database/auth-service/erd.svg) | `user_profiles` optional projection đã implement; không bịa schema nội bộ Keycloak |
 | Event | [ERD](../database/event-service/erd.svg) | categories/events |
 | Ticket | [ERD](../database/ticket-service/erd.svg) | Sáu bảng, tồn kho gộp ticket_types |
 | Order | [ERD](../database/order-service/erd.svg) | Bảy bảng tham chiếu, gồm holders/webhooks/outbox |

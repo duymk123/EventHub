@@ -178,6 +178,7 @@ CREATE TABLE audited_records (
 - `deleted` là cờ dữ liệu, không tự biến `repository.delete()` thành soft delete. Service cần cập nhật cờ và query cần lọc deleted=false theo nghiệp vụ; không xóa cứng rồi coi dữ liệu vẫn còn.
 - AuditingEntityListener chạy theo lifecycle JPA. Native SQL, bulk JPQL update và UPSERT không tự đi qua listener; các câu lệnh đó phải cập nhật timestamp/actor phù hợp nếu cần audit.
 - Không tạo file test hoặc dependency test cho mẫu này theo yêu cầu hiện tại của chủ dự án.
+- Thời điểm audit dùng `DATETIME(6)` UTC (giống Event/Notification/Analytics), không dùng `TIMESTAMP` của MySQL: `TIMESTAMP` mang logic timezone của session và hết hạn ở năm 2038. Với Hibernate `Instant`, `DATETIME(6)` cũng là kiểu mà `ddl-auto: validate` chấp nhận.
 
 ## 2. DTO
 

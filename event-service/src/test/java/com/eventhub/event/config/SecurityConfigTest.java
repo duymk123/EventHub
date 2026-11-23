@@ -79,6 +79,7 @@ class SecurityConfigTest {
         });
         when(eventService.searchPublic(any(), any(), any(), any(), any())).thenReturn(Page.empty());
         when(eventService.getMine(any(), any(), any())).thenReturn(Page.empty());
+        when(eventService.getAll(any(), any())).thenAnswer(call -> Page.empty(call.getArgument(1)));
     }
 
     @Test
@@ -114,6 +115,26 @@ class SecurityConfigTest {
         mvc.perform(get("/api/v1/organizer/events").header("Authorization", "Bearer customer"))
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/organizer/events").header("Authorization", "Bearer organizer"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void adminListIsAdminOnlyAndReadsStatusFilter() throws Exception {
+        mvc.perform(get("/api/v1/admin/events")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/admin/events").header("Authorization", "Bearer organizer"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        // Token service không có business role → đã xác thực nhưng không có ROLE_ADMIN.
+        mvc.perform(get("/api/v1/admin/events").header("Authorization", "Bearer ticket-svc"))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/events").param("status", "SUBMITTED").param("page", "0").param("size", "5")
+                .header("Authorization", "Bearer admin"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page.number").value(0))
+                .andExpect(jsonPath("$.page.size").value(5));
+        verify(eventService).getAll(eq(com.eventhub.event.common.EventStatus.SUBMITTED), any());
+        // Query có status/size/page không được rơi vào handler PATCH /{id}/review.
+        mvc.perform(patch("/api/v1/admin/events/" + EVENT_ID + "/review").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"decision\":\"APPROVE\"}").header("Authorization", "Bearer admin"))
                 .andExpect(status().isOk());
     }
 

@@ -53,7 +53,7 @@ flowchart TB
 | **Frontend** | Giao diện khách hàng, ban tổ chức và quản trị | ReactJS theo định hướng; chưa triển khai | — |
 | **API Gateway** | Điểm vào REST, xác thực và chuyển tiếp WebSocket | Spring Boot; module nền, chưa có routing/security | 8080 |
 | **Auth Service** | API tài khoản riêng, điều phối identity với Keycloak | Spring Boot + JPA + MySQL; tích hợp Keycloak đang chuẩn bị | 8081 |
-| **Event Service** | Danh mục, thông tin và vòng đời sự kiện | Spring Boot + JPA + MySQL | 8082 |
+| **Event Service** | Danh mục, thông tin và vòng đời sự kiện | Spring Boot + JPA + MySQL + Flyway | 8082 |
 | **Ticket Service** | Hạng vé, tồn kho, reservation, phát hành và quét QR | Spring Boot + JPA + MySQL; Kafka theo thiết kế | 8083 |
 | **Order Service** | Đơn hàng, người nhận vé, thanh toán, webhook và hoàn tiền | Spring Boot + JPA + MySQL; Payment Provider/Kafka theo thiết kế | 8084 |
 | **Notification Service** | Template, email và thông báo in-app | Spring Boot + JPA + MySQL + Flyway + Spring Kafka + Spring Mail | 8085 |
@@ -107,7 +107,7 @@ Thay giá trị mẫu bằng mật khẩu local. Giữ `.env` ở máy cá nhân
 docker compose up --build -d
 ```
 
-Compose khởi tạo các MySQL instance, Kafka, topic, Kafka UI, Mailpit và bảy module backend. Notification/Analytics chạy Flyway trước bước Hibernate kiểm tra schema.
+Compose khởi tạo các MySQL instance, Kafka, topic, Kafka UI, Mailpit và bảy module backend. Event/Notification/Analytics chạy Flyway trước bước Hibernate kiểm tra schema.
 
 Kiểm tra trạng thái và log khởi tạo:
 
@@ -222,7 +222,7 @@ Trong từng service, `entity` chỉ chứa entity/mapped superclass; enum nằm
 - **Database per Service**: không JOIN, truy cập SQL hoặc tạo FK vật lý xuyên service.
 - **Kafka**: `messageId` là UUID message, `eventId` là UUID sự kiện; retry/replay giữ nguyên messageId.
 - **Money and time**: BigDecimal cho tiền, UTC cho thời điểm nghiệp vụ; chỉ số báo cáo và chính sách hoàn tiền theo quyết định đã chốt.
-- **Schema**: Notification/Analytics dùng Flyway và `ddl-auto: validate`; thay đổi bảng đã triển khai đi qua migration mới.
+- **Schema**: Event/Notification/Analytics dùng Flyway và `ddl-auto: validate`; thay đổi bảng đã triển khai đi qua migration mới.
 
 | **Document** | **Content** |
 |---|---|

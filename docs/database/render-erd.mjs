@@ -112,7 +112,7 @@ for(const service of Object.keys(layouts)){
   emit(relative+'/erd.svg',image(service,tables,sha));model.services[service]={sha,tables};
   const relationships=tables.flatMap(t=>t.foreignKeys.map(fk=>`  ${fk.parent} ||--o{ ${fk.child} : ${fk.column}`));
   const entities=tables.map(t=>`  ${t.name} {\n${t.columns.map(c=>'    '+c.type.replaceAll(',','_')+' '+c.name+(c.primary?' PK':c.foreign?' FK':'')).join('\n')}\n  }`);
-  const migration=['notification','analytics'].includes(service)?` Migration nền: [V1](../../../${service}-service/src/main/resources/db/migration/V1__init.sql).`:'';
+  const migration=['event','notification','analytics'].includes(service)?` Migration nền: [V1](../../../${service}-service/src/main/resources/db/migration/V1__init.sql).`:'';
   const legacyImage=service==='order'?' [JPEG tương thích](1.JPEG).':service==='ticket'?' [JPEG tương thích](1.jpeg).':'';
   emit(relative+'/erd.md',`# ERD ${service}-service\n\nNguồn: [init.sql](init.sql), schema tham chiếu hiện hành; không tự triển khai thêm migration/field đang được đề xuất.${migration}\n\n![ERD UUID CHAR(36)](erd.svg)\n\nẢnh SVG và Mermaid được tạo từ cùng DDL, gồm đầy đủ cột. Mọi PK/tham chiếu bảng EventHub dùng UUID CHAR(36); không FK/JOIN xuyên service.${legacyImage}\n\n\`\`\`mermaid\nerDiagram\n${[...relationships,...entities].join('\n')}\n\`\`\`\n\nTạo lại bằng [render-erd.mjs](../render-erd.mjs); kiểm tra lệch nguồn với node docs/database/render-erd.mjs --check từ root. JPEG Order/Ticket tạo lại bằng [render-erd.ps1](../render-erd.ps1). Không đọc ảnh cũ để suy ra kiểu ID. Các bảng/cột kỹ thuật còn đề xuất trong [plans](../../plans/README.md) chỉ được thêm vào ERD sau khi có DDL/migration tương ứng. [Mapping và giới hạn](../README.md).\n`);
 }

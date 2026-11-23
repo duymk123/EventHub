@@ -1,6 +1,7 @@
 package com.eventhub.auth.config;
 
 import com.eventhub.auth.controller.AdminUserController;
+import com.eventhub.auth.service.AdminUserService;
 import com.eventhub.auth.controller.AuthController;
 import com.eventhub.auth.controller.UserProfileController;
 import com.eventhub.auth.exception.GlobalExceptionHandler;
@@ -46,6 +47,8 @@ class SecurityConfigTest {
     AuthService authService;
     @MockitoBean
     UserProfileService userProfileService;
+    @MockitoBean
+    AdminUserService adminUserService;
 
     @BeforeEach
     void tokens() {

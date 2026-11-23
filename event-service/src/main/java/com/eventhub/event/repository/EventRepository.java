@@ -17,19 +17,26 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Mọi truy vấn đọc entity để trả DTO đều kèm category (join fetch hoặc @EntityGraph): DTO map sau khi
+ * transaction đóng (open-in-view: false), nên category lazy chưa nạp sẽ ném LazyInitializationException.
+ * Method khai báo @Query không nhận @EntityGraph, nên các method đó viết join fetch.
+ */
 public interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecificationExecutor<Event> {
 
     /** Chi tiết public: chỉ trả event đúng trạng thái, không lộ event chưa publish. */
     @EntityGraph(attributePaths = "category")
     Optional<Event> findByIdAndStatus(UUID id, EventStatus status);
 
-    @EntityGraph(attributePaths = "category")
-    @Query("select e from Event e where e.id = :id")
+    @Query("select e from Event e join fetch e.category where e.id = :id")
     Optional<Event> findWithCategoryById(@Param("id") UUID id);
 
-    /** Khóa hàng cho mọi chuyển trạng thái/sửa event; hai request đồng thời xếp hàng thay vì ghi đè nhau. */
+    /**
+     * Khóa hàng cho mọi chuyển trạng thái/sửa event; hai request đồng thời xếp hàng thay vì ghi đè nhau.
+     * Có @Query nên join fetch không đổi ngữ nghĩa khóa: khóa áp dụng cho entity gốc Event.
+     */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select e from Event e where e.id = :id")
+    @Query("select e from Event e join fetch e.category where e.id = :id")
     Optional<Event> findByIdForUpdate(@Param("id") UUID id);
 
     @EntityGraph(attributePaths = "category")
@@ -37,6 +44,10 @@ public interface EventRepository extends JpaRepository<Event, UUID>, JpaSpecific
 
     @EntityGraph(attributePaths = "category")
     Page<Event> findByOrganizerIdAndStatus(UUID organizerId, EventStatus status, Pageable pageable);
+
+    /** EVT-11: ADMIN xem cả hàng đợi duyệt (thường lọc SUBMITTED), cùng fetch category như trang organizer. */
+    @EntityGraph(attributePaths = "category")
+    Page<Event> findByStatus(EventStatus status, Pageable pageable);
 
     @Override
     @EntityGraph(attributePaths = "category")

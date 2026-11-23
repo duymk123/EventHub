@@ -1,6 +1,6 @@
 # ERD event-service
 
-Nguồn: [init.sql](init.sql), schema tham chiếu hiện hành; không tự triển khai thêm migration/field đang được đề xuất.
+Nguồn: [init.sql](init.sql), schema tham chiếu hiện hành; không tự triển khai thêm migration/field đang được đề xuất. Migration nền: [V1](../../../event-service/src/main/resources/db/migration/V1__init.sql).
 
 ![ERD UUID CHAR(36)](erd.svg)
 
@@ -13,7 +13,8 @@ erDiagram
     CHAR(36) id PK
     VARCHAR(100) name
     TEXT description
-    TIMESTAMP created_at
+    DATETIME(6) created_at
+    DATETIME(6) updated_at
   }
   events {
     CHAR(36) id PK
@@ -22,11 +23,14 @@ erDiagram
     VARCHAR(255) title
     TEXT description
     VARCHAR(20) status
-    TIMESTAMP start_time
-    TIMESTAMP end_time
-    TIMESTAMP created_at
-    TIMESTAMP updated_at
+    DATETIME(6) start_time
+    DATETIME(6) end_time
+    DATETIME(6) created_at
+    DATETIME(6) updated_at
     TEXT review_reason
+    IDX_EVENTS_PUBLIC(STATUS_START_TIME) KEY
+    IDX_EVENTS_OWNER(ORGANIZER_ID_CREATED_AT) KEY
+    FK_EVENTS_CATEGORY(CATEGORY_ID) KEY
   }
 ```
 
