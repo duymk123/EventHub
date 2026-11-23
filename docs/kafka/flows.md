@@ -66,7 +66,7 @@ flowchart LR
     TC --> WAIT["Topic đã khai báo<br/>consumer dành cho giai đoạn sau"]
 ```
 
-Đường nét đứt là publisher nghiệp vụ của Order/Ticket. Đối chiếu code ngày 2026-11-19: Ticket đã phát `ticket.issued`, `ticket.checked-in/out`, `ticket.cancelled` qua outbox; Order mới phát `order.failed` lý do EXPIRED, còn `order.paid`/`order.refunded` chờ luồng thanh toán C06. Đường liền vào Notification/Analytics tương ứng các listener đã có code.
+Đường nét đứt là publisher nghiệp vụ của Order/Ticket. Đối chiếu code ngày 2026-11-24: Ticket phát `ticket.issued`, `ticket.checked-in/out`, `ticket.cancelled`; Order phát `order.paid` (sau khi vé đã phát), `order.failed` (lý do EXPIRED; thanh toán lỗi không còn làm hỏng đơn theo C18) và `order.refunded` (sau khi VNPay hoàn thành công), đều qua outbox. Đã chạy thật: Order/Ticket gửi lên Kafka, Notification nhận `ticket.issued` và gửi email QR; Analytics có listener nhưng chưa chạy chung với producer thật. Đường liền vào Notification/Analytics tương ứng các listener đã có code.
 
 Giữ chỗ (giữ ghế theo C12) không đi qua Kafka: Order gọi Ticket bằng REST đồng bộ và biết ngay ghế còn hay đã bị lấy. Thiết kế giữ chỗ qua Kafka (C11) đã bị thay, lý do ở [C12](../project-clarifications.md#c12--đặt-vé-theo-ghế-cụ-thể).
 
@@ -75,7 +75,7 @@ Giữ chỗ (giữ ghế theo C12) không đi qua Kafka: Order gọi Ticket bằ
 | `order.paid` | Order | Analytics | Cộng doanh thu và số vé bán |
 | `order.failed` | Order | Notification | Tạo IN_APP và email đơn thất bại/hết hạn |
 | `order.refunded` | Order | Notification + Analytics | Thông báo hoàn tiền, ghi tiền/vé hoàn vào báo cáo |
-| `ticket.issued` | Ticket | Notification | Gửi email người mua kèm QR và tạo IN_APP |
+| `ticket.issued` | Ticket | Notification | Gửi email QR theo người nhận (holderEmail, thiếu thì người mua, C02) và tạo IN_APP cho người mua |
 | `ticket.checked-in` | Ticket | Analytics | Ghi bằng chứng vào cổng, cập nhật attendance |
 | `ticket.checked-out` | Ticket | Analytics | Ghi bằng chứng ra cổng, cập nhật attendance |
 | `ticket.cancelled` | Ticket | Consumer giai đoạn sau | Topic đã khai báo trong script hạ tầng |

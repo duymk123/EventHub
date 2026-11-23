@@ -50,6 +50,12 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          description: EVENT_NOT_FOUND (eventId không tồn tại ở Event Service)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: TICKET_TYPES_ALREADY_EXIST
           content:
@@ -62,7 +68,7 @@ paths:
       - Ticket Type
       operationId: updateTicketType
       summary: Cập nhật giá, sơ đồ ghế, trạng thái
-      description: 'Tên không đổi. C12: tăng rowCount thêm hàng mới; giảm rowCount chỉ khi mọi ghế ở các hàng bị bỏ còn AVAILABLE; đổi seatsPerRow chỉ khi zone chưa có ghế HELD/SOLD, ngược lại 409 SEAT_LAYOUT_LOCKED.'
+      description: 'Tên không đổi. C12: tăng rowCount thêm hàng mới; giảm rowCount hoặc đổi seatsPerRow chỉ khi các ghế bị ảnh hưởng chưa từng thuộc reservation nào (reservation_seats giữ lịch sử), ngược lại 409 SEAT_LAYOUT_LOCKED.'
       security:
       - bearerAuth: []
       parameters:
@@ -94,7 +100,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
-          description: SEAT_LAYOUT_LOCKED (bớt hàng có ghế đang giữ/đã bán, hoặc đổi seatsPerRow khi đã có ghế HELD/SOLD)
+          description: SEAT_LAYOUT_LOCKED (bớt hàng hoặc đổi seatsPerRow khi các ghế đó đã từng được giữ/bán)
           content:
             application/json:
               schema:
@@ -625,7 +631,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     Forbidden:
-      description: Không đủ quyền hoặc không phải owner
+      description: FORBIDDEN (sai role) hoặc FORBIDDEN_NOT_OWNER (ORGANIZER không sở hữu sự kiện, hoặc khách xem QR vé của người khác)
       content:
         application/json:
           schema:

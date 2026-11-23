@@ -96,7 +96,7 @@ Khi triển khai mới thêm validation/security/resource-server, Flyway/MySQL v
 
 ## 9. Hợp đồng phối hợp với API Gateway
 
-Chi tiết route/method/quyền và các lớp cần xây nằm trong [plan Gateway](api-gateway.md). Gateway hiện chỉ là scaffold MVC/JPA/MySQL; các nội dung dưới là thiết kế mục tiêu.
+Chi tiết route/method/quyền và các lớp cần xây nằm trong [plan Gateway](api-gateway.md). Gateway đã triển khai ngày 2026-11-24 (Spring Cloud Gateway WebFlux, route + JWT + CORS, không DB); trạng thái ở [plan Gateway §10](api-gateway.md#10-trạng-thái-triển-khai-2026-11-24).
 
 - Client gọi REST `/api/v1/**` qua Gateway; giữ nguyên prefix, query, Authorization, body và response contract. Route theo allowlist method/path, không proxy catch-all. Có 47 REST operations public và 5 internal trong 52 operations hiện hành; WS tính riêng. C10 thêm 2 public (Analytics `/analytics/overview`, `/analytics/events`, đã có ở analytics-service) và 3 internal đề xuất (Event INT-02, INT-03, Ticket capacity); khi đủ thành 49 public + 8 internal = 57.
 - GET `/api/v1/events/{eventId}/ticket-types` và GET `/api/v1/ticket-types/{id}/seats` (C12) thuộc Ticket, các API events khác thuộc Event. `/api/v1/admin/users` thuộc Auth, admin events thuộc Event, admin refunds thuộc Order, admin notification-templates thuộc Notification; không gom `/admin/**` về một service.
