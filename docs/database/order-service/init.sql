@@ -1,6 +1,9 @@
 -- SCHEMA THAM CHIEU BC_32_V2 + quyet dinh UUID; KHONG PHAI migration trien khai.
 -- Chon dung database eventhub_order truoc khi chay tren schema rong.
 -- Khong DROP, khong tao database dich vu khac; FK chi trong database nay.
+-- C12 (2026-11-22): moi order_holder gan voi mot ghe Ticket da giu (seat_id mem, seat_label snapshot).
+-- C14: orders.idempotency_key + request_hash cho POST /orders. C06: orders.tickets_confirmed_at danh dau Ticket da phat ve sau PAID. C06: payments/refund_requests luu tham so VNPay.
+-- C15: file nay la noi dung Flyway V1__init.sql cua order-service (ddl-auto: validate).
 
 CREATE TABLE orders (
   id CHAR(36) PRIMARY KEY,
@@ -14,9 +17,19 @@ CREATE TABLE orders (
   currency VARCHAR(3) NOT NULL DEFAULT 'VND',
   expires_at TIMESTAMP NOT NULL,
   paid_at TIMESTAMP NULL,
+  tickets_confirmed_at TIMESTAMP NULL,
+  payment_id CHAR(36) NULL,
+  event_start_time TIMESTAMP NULL,
+  idempotency_key VARCHAR(100) NULL,
+  request_hash CHAR(64) NULL,
   created_at TIMESTAMP NOT NULL,
   updated_at TIMESTAMP NOT NULL,
-  CHECK (status IN ('PENDING_PAYMENT','PAID','FAILED','EXPIRED','REFUNDED')),
+  -- C20: moi khach chi mot don PENDING_PAYMENT cho moi su kien; NULL khi da het cho nen khong chan don cu.
+  pending_slot VARCHAR(73) GENERATED ALWAYS AS (
+    CASE WHEN status = 'PENDING_PAYMENT' THEN CONCAT(customer_id, ':', event_id) END) STORED,
+  UNIQUE KEY uk_order_idempotency (customer_id, idempotency_key),
+  UNIQUE KEY uk_order_pending_slot (pending_slot),
+  CHECK (status IN ('PENDING_PAYMENT','PAID','FAILED','EXPIRED','CANCELLED','REFUNDED')),
   CHECK (subtotal >= 0 AND total_amount >= 0),
   INDEX idx_order_customer (customer_id, created_at),
   INDEX idx_order_expiry (status, expires_at)
@@ -38,25 +51,34 @@ CREATE TABLE order_items (
 CREATE TABLE order_holders (
   id CHAR(36) PRIMARY KEY,
   order_item_id CHAR(36) NOT NULL,
+  seat_id CHAR(36) NOT NULL,
+  seat_label VARCHAR(8) NOT NULL,
   holder_name VARCHAR(100) NOT NULL,
   holder_email VARCHAR(255) NULL,
   holder_phone VARCHAR(20) NULL,
-  FOREIGN KEY (order_item_id) REFERENCES order_items(id)
+  FOREIGN KEY (order_item_id) REFERENCES order_items(id),
+  UNIQUE KEY uk_holder_seat (order_item_id, seat_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE payments (
   id CHAR(36) PRIMARY KEY,
   order_id CHAR(36) NOT NULL,
   provider VARCHAR(50) NOT NULL,
+  provider_txn_ref VARCHAR(40) NOT NULL,
   provider_transaction_id VARCHAR(100) NULL,
+  provider_pay_date VARCHAR(14) NULL,
   amount DECIMAL(14,2) NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'CREATED',
   payment_url TEXT NULL,
   idempotency_key VARCHAR(100) NOT NULL UNIQUE,
+  reconciled_at TIMESTAMP NULL,
+  reconciled_by CHAR(36) NULL,
+  reconciliation_note VARCHAR(500) NULL,
   created_at TIMESTAMP NOT NULL,
   updated_at TIMESTAMP NOT NULL,
   FOREIGN KEY (order_id) REFERENCES orders(id),
   UNIQUE KEY uk_provider_transaction (provider, provider_transaction_id),
+  UNIQUE KEY uk_provider_txn_ref (provider, provider_txn_ref),
   CHECK (status IN ('CREATED','PENDING','SUCCEEDED','FAILED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -72,6 +94,9 @@ CREATE TABLE refund_requests (
   requested_at TIMESTAMP NOT NULL,
   reviewed_at TIMESTAMP NULL,
   refunded_at TIMESTAMP NULL,
+  provider_request_id VARCHAR(40) NULL,
+  provider_refund_id VARCHAR(100) NULL,
+  failure_reason VARCHAR(255) NULL,
   FOREIGN KEY (order_id) REFERENCES orders(id),
   CHECK (status IN ('REQUESTED','APPROVED','REJECTED','PROCESSING','REFUNDED','FAILED')),
   CHECK (amount > 0),

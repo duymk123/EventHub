@@ -60,6 +60,7 @@ public class PaymentWebhook {
     private Instant processedAt;
 
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(nullable = false, length = 20)
     private WebhookStatus status = WebhookStatus.RECEIVED;
 }

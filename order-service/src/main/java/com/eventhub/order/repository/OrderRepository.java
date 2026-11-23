@@ -22,6 +22,12 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     Optional<Order> findByIdAndCustomerId(UUID id, UUID customerId);
 
+    /** C14: đơn đã tạo bằng Idempotency-Key này của khách. */
+    Optional<Order> findByCustomerIdAndIdempotencyKey(UUID customerId, String idempotencyKey);
+
+    /** C20: đơn đang chờ thanh toán của khách cho một sự kiện (tối đa một nhờ uk_order_pending_slot). */
+    Optional<Order> findFirstByCustomerIdAndEventIdAndStatus(UUID customerId, UUID eventId, OrderStatus status);
+
     /** Tuần tự hóa expiry/webhook trên cùng đơn. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from Order o where o.id = :id")
@@ -30,4 +36,9 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     /** ID đơn quá hạn thanh toán (index status, expires_at), xử lý từng đơn trong transaction riêng. */
     @Query("select o.id from Order o where o.status = :status and o.expiresAt <= :now order by o.expiresAt")
     List<UUID> findExpiredIds(@Param("status") OrderStatus status, @Param("now") Instant now, Pageable page);
+
+    /** C06: đơn PAID chưa phát vé (confirm Ticket lỗi tạm thời), trả trước :before để không tranh lần gọi đầu. */
+    @Query("select o.id from Order o where o.status = com.eventhub.order.common.OrderStatus.PAID "
+            + "and o.ticketsConfirmedAt is null and o.paidAt <= :before order by o.paidAt")
+    List<UUID> findUnconfirmedPaidIds(@Param("before") Instant before, Pageable page);
 }

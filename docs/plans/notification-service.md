@@ -94,4 +94,10 @@ Nếu target đang được worker khác lease, không coi message đã xong; re
 3. V2 batch/lease và dịch vụ transaction ngắn; test hai worker cùng message/target, lặp SENT skip, target thất bại không gửi lại target đã SENT, lease stale không overwrite.
 4. Kafka/DLQ + Testcontainers MySQL/Kafka, malformed payload, SMTP timeout, DLQ publish fail, replay giữ messageId. Không viết test khẳng định một crash luôn không gửi trùng email.
 
-ErrorCode API: NOTIFICATION_NOT_FOUND/TEMPLATE_NOT_FOUND 404, FORBIDDEN 403, VALIDATION_ERROR 400; delivery phân loại retry riêng. C02/C03 đã chốt chính sách, còn nguồn snapshot, multi-target và text thật cần triển khai/cấu hình. payment.compensated là bổ sung dự kiến cho nhánh C05 sau provider C06, chưa có consumer/template.
+ErrorCode API: NOTIFICATION_NOT_FOUND/TEMPLATE_NOT_FOUND 404, FORBIDDEN 403, VALIDATION_ERROR 400; delivery phân loại retry riêng. C02/C03 đã chốt (text địa điểm: 141 Đường Chiến Thắng, Hà Nội); multi-target và cấu hình text cần triển khai. payment.compensated là hướng phát triển (C05 đầy đủ), không có consumer/template ở giai đoạn này.
+
+## Chốt 2026-11-22: text địa điểm và số ghế (chưa làm)
+
+- **C03:** thêm cấu hình `eventhub.notification.venue-text: ${EVENTHUB_VENUE_TEXT:141 Đường Chiến Thắng, Hà Nội}`. Khi tạo batch `ticket.issued`, dùng `venue` trong message nếu có, nếu không dùng text cấu hình; snapshot vào model để retry không đổi theo cấu hình mới.
+- **C12:** `TicketIssuedEvent.tickets[]` thêm `seatId`, `seatLabel` (tùy chọn để message cũ vẫn đọc được); template email in "Khu {{ticketTypeName}} · Ghế {{seatLabel}}" cho từng vé.
+- **C05 rút gọn:** `order.refunded` chỉ phát khi VNPay hoàn thành công nên email hoàn tiền giữ nguyên; không có `payment.compensated` ở giai đoạn này.

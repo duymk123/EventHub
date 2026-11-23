@@ -11,7 +11,7 @@ Dự án tách thành **6 service nghiệp vụ** và **API Gateway**, với dat
 - **Quy trình trọng tâm**:
   1. Ban tổ chức tạo sự kiện, cấu hình hạng vé **VIP / PREMIUM / STANDARD** và gửi duyệt.
   2. Quản trị viên duyệt hoặc từ chối. Sự kiện được duyệt có thể công bố để khách hàng tìm kiếm và đặt vé.
-  3. Khách hàng chọn vé, nhập thông tin người sử dụng. Ticket Service giữ chỗ trong **3 phút**, Order Service ghi nhận đơn và giá tại thời điểm đặt.
+  3. Khách hàng chọn vé, nhập thông tin người sử dụng. Ticket Service giữ ghế trong **10 phút**, Order Service ghi nhận đơn và giá tại thời điểm đặt.
   4. Khách hàng thanh toán. Sau khi xác minh webhook, Order Service gọi Ticket Service xác nhận reservation và phát hành vé QR.
   5. Notification Service nhận sự kiện Kafka để gửi email vé và thông báo in-app; Analytics Service cập nhật báo cáo.
   6. Tại cổng, vé được kiểm tra và chuyển trạng thái check-in/check-out; số người tham dự được cập nhật cho dashboard.

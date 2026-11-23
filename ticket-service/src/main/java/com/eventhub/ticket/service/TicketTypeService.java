@@ -4,6 +4,7 @@ import com.eventhub.ticket.common.Actor;
 import com.eventhub.ticket.dto.request.CreateTicketTypesRequest;
 import com.eventhub.ticket.dto.request.UpdateTicketTypeRequest;
 import com.eventhub.ticket.dto.response.EventCapacityResponse;
+import com.eventhub.ticket.dto.response.SeatMapResponse;
 import com.eventhub.ticket.dto.response.TicketConfigurationResponse;
 import com.eventhub.ticket.dto.response.TicketTypeResponse;
 
@@ -23,6 +24,9 @@ public interface TicketTypeService {
 
     /** Hạng vé của sự kiện đang công khai; số lượng chỉ tham khảo, reserve mới là bước quyết định. */
     List<TicketTypeResponse> listPublicTypes(UUID eventId);
+
+    /** C12: sơ đồ ghế của một zone (public, sự kiện phải đang công khai). */
+    SeatMapResponse getSeatMap(UUID typeId);
 
     /** C10: sức chứa theo sự kiện cho Analytics, 1..100 id, id chưa có hạng vé trả 0. */
     List<EventCapacityResponse> getCapacityByEvents(List<UUID> eventIds);

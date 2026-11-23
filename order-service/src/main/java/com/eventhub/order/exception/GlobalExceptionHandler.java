@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -30,12 +31,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusiness(BusinessException error, HttpServletRequest request) {
-        return respond(error.getErrorCode(), error.getMessage(), request);
+        return ResponseEntity.status(error.getErrorCode().httpStatus())
+                .body(new ErrorResponse(error.getErrorCode().name(), error.getMessage(), Instant.now(),
+                        request.getRequestURI(), error.getTakenSeatIds()));
     }
 
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
             MethodArgumentTypeMismatchException.class, MissingServletRequestParameterException.class,
-            HandlerMethodValidationException.class})
+            HandlerMethodValidationException.class, MissingRequestHeaderException.class})
     public ResponseEntity<ErrorResponse> handleValidation(Exception error, HttpServletRequest request) {
         String message = "Invalid request";
         if (error instanceof MethodArgumentNotValidException invalid && invalid.getBindingResult().getFieldError() != null) {
@@ -45,6 +48,8 @@ public class GlobalExceptionHandler {
             message = mismatch.getName() + ": invalid value";
         } else if (error instanceof MissingServletRequestParameterException missing) {
             message = missing.getParameterName() + ": is required";
+        } else if (error instanceof MissingRequestHeaderException missingHeader) {
+            message = missingHeader.getHeaderName() + " header is required";
         }
         return respond(ErrorCode.VALIDATION_ERROR, message, request);
     }

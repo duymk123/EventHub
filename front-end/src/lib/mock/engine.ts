@@ -11,12 +11,46 @@ import type {
 } from "@/types";
 import { demoStore } from "./store";
 import { wait } from "@/lib/utils";
-import { errorMessage } from "@/lib/api/errors";
+import { ApiError } from "@/lib/api/errors";
+import {
+  MAX_SEATS_PER_ORDER,
+  MAX_ROWS,
+  MAX_SEATS_PER_ROW,
+  hasSeat,
+  parseSeatId,
+  withTaken,
+} from "@/lib/seats";
 const id = (prefix: string) =>
   `${prefix}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-const fail = (code: string): never => {
-  throw new Error(errorMessage(code));
+const fail = (code: string, takenSeatIds: string[] = []): never => {
+  throw new ApiError(code, takenSeatIds);
 };
+/** Đổi trạng thái các ghế của một đơn: HELD/SOLD, hoặc null để trả ghế về trống. */
+function markSeats(
+  events: Event[],
+  eventId: string,
+  holders: Holder[],
+  next: "HELD" | "SOLD" | null,
+): Event[] {
+  return events.map((e) =>
+    e.id !== eventId
+      ? e
+      : {
+          ...e,
+          ticketTypes: e.ticketTypes.map((t) => {
+            const codes = holders
+              .filter((h) => h.tierId === t.id)
+              .map((h) => parseSeatId(h.seatId).code);
+            if (!codes.length) return t;
+            const taken = { ...t.taken };
+            for (const code of codes)
+              if (next) taken[code] = next;
+              else delete taken[code];
+            return withTaken(t, taken);
+          }),
+        },
+  );
+}
 const actor = () => {
   const s = demoStore.get();
   const u = s.users.find((u) => u.id === s.userId);
@@ -49,20 +83,9 @@ const notice = (
     ...s.notices,
   ],
 });
+/** Trả các ghế của đơn về trống (hết hạn, hủy giữ vé, hoàn tiền). */
 function restoreStock(s: DemoState, order: Order): Event[] {
-  return s.events.map((e) =>
-    e.id !== order.eventId
-      ? e
-      : {
-          ...e,
-          ticketTypes: e.ticketTypes.map((t) => ({
-            ...t,
-            available:
-              t.available +
-              (order.lines.find((l) => l.tierId === t.id)?.quantity ?? 0),
-          })),
-        },
-  );
+  return markSeats(s.events, order.eventId, order.holders, null);
 }
 export function expireOrders() {
   const expired = demoStore
@@ -86,76 +109,80 @@ export function expireOrders() {
   );
 }
 export const mock = {
+  /**
+   * Giữ đúng các ghế khách chọn (C12), mô phỏng POST /api/v1/orders → Ticket giữ ghế đồng bộ.
+   * Một ghế đã có người giữ/mua thì không giữ ghế nào và báo SEAT_TAKEN kèm danh sách ghế đó.
+   */
   async reserve(
     eventId: string,
-    quantities: Record<string, number>,
     holders: Holder[],
+    options: { simulateConflict?: boolean } = {},
   ) {
     const u = role("CUSTOMER");
     await wait(650);
     expireOrders();
+    if (options.simulateConflict && holders[0]) {
+      // Bản trải nghiệm: một người mua khác vừa lấy ghế đầu tiên khách chọn.
+      demoStore.set((next) => ({
+        ...next,
+        events: markSeats(next.events, eventId, [holders[0]], "SOLD"),
+      }));
+    }
     const s = demoStore.get();
     const e = s.events.find((e) => e.id === eventId);
     if (!e || e.status !== "PUBLISHED" || Date.parse(e.startTime) <= Date.now())
       return fail("INVALID_STATE");
+    const seatIds = holders.map((h) => h.seatId);
+    if (!holders.length) return fail("VALIDATION_ERROR");
+    if (holders.length > MAX_SEATS_PER_ORDER) return fail("TOO_MANY_SEATS");
+    if (
+      new Set(seatIds).size !== seatIds.length ||
+      holders.some((h) => !h.name.trim())
+    )
+      return fail("VALIDATION_ERROR");
+    const typeOf = (h: Holder) => {
+      const { tierId, code } = parseSeatId(h.seatId);
+      const t = e.ticketTypes.find((t) => t.id === tierId);
+      return t && t.id === h.tierId && hasSeat(t, code) ? { t, code } : null;
+    };
+    if (holders.some((h) => !typeOf(h))) return fail("SEAT_NOT_FOUND");
+    if (holders.some((h) => !typeOf(h)!.t.active))
+      return fail("INVALID_STATE");
+    const taken = holders
+      .filter((h) => {
+        const { t, code } = typeOf(h)!;
+        return Boolean(t.taken[code]);
+      })
+      .map((h) => h.seatId);
+    if (taken.length) return fail("SEAT_TAKEN", taken);
     const lines = e.ticketTypes
-      .filter((t) => (quantities[t.id] ?? 0) > 0)
+      .filter((t) => holders.some((h) => h.tierId === t.id))
       .map((t) => ({
         tierId: t.id,
         tier: t.name,
-        quantity: quantities[t.id],
+        quantity: holders.filter((h) => h.tierId === t.id).length,
         unitPrice: t.price,
       }));
-    if (
-      !lines.length ||
-      lines.some(
-        (l) =>
-          l.quantity > 6 || l.quantity < 1 || !Number.isInteger(l.quantity),
-      )
-    )
-      return fail("VALIDATION_ERROR");
-    if (
-      lines.some((l) => {
-        const t = e.ticketTypes.find((t) => t.id === l.tierId)!;
-        return !t.active || t.available < l.quantity;
-      })
-    )
-      return fail("INSUFFICIENT_TICKETS");
-    if (
-      holders.length !== lines.reduce((n, l) => n + l.quantity, 0) ||
-      holders.some((h) => !h.name.trim()) ||
-      lines.some(
-        (l) =>
-          holders.filter((h) => h.tierId === l.tierId).length !== l.quantity,
-      )
-    )
-      return fail("VALIDATION_ERROR");
-    const reservedAt=Date.now();
+    const reservedAt = Date.now();
     const order: Order = {
       id: id("EH"),
       eventId,
       customerId: u.id,
       customerEmail: u.email,
       lines,
-      holders: holders.map((h) => ({ ...h, email: h.email.trim() || u.email })),
+      holders: holders.map((h) => ({
+        ...h,
+        email: h.email.trim() || u.email,
+        seatLabel: parseSeatId(h.seatId).code,
+      })),
       total: lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0),
       status: "PENDING_PAYMENT",
       createdAt: new Date(reservedAt).toISOString(),
-      expiresAt: new Date(reservedAt + 180000).toISOString(),
+      expiresAt: new Date(reservedAt + 600000).toISOString(),
     };
     demoStore.set((next) => ({
       ...next,
-      events: next.events.map((x) =>
-        x.id !== eventId
-          ? x
-          : {
-              ...x,
-              ticketTypes: x.ticketTypes.map((t) => ({
-                ...t,
-                available: t.available - (quantities[t.id] ?? 0),
-              })),
-            },
-      ),
+      events: markSeats(next.events, eventId, holders, "HELD"),
       orders: [order, ...next.orders],
     }));
     return order.id;
@@ -179,12 +206,14 @@ export const mock = {
       holderName: h.name,
       holderEmail: h.email,
       tier: o.lines.find((l) => l.tierId === h.tierId)!.tier,
+      seatLabel: h.seatLabel,
       status: "ISSUED",
     }));
     demoStore.set((s) =>
       notice(
         {
           ...s,
+          events: markSeats(s.events, o.eventId, o.holders, "SOLD"),
           orders: s.orders.map((x) =>
             x.id === o.id
               ? { ...x, status: "PAID", paidAt: new Date().toISOString() }
@@ -356,10 +385,14 @@ export const mock = {
     if (
       types.some(
         (t) =>
-          t.quota < 0 ||
           t.price < 0 ||
-          !Number.isSafeInteger(t.quota) ||
-          !Number.isSafeInteger(t.price),
+          !Number.isSafeInteger(t.price) ||
+          !Number.isInteger(t.rowCount) ||
+          !Number.isInteger(t.seatsPerRow) ||
+          t.rowCount < 0 ||
+          t.rowCount > MAX_ROWS ||
+          t.seatsPerRow < 0 ||
+          t.seatsPerRow > MAX_SEATS_PER_ROW,
       )
     )
       return fail("VALIDATION_ERROR");
@@ -371,11 +404,13 @@ export const mock = {
       organizerName: "EventHub Live",
       image: existing?.image ?? "/images/concert.jpg",
       status: "DRAFT",
-      ticketTypes: types.map((t) => ({
-        ...t,
-        id: existing ? t.id : `${savedId}-${t.name.toLowerCase()}`,
-        available: t.quota,
-      })),
+      // Bản nháp chưa bán ghế nào: sinh lại sơ đồ trống theo hàng × ghế.
+      ticketTypes: types.map((t) =>
+        withTaken(
+          { ...t, id: existing ? t.id : `${savedId}-${t.name.toLowerCase()}` },
+          {},
+        ),
+      ),
     };
     demoStore.set((s) => ({
       ...s,

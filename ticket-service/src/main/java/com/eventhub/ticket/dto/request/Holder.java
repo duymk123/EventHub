@@ -13,6 +13,8 @@ import java.util.UUID;
  */
 public record Holder(
         @NotNull UUID ticketTypeId,
+        /** C12: ghế của người này, phải thuộc reservation; mỗi ghế đúng một holder. */
+        @NotNull UUID seatId,
         @NotBlank @Size(max = 100) String holderName,
         @Email @Size(max = 255) String holderEmail,
         @NotNull UUID ownerUserId) {

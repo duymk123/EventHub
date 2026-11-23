@@ -29,6 +29,8 @@ import { mock } from "@/lib/mock/engine";
 import { money, dateLabel, cn } from "@/lib/utils";
 import { VENUE } from "@/lib/mock/seed";
 import { holderSchema, type HolderForm } from "@/schemas/forms";
+import { ApiError } from "@/lib/api/errors";
+import { MAX_SEATS_PER_ORDER, hasSeat, parseSeatId } from "@/lib/seats";
 import { Empty, RoleGuard, ConfirmDialog } from "../shared";
 import { toast } from "sonner";
 export function Checkout() {
@@ -67,6 +69,7 @@ function CheckoutContent() {
   const { busy, run } = useAction();
   const [method, setMethod] = useState("qr");
   const [failPayment, setFailPayment] = useState(false);
+  const [seatConflict, setSeatConflict] = useState(false);
   const [cancel, setCancel] = useState(false);
   const order = state.orders.find(
     (o) => o.id === params.get("order") && o.customerId === state.user?.id,
@@ -74,19 +77,24 @@ function CheckoutContent() {
   const event = state.events.find(
     (e) => e.id === (order?.eventId ?? params.get("event")),
   );
-  const quantities = Object.fromEntries(
-    (event?.ticketTypes ?? []).map((t) => [
-      t.id,
-      Math.min(6, Math.max(0, Math.floor(Number(params.get(t.id)) || 0))),
-    ]),
-  );
-  const holders = (event?.ticketTypes ?? []).flatMap((t) =>
-    Array.from({ length: quantities[t.id] }, (_, i) => ({
-      tierId: t.id,
+  // Ghế khách chọn ở trang sự kiện (C12): "<tierId>:<B-07>", bỏ ghế lạ hoặc trùng.
+  const seatIds = [...new Set((params.get("seats") ?? "").split(","))]
+    .filter((s) => {
+      const { tierId, code } = parseSeatId(s);
+      const t = event?.ticketTypes.find((t) => t.id === tierId);
+      return Boolean(t && hasSeat(t, code));
+    })
+    .slice(0, MAX_SEATS_PER_ORDER);
+  const holders = seatIds.map((seatId, i) => {
+    const { tierId, code } = parseSeatId(seatId);
+    return {
+      tierId,
+      seatId,
+      seatLabel: code,
       name: i === 0 ? (state.user?.name ?? "") : "",
       email: i === 0 ? (state.user?.email ?? "") : "",
-    })),
-  );
+    };
+  });
   const form = useForm<HolderForm>({
     resolver: zodResolver(holderSchema),
     defaultValues: { holders, consent: false },
@@ -104,16 +112,22 @@ function CheckoutContent() {
         />
       </div>
     );
+  const seatHolders = order?.holders ?? holders;
   const lines =
     order?.lines ??
     event.ticketTypes
-      .filter((t) => quantities[t.id] > 0)
       .map((t) => ({
         tierId: t.id,
         tier: t.name,
-        quantity: quantities[t.id],
+        quantity: holders.filter((h) => h.tierId === t.id).length,
         unitPrice: t.price,
-      }));
+      }))
+      .filter((l) => l.quantity > 0);
+  const seatsOf = (tierId: string) =>
+    seatHolders
+      .filter((h) => h.tierId === tierId)
+      .map((h) => h.seatLabel)
+      .join(", ");
   const total =
     order?.total ?? lines.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
   if (order?.status === "PAID")
@@ -301,10 +315,27 @@ function CheckoutContent() {
               animate={{ opacity: 1, x: 0 }}
               onSubmit={form.handleSubmit((values) =>
                 run(
-                  () => mock.reserve(event.id, quantities, values.holders),
+                  async () => {
+                    try {
+                      return await mock.reserve(event.id, values.holders, {
+                        simulateConflict: seatConflict,
+                      });
+                    } catch (error) {
+                      if (error instanceof ApiError && error.code === "SEAT_TAKEN") {
+                        // Quay lại sơ đồ ghế, giữ những ghế còn hợp lệ để khách chọn bù.
+                        const keep = seatIds.filter(
+                          (s) => !error.takenSeatIds.includes(s),
+                        );
+                        router.replace(
+                          `/events/${event.id}?seats=${encodeURIComponent(keep.join(","))}#seats`,
+                        );
+                      }
+                      throw error;
+                    }
+                  },
                   (id) => {
                     router.replace(`/checkout?order=${id}`);
-                    toast.success("Đã giữ vé trong 3 phút");
+                    toast.success("Đã giữ ghế trong 10 phút");
                   },
                 ),
               )}
@@ -326,6 +357,7 @@ function CheckoutContent() {
                   <h3>
                     <span>{String(i + 1).padStart(2, "0")}</span>Vé{" "}
                     {event.ticketTypes.find((t) => t.id === h.tierId)?.name}
+                    <em className="holder-seat">Ghế {h.seatLabel}</em>
                   </h3>
                   <div className="form-grid">
                     <div>
@@ -364,11 +396,20 @@ function CheckoutContent() {
               <div className="notice-box mt-6">
                 <Info size={17} />
                 <p>
-                  Vé được giữ trong 3 phút kể từ khi bạn tiếp tục sang bước
-                  thanh toán. Hãy kiểm tra thông tin trước khi xác nhận.
+                  Ghế được giữ trong 10 phút kể từ khi bạn tiếp tục sang bước
+                  thanh toán. Nếu có ghế vừa được người khác giữ, bạn sẽ quay
+                  lại sơ đồ để chọn ghế khác.
                 </p>
               </div>
               <label className="check-line mt-6">
+                <input
+                  type="checkbox"
+                  checked={seatConflict}
+                  onChange={(e) => setSeatConflict(e.target.checked)}
+                />
+                Thử tình huống ghế {holders[0]?.seatLabel} vừa bị người khác giữ
+              </label>
+              <label className="check-line mt-3">
                 <input type="checkbox" {...form.register("consent")} />
                 <span>
                   Tôi đồng ý với{" "}
@@ -388,7 +429,7 @@ function CheckoutContent() {
                 className="w-full mt-6 h-12"
                 type="submit"
               >
-                {busy ? "Đang giữ vé..." : "Giữ vé & tiếp tục"}
+                {busy ? "Đang giữ ghế..." : "Giữ ghế & tiếp tục"}
                 <ArrowRight size={17} />
               </Button>
             </motion.form>
@@ -416,7 +457,7 @@ function CheckoutContent() {
                 <span>
                   {l.tier}
                   <small>
-                    {l.quantity} × {money(l.unitPrice)}
+                    {l.quantity} × {money(l.unitPrice)} · Ghế {seatsOf(l.tierId)}
                   </small>
                 </span>
                 <strong>{money(l.quantity * l.unitPrice)}</strong>

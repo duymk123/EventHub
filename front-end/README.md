@@ -24,7 +24,7 @@ npm start
 
 Mặc định dùng tài khoản khách hàng Nguyễn Minh Anh. Bấm **Trải nghiệm · DEMO** ở góc dưới để đổi giữa Khách hàng, Ban tổ chức và Quản trị viên. Bảng này cũng cho thử skeleton, trạng thái rỗng, lỗi và khôi phục toàn bộ dữ liệu mẫu.
 
-1. Vào một sự kiện, chọn VIP / PREMIUM / STANDARD, điền người sử dụng từng vé và giữ vé. Đồng hồ đếm 3 phút bắt đầu khi tạo đơn.
+1. Vào một sự kiện, chọn VIP / PREMIUM / STANDARD, điền người sử dụng từng vé và giữ vé. Đồng hồ đếm 10 phút bắt đầu khi tạo đơn.
 2. Thử thanh toán thất bại, sau đó thanh toán lại. Thành công sẽ tạo vé, cập nhật doanh thu và thông báo. Có thể tải lại trang hoặc quay lại từ Đơn hàng khi đơn còn hạn.
 3. Trong Đơn hàng, gửi yêu cầu hoàn tiền. Đổi sang Admin → Yêu cầu hoàn tiền → duyệt. Toàn bộ vé của đơn bị hủy, hoàn 70% giá mua, trả lại tồn kho và tạo thông báo cho khách.
 4. Đổi sang Ban tổ chức → Kiểm soát vé. Dùng `EH-T001` hoặc `EH-T002` để check-in rồi check-out. Vé không được vào lại; số người đang có mặt cập nhật trên dashboard.

@@ -7,11 +7,14 @@ spring:
     password: "${DB_PASSWORD:root}"
   jpa:
     hibernate:
-      ddl-auto: update
+      # C15: schema do Flyway tạo (db/migration/V1__init.sql); Hibernate chỉ kiểm entity khớp bảng.
+      ddl-auto: validate
     open-in-view: false
     properties:
       hibernate.jdbc.time_zone: UTC
       hibernate.type.preferred_uuid_jdbc_type: CHAR
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
     producer:
@@ -56,7 +59,10 @@ eventhub:
   event-service:
     base-url: ${EVENT_SERVICE_URL:http://localhost:8082}
   ticket:
-    # Hạn giữ vé tối đa (plan Ticket §2: reservation tối đa 3 phút).
-    reservation-ttl: PT3M
+    # Hạn giữ ghế tối đa (C16: 10 phút, đủ cho khách nhập thẻ và OTP trên VNPay).
+    reservation-ttl: PT10M
+    gate:
+      # C07: mở cổng quét trước giờ bắt đầu sự kiện; đóng khi hết endTime.
+      open-before: PT1H
     expiry-delay-ms: 10000
     outbox-delay-ms: 1000

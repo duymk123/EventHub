@@ -3,6 +3,7 @@ package com.eventhub.ticket.controller;
 import com.eventhub.ticket.common.Actor;
 import com.eventhub.ticket.dto.request.CreateTicketTypesRequest;
 import com.eventhub.ticket.dto.request.UpdateTicketTypeRequest;
+import com.eventhub.ticket.dto.response.SeatMapResponse;
 import com.eventhub.ticket.dto.response.TicketTypeResponse;
 import com.eventhub.ticket.service.TicketTypeService;
 import jakarta.validation.Valid;
@@ -43,6 +44,12 @@ public class TicketTypeController {
     public TicketTypeResponse update(@AuthenticationPrincipal Actor actor, @PathVariable UUID id,
                                      @Valid @RequestBody UpdateTicketTypeRequest request) {
         return ticketTypeService.updateType(actor, id, request);
+    }
+
+    /** C12: sơ đồ ghế của một zone, frontend gọi lại mỗi 3–5 giây. */
+    @GetMapping("/ticket-types/{id}/seats")
+    public SeatMapResponse seatMap(@PathVariable UUID id) {
+        return ticketTypeService.getSeatMap(id);
     }
 
     @GetMapping("/events/{eventId}/ticket-types")

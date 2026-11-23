@@ -69,7 +69,7 @@ function TicketList() {
   const selectedEvent = state.events.find((e) => e.id === selectedNow?.eventId);
   function download() {
     if (!selectedNow || !selectedEvent) return;
-    const body = `EVENTHUB - VE TRAI NGHIEM (KHONG CO GIA TRI VAO CONG)\n\n${selectedEvent.title}\n${selectedNow.id}\n${selectedNow.tier}\n${selectedNow.holderName}\n${dateLabel(selectedEvent.startTime)} - ${timeLabel(selectedEvent.startTime)}\n${VENUE}`;
+    const body = `EVENTHUB - VE TRAI NGHIEM (KHONG CO GIA TRI VAO CONG)\n\n${selectedEvent.title}\n${selectedNow.id}\n${selectedNow.tier}${selectedNow.seatLabel ? ` - GHE ${selectedNow.seatLabel}` : ""}\n${selectedNow.holderName}\n${dateLabel(selectedEvent.startTime)} - ${timeLabel(selectedEvent.startTime)}\n${VENUE}`;
     const url = URL.createObjectURL(
       new Blob([body], { type: "text/plain;charset=utf-8" }),
     );
@@ -128,7 +128,10 @@ function TicketList() {
                     sizes="(max-width:760px) 90vw, 40vw"
                   />
                   <div />
-                  <span className="ticket-tier">{t.tier}</span>
+                  <span className="ticket-tier">
+                    {t.tier}
+                    {t.seatLabel && ` · Ghế ${t.seatLabel}`}
+                  </span>
                 </div>
                 <div className="wallet-body">
                   <div className="flex justify-between items-center gap-3 mb-4">
@@ -191,6 +194,7 @@ function TicketList() {
                 <p className="font-mono mt-3">{selectedNow.id}</p>
                 <p className="muted text-xs mt-2">
                   {selectedNow.holderName} · {selectedNow.tier}
+                  {selectedNow.seatLabel && ` · Ghế ${selectedNow.seatLabel}`}
                 </p>
               </div>
               <div className="notice-box">
@@ -626,7 +630,7 @@ export function Help() {
       <div className="panel">
         <Disclosure title="Làm thế nào để đặt vé?">
           Khám phá sự kiện → chọn hạng và số lượng → điền thông tin từng người
-          dùng vé → giữ vé → thanh toán trong 3 phút. Vé xuất hiện trong Ví vé
+          dùng vé → giữ vé → thanh toán trong 10 phút. Vé xuất hiện trong Ví vé
           của tôi khi thanh toán thành công.
         </Disclosure>
         <Disclosure title="Hết thời gian thanh toán thì sao?">

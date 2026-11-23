@@ -11,13 +11,14 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -34,10 +35,14 @@ public class OrderController {
         this.orderService = orderService;
     }
 
+    /** C14: Idempotency-Key tùy chọn; gửi lại cùng key + cùng nội dung trả 200 với đơn cũ. */
     @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public OrderResponse create(@AuthenticationPrincipal Actor actor, @Valid @RequestBody CreateOrderRequest request) {
-        return orderService.create(actor, request);
+    public ResponseEntity<OrderResponse> create(@AuthenticationPrincipal Actor actor,
+                                                @RequestHeader(value = "Idempotency-Key", required = false)
+                                                String idempotencyKey,
+                                                @Valid @RequestBody CreateOrderRequest request) {
+        OrderService.CreateResult result = orderService.create(actor, request, idempotencyKey);
+        return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK).body(result.order());
     }
 
     /** Mặc định createdAt,desc rồi id,desc; size tối đa 100. */
@@ -54,5 +59,11 @@ public class OrderController {
     @GetMapping("/{id}")
     public OrderResponse getDetail(@AuthenticationPrincipal Actor actor, @PathVariable UUID id) {
         return orderService.getDetail(actor, id);
+    }
+
+    /** C19: hủy đơn chưa thanh toán để trả ghế ngay. */
+    @PostMapping("/{id}/cancel")
+    public OrderResponse cancel(@AuthenticationPrincipal Actor actor, @PathVariable UUID id) {
+        return orderService.cancel(actor, id);
     }
 }

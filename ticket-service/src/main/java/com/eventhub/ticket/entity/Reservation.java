@@ -35,7 +35,7 @@ public class Reservation {
     private UUID id;
     @JdbcTypeCode(SqlTypes.CHAR) @Column(name = "order_id", nullable = false, length = 36)
     private UUID orderId;
-    @Enumerated(EnumType.STRING) @Column(nullable = false, length = 20)
+    @Enumerated(EnumType.STRING) @JdbcTypeCode(SqlTypes.VARCHAR) @Column(nullable = false, length = 20)
     private ReservationStatus status = ReservationStatus.RESERVED;
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
@@ -45,6 +45,9 @@ public class Reservation {
     private Instant confirmedAt;
     @Column(name = "released_at")
     private Instant releasedAt;
+    /** Giờ bắt đầu sự kiện lúc giữ ghế (Event không cho đổi giờ sau publish); Order lưu để kiểm mốc 48 giờ hoàn tiền. */
+    @Column(name = "event_start_time")
+    private Instant eventStartTime;
     @OneToMany(mappedBy = "reservation", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ReservationItem> items = new ArrayList<>();
 }

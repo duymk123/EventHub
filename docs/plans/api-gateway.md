@@ -2,6 +2,8 @@
 
 Cập nhật 2026-10-31. Gateway là thành phần hạ tầng thứ bảy, bên cạnh sáu service nghiệp vụ. Đây là **kế hoạch đề xuất, chưa triển khai**; tài liệu nhập môn và sơ đồ luồng ở [API Gateway từ đầu](../architecture/api-gateway.md). Tuân thủ [hợp đồng chung](00-cross-service-contracts.md), [quyết định nguồn](../architecture/source-decisions.md) và [các điểm còn mở](../project-clarifications.md).
 
+> **Chốt 2026-11-22 (C15):** cấu hình Gateway **sau khi** các service hoàn thiện API. Trong lúc đó frontend dùng dữ liệu mock và service được gọi trực tiếp khi kiểm thử. Khi bắt đầu, cập nhật route theo các quyết định mới: IPN VNPay (C06), sơ đồ ghế (C12), cookie refresh token (C13).
+
 ## 1. Hiện trạng và kết quả cần đạt
 
 | Hiện có | Cần thay đổi khi thực hiện plan |
@@ -33,13 +35,14 @@ Giữ nguyên `/api/v1`, body/query/status và schema phân trang của owner. K
 | category-public | GET `/api/v1/categories` | Event | Public. |
 | category-write | POST `/api/v1/categories`; PUT, DELETE `/api/v1/categories/{id}` | Event | ADMIN. |
 | ticket-types-public | GET `/api/v1/events/{eventId}/ticket-types` | Ticket | Public theo contract; Ticket kiểm tra event được phép xem. |
+| seat-map-public (C12) | GET `/api/v1/ticket-types/{id}/seats` | Ticket | Public, sơ đồ ghế của một zone; frontend gọi lại mỗi 3–5 giây nên cần giới hạn tần suất theo IP. |
 | ticket-types-write | POST `/api/v1/ticket-types`; PUT `/api/v1/ticket-types/{id}` | Ticket | ORGANIZER; owner tại Ticket qua Event. |
 | tickets-personal | GET `/api/v1/tickets/me`, `/api/v1/tickets/{id}/qr` | Ticket | CUSTOMER; quyền owner theo C02, không chốt thay C02. |
 | gate-scan | POST `/api/v1/gate/check-in`, `/api/v1/gate/check-out` | Ticket | GateActor riêng theo C07; chưa chốt thì đóng route. |
 | orders-create | POST `/api/v1/orders` | Order | CUSTOMER. |
 | orders-read | GET `/api/v1/orders/me`, `/api/v1/orders/{id}` | Order | CUSTOMER + owner tại Order. |
 | order-payment | POST `/api/v1/orders/{id}/payment` | Order | CUSTOMER + owner/trạng thái tại Order. |
-| payment-webhook | POST `/api/v1/payments/webhook/{provider}` (draft C06) | Order | Không access JWT; provider được cấu hình, Order xác minh chữ ký. |
+| vnpay-ipn (C06) | GET `/api/v1/payments/vnpay/ipn` | Order | Không access JWT, chỉ đúng method/path này. Giữ nguyên toàn bộ query string để Order kiểm chữ ký HMAC-SHA512; không retry, không ACK thay Order. |
 | refunds-request | POST `/api/v1/orders/{id}/refunds` | Order | CUSTOMER + owner/điều kiện tại Order. |
 | refunds-review | GET `/api/v1/admin/refunds`; POST `/api/v1/admin/refunds/{id}/approve`, `/reject` dưới cùng id | Order | C04 chọn chỉ ADMIN giai đoạn đầu; Gateway và Order đều kiểm tra, không cấp quyền reviewer cho ORGANIZER. |
 | notifications-read | GET `/api/v1/notifications/me`, `/api/v1/notifications/me/unread-count` | Notification | Business actor hợp lệ, service lọc user hiện tại. |
@@ -132,7 +135,7 @@ Gateway dùng API reactive `Mono<Void>`; không tạo service/repository giả c
 | G1 — runtime | Chọn BOM tương thích, chuyển dependency MVC → WebFlux, bỏ DB config/phụ thuộc Compose của Gateway. | Module build, khởi động không cần MySQL Gateway; không thay dữ liệu volume. |
 | G2 — routing | Khai báo URI host/Docker; route theo bảng, giữ prefix/query, deny internal/default deny. | Kiểm đủ 47 operations public theo hợp đồng; 5 internal không bao giờ tới downstream qua Gateway. |
 | G3 — REST security | Chốt Keycloak issuer/audience/role/sub; Resource Server tại Gateway và service; header hygiene/CORS/ErrorResponse. | Chạy thử public/JWT/role/owner/preflight, không tin header giả. Chưa có Keycloak thì chỉ xác nhận routing, chưa tuyên bố security hoàn tất. |
-| G4 — payment/gate | Provider C06 và GateActor C07 để sau; C04 chọn ADMIN-only refund, C05 hold/verify/bù có thiết kế. | Webhook giữ chữ ký và Order xác minh; quyền refund ADMIN tại Gateway/service. Route provider/gate chưa đủ adapter/identity chưa bật. |
+| G4 — payment/gate | C06 VNPay sandbox, C07 quét bằng JWT ORGANIZER/ADMIN (2026-11-22); C05 rút gọn. | Route `vnpay-ipn` giữ nguyên query/chữ ký để Order xác minh; route gate dùng JWT như Ticket; refund chỉ ADMIN tại Gateway/service. |
 | G5 — WS | Route ws riêng, Origin, CONNECT auth/timeout/expiry/SUBSCRIBE ở Analytics. | Browser nối được, sai JWT/owner bị từ chối, hết hạn đóng session, reconnect GET hội tụ. |
 | G6 — vận hành | Timeout/size/rate policies, health/metrics, TLS/proxy trust, hạn chế expose service. | Quan sát lỗi/latency được, downstream chậm không gây retry ghi hoặc thành công giả. |
 
@@ -154,3 +157,10 @@ Theo quy ước dự án ngày 2026-10-28, không tạo file/profile/dependency 
 10. Xác minh cổng quản trị không public, log không chứa token/password/QR; chạy nhiều Gateway có health/metrics và rate policy nhất quán nếu đã bật rate limit.
 
 Bàn giao kèm bằng chứng build/chạy thử, config mẫu không chứa secret, route inventory, phụ thuộc chưa chốt và hướng dẫn chạy host/Docker. Không đánh dấu G3/G4/G5 xong chỉ vì ứng dụng khởi động hoặc có route.
+
+## 9. Bổ sung theo quyết định 2026-11-22
+
+- **C13 cookie:** route `/api/v1/auth/**` phải giữ nguyên header `Set-Cookie`/`Cookie`; CORS `allowCredentials=true` với origin frontend cụ thể. Không log cookie.
+- **C06 VNPay:** thay route webhook chung bằng `vnpay-ipn` (GET). `POST /api/v1/orders/{id}/payment/verify` đi theo route order thường (cần JWT).
+- **C12 ghế:** `seat-map-public` (GET `/api/v1/ticket-types/{id}/seats`) public, nên giới hạn tần suất theo IP vì frontend gọi lại mỗi 3–5 giây.
+- **C14:** chuyển nguyên header `Idempotency-Key` xuống Order.

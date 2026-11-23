@@ -30,6 +30,10 @@ Các mục dưới **chưa có đủ trong DDL/migration hiện tại**. Lập m
 | Service | Bổ sung đề xuất | Mục đích |
 |---|---|---|
 | Ticket | `reservations.request_fingerprint`; khóa outbox/lease giao nhận nếu nhiều worker | Cùng orderId khác giỏ vé không bị coi là retry hợp lệ; publish có thể phục hồi |
+| Ticket (C12) | `seats`, `reservation_seats`, `tickets.seat_id/seat_label`, `ticket_types.row_count/seats_per_row`; bỏ bộ đếm available/reserved/sold (đã cập nhật reference DDL) | Bán theo ghế; giữ ghế bằng UPDATE có điều kiện trên từng ghế |
+| Order (C12) | `order_holders.seat_id/seat_label` (đã cập nhật reference DDL) | Mỗi người dùng vé gắn một ghế |
+| Order (C14, C06) | `orders.idempotency_key/request_hash` + UNIQUE `(customer_id, idempotency_key)`; `payments.provider_txn_ref/provider_pay_date`; `refund_requests.provider_request_id/provider_refund_id/failure_reason` (đã cập nhật reference DDL) | Idempotency-Key cho tạo đơn; tham số VNPay cho IPN, querydr và hoàn tiền |
+| Ticket, Order (C15) | Chuyển sang Flyway `V1__init.sql` = reference DDL, `ddl-auto: validate`; xóa DB dev trước khi chuyển | Thay đổi schema có phiên bản, không để Hibernate `update` lệch thiết kế |
 | Order | `pending_operations`: id/operation_id/aggregate_id/lease_token UUID, kind/status, payload JSON, attempts, next_attempt_at, lease_until, last_error, UNIQUE(operation_id,kind) | Retry theo từng operation kể cả nhiều giao dịch cùng đơn; DONE không reset bởi webhook lặp |
 | Order | Idempotency/fingerprint, snapshot customer_email đã xác minh, quote/allocation refund | Retry cùng đơn/giao dịch/quote 70%, giữ recipient C02 |
 | Notification | `notification_batches` id=messageId UUID, fingerprint/expected_count/status; notifications thêm lease_token UUID, lease_until | Tạo toàn bộ target nguyên tử, một worker gửi mỗi target tại một thời điểm |
@@ -44,7 +48,7 @@ Nếu tiếp tục có DB model cũ ID số: lập bảng mapping UUID giữa c�
 
 `OutboxService.append(OutboxMessage)` chạy cùng transaction nghiệp vụ. `OutboxPublisher.publishDue(int limit)` lấy batch claim ngắn, gửi Kafka ngoài lock dài, `markPublished(UUID messageId, UUID leaseToken, Instant ackAt)` chỉ khi ACK. Publish xong rồi crash có thể publish lại, vì vậy consumer vẫn dedup. Lỗi gửi giữ PENDING/FAILED và lịch retry, không đánh dấu đã publish.
 
-`OperationWorker.runDue(int limit)` claim bằng lease token, gọi HTTP ngoài transaction, hoàn tất bằng CAS/token. C04 hoàn khách 70% cả đơn; C05 bổ sung prepare/commit/release hold, verify tiền, fence phát vé và bù 100%. [Thiết kế phục hồi](../architecture/payment-refund-recovery.md); adapter provider C06 để sau. Mọi lời gọi dùng cùng operation/provider key; timeout là UNKNOWN, không tự kết luận thất bại.
+`OperationWorker.runDue(int limit)` claim bằng lease token, gọi HTTP ngoài transaction, hoàn tất bằng CAS/token. C04 hoàn khách 70% cả đơn; C05 bổ sung prepare/commit/release hold, verify tiền, fence phát vé và bù 100%. [Thiết kế phục hồi](../architecture/payment-refund-recovery.md). Đoạn này là hướng phát triển; giai đoạn hiện tại theo C05 rút gọn và VNPay sandbox (§10). Mọi lời gọi dùng cùng operation/provider key; timeout là UNKNOWN, không tự kết luận thất bại.
 
 Scheduler lấy batch theo index status/deadline, không load tất cả bảng hoặc giữ transaction khi duyệt toàn bộ batch. Nhiều instance có thể chạy; `lease_until`, CAS và số dòng cập nhật là cơ chế bảo vệ, không dựa vào chỉ có một cron.
 
@@ -59,13 +63,15 @@ Scheduler lấy batch theo index status/deadline, không load tất cả bảng 
 | `GET /internal/events/ids?organizerId=...` (INT-03, C10) | Analytics → Event | Mảng id mọi sự kiện của organizer, rỗng nếu chưa có; organizerId từ JWT đã xác minh. Giới hạn thống kê gộp của ORGANIZER vào sự kiện mình sở hữu. Đã có trong OpenAPI dạng đề xuất. |
 | `GET /internal/events?ids=...` (INT-02, C10) | Analytics → Event | Batch ≤100 id, trả InternalEventResponse mọi status, bỏ qua id không tồn tại; bổ sung tên/trạng thái/ngày cho một trang thống kê. Đã có trong OpenAPI dạng đề xuất. |
 | `GET /internal/ticket-types/capacity?eventIds=...` (C10) | Analytics → Ticket | Batch ≤100 id, trả `[{eventId, capacity=SUM(total_quota)}]`; lỗi thì Analytics trả capacity=null. Đã có trong OpenAPI dạng đề xuất. |
-| Prepare/commit/release/query quyền hủy | Order ↔ Ticket, C05 đã chọn | Durable token và tập vé cố định; chặn scan, không tự mở bằng TTL khi tiền UNKNOWN; chưa có storage/endpoint mới |
+| Prepare/commit/release/query quyền hủy | Order ↔ Ticket — **hướng phát triển** (C05 đầy đủ) | Giai đoạn này dùng `cancel-by-order` trực tiếp theo C05 rút gọn; hold token không triển khai |
 
 Nếu giữ endpoint đã có để lấy cùng thông tin, phải chứng minh không dùng API của CUSTOMER hoặc giả user để đọc nội bộ. API nội bộ trả DTO tối thiểu, không lộ email/QR không cần thiết.
 
 ## 6. Kafka, dedup và ordering
 
 [Payload nguồn](../kafka/events.md): producer Order/Ticket; Notification chỉ `ticket.issued/order.failed/order.refunded`, Analytics chỉ `order.paid/order.refunded/ticket.checked-in/ticket.checked-out`. Không phát vé bằng cả REST confirm lẫn consumer order.paid.
+
+C12 không thêm topic. Giữ ghế là REST đồng bộ Order → Ticket; Kafka chỉ mang thêm `seatId`/`seatLabel` trong `ticket.issued`. Thiết kế giữ chỗ qua Kafka (C11) đã bị thay, lý do ở [C12](../project-clarifications.md#c12--đặt-vé-theo-ghế-cụ-thể).
 
 Projection: claim `processed_events.id=messageId` cùng transaction với SQL cộng/trừ/log. Unique conflict đúng claim message được bỏ qua sau rollback; không nuốt mọi DataIntegrityViolationException. Chỉ check exists trước xử lý không chống hai worker.
 
@@ -82,7 +88,7 @@ Khi triển khai mới thêm validation/security/resource-server, Flyway/MySQL v
 ## 8. Hoàn tất xuyên sáu service
 
 - Đủ 52 operations hiện có được map trong sáu plan; API đề xuất thêm có nhãn riêng.
-- Create event → cấu hình vé → reserve 3 phút → payment thành công → confirm/issue → email/in-app/sales; cùng UUID xuyên dịch vụ và messageId replay giữ nguyên.
+- Create event → cấu hình vé (số hàng × số ghế mỗi zone, C12) → chọn ghế và giữ 10 phút (C16) → payment thành công → confirm/issue → email/in-app/sales; cùng UUID xuyên dịch vụ và messageId replay giữ nguyên.
 - Retry/duplicate request, webhook và Kafka không phát vé, trả quota, hoàn tiền hoặc cộng projection hai lần. Test DB thật cho CAS/unique/UPSERT và worker chạy đồng thời.
 - Kiểm tra timeout sau provider đã xử lý, restart sau ACK webhook, restart sau publish Kafka, lỗi DLQ publish; không dùng context test để kết luận các trường hợp này đã đúng.
 - Test cổng với checkout Kafka đến trước checkin; refund chỉ publish khi các bước bắt buộc hoàn tất theo C05; các chỉ số/policy chưa chốt không được gán mặc định âm thầm.
@@ -93,12 +99,24 @@ Khi triển khai mới thêm validation/security/resource-server, Flyway/MySQL v
 Chi tiết route/method/quyền và các lớp cần xây nằm trong [plan Gateway](api-gateway.md). Gateway hiện chỉ là scaffold MVC/JPA/MySQL; các nội dung dưới là thiết kế mục tiêu.
 
 - Client gọi REST `/api/v1/**` qua Gateway; giữ nguyên prefix, query, Authorization, body và response contract. Route theo allowlist method/path, không proxy catch-all. Có 47 REST operations public và 5 internal trong 52 operations hiện hành; WS tính riêng. C10 thêm 2 public (Analytics `/analytics/overview`, `/analytics/events`, đã có ở analytics-service) và 3 internal đề xuất (Event INT-02, INT-03, Ticket capacity); khi đủ thành 49 public + 8 internal = 57.
-- GET `/api/v1/events/{eventId}/ticket-types` thuộc Ticket, các API events khác thuộc Event. `/api/v1/admin/users` thuộc Auth, admin events thuộc Event, admin refunds thuộc Order, admin notification-templates thuộc Notification; không gom `/admin/**` về một service.
+- GET `/api/v1/events/{eventId}/ticket-types` và GET `/api/v1/ticket-types/{id}/seats` (C12) thuộc Ticket, các API events khác thuộc Event. `/api/v1/admin/users` thuộc Auth, admin events thuộc Event, admin refunds thuộc Order, admin notification-templates thuộc Notification; không gom `/admin/**` về một service.
 - Gateway và service đều xác thực token phù hợp issuer/audience đã cấu hình. Gateway kiểm tra quyền đầu vào; service kiểm tra owner/trạng thái và tạo Actor từ Principal đã xác minh. Không tin header userId/role client tự gửi. Keycloak cấp token; Gateway không tự cấp/refresh token hoặc gọi Auth để kiểm JWT cho mọi request.
 - Register/login/refresh/logout chỉ miễn access JWT đúng method/path theo Auth contract; me/password vẫn cần access JWT. Không mở toàn bộ `/auth/**`. Flow Keycloak, role/sub mapping và S2S còn phải cấu hình.
 - `/internal/**`, kể cả đường cố ghép `/api/v1/internal/**`, không được proxy công khai. Order → Ticket, Ticket/Analytics → Event gọi thẳng mạng nội bộ bằng S2S. Service vẫn tự bảo vệ internal; Gateway không thay thế network isolation. Kafka không đi qua Gateway.
 - Webhook đi Provider → Gateway → Order. Ngoại lệ JWT hẹp theo provider/method đã cấu hình; Order xác minh chữ ký trên payload gốc, dedup và ACK đúng wire contract C06. Gateway giữ dữ liệu chữ ký, không ACK thành công thay Order, không retry thao tác ghi tự động.
 - WS `/ws/dashboard` có route `ws` riêng tới Analytics. Với baseline native browser WebSocket đề xuất, handshake được phép đúng path/Origin, token xác minh tại STOMP CONNECT, quyền event tại SUBSCRIBE; Analytics chặn client chưa xác thực và đóng session hết hạn. Không mở rộng ngoại lệ handshake sang REST hoặc mọi `/ws/**`.
-- Thiết bị gate có GateActor riêng, C07 để sau thì chưa bật route. C04 chọn chỉ ADMIN xem/duyệt/từ chối refund giai đoạn đầu; ORGANIZER không có quyền này. Route và service đều kiểm tra, không suy quyền từ prefix admin.
+- C07: quét vé bằng JWT ORGANIZER chủ sự kiện/ADMIN trong khung giờ sự kiện, không có GateActor; route gate bật như route Ticket thường. C04 chọn chỉ ADMIN xem/duyệt/từ chối refund giai đoạn đầu; ORGANIZER không có quyền này. Route và service đều kiểm tra, không suy quyền từ prefix admin.
 - Lỗi REST do Gateway tạo đủ `code/message/timestamp/path`; giữ lỗi hợp lệ của downstream và wire protocol OIDC/provider. Timeout không chứng minh giao dịch chưa xảy ra. Correlation ID đi xuyên HTTP, log không chứa token/password/QR/payload nhạy cảm.
 - Gateway không có DB nghiệp vụ, outbox, Kafka consumer hoặc transaction tiền/vé trong thiết kế này. Phần bỏ datasource/DB scaffold là việc triển khai sau, không xóa dữ liệu volume trong lượt viết tài liệu.
+
+## 10. Quyết định 2026-11-22 (đợt 2) áp dụng chung
+
+| Mã | Ảnh hưởng xuyên service |
+|---|---|
+| C03 | Địa điểm `141 Đường Chiến Thắng, Hà Nội`: Notification cấu hình `EVENTHUB_VENUE_TEXT`; frontend hiển thị cùng text. |
+| C05 rút gọn | Order (duyệt, gọi VNPay) → Ticket `cancel-by-order` (hủy vé, trả ghế, `ticket.cancelled`) → `order.refunded`. Hold, verify, hoàn bù là hướng phát triển. |
+| C06 | VNPay sandbox: IPN GET public qua Gateway, `querydr`, `refund`. Secret chỉ ở biến môi trường. |
+| C07 | Quét vé bằng JWT ORGANIZER/ADMIN trong khung 60 phút trước `startTime` đến `endTime`; không có GateActor/thiết bị. |
+| C13 | Refresh token trong cookie HttpOnly do Auth đặt; access token trong bộ nhớ frontend. |
+| C14 | `Idempotency-Key` cho `POST /orders`. |
+| C15 | Flyway cho Ticket/Order; frontend giữ mock tới khi service xong API; Gateway cấu hình sau; Redis không dùng (báo cáo ghi giữ ghế bằng MySQL). |

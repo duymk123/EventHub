@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,13 +34,7 @@ public class OrderExpiryService {
             return Optional.empty();
         }
         order.setStatus(OrderStatus.EXPIRED);
-        Map<String, Object> fields = new LinkedHashMap<>();
-        fields.put("orderId", order.getId());
-        fields.put("customerId", order.getCustomerId());
-        fields.put("customerEmail", order.getCustomerEmail());
-        fields.put("reason", "EXPIRED");
-        fields.put("totalAmount", order.getTotalAmount());
-        outbox.append("order.failed", order.getId(), order.getEventId(), now, fields);
+        outbox.append(OrderEvents.FAILED, order.getId(), order.getEventId(), now, OrderEvents.failed(order, "EXPIRED"));
         return Optional.of(order.getReservationId());
     }
 }

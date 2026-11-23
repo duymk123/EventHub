@@ -6,6 +6,7 @@ import "./globals.css";
 import "./experience.css";
 import "./customer.css";
 import "./dashboard.css";
+import "./venue.css";
 const body = Be_Vietnam_Pro({
   subsets: ["vietnamese", "latin"],
   weight: ["400", "500", "600", "700", "800"],

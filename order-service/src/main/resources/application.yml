@@ -7,11 +7,14 @@ spring:
     password: "${DB_PASSWORD:root}"
   jpa:
     hibernate:
-      ddl-auto: update
+      # C15: schema do Flyway tạo (db/migration/V1__init.sql); Hibernate chỉ kiểm entity khớp bảng.
+      ddl-auto: validate
     open-in-view: false
     properties:
       hibernate.jdbc.time_zone: UTC
       hibernate.type.preferred_uuid_jdbc_type: CHAR
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
   data:
     web:
       pageable:
@@ -53,7 +56,16 @@ eventhub:
   ticket-service:
     base-url: ${TICKET_SERVICE_URL:http://localhost:8083}
   order:
-    # Hạn thanh toán đề xuất cho Ticket; Ticket không cấp quá 3 phút và trả hạn chính thức.
-    payment-ttl: PT3M
+    # Hạn thanh toán đề xuất cho Ticket; Ticket không cấp quá 10 phút (C16) và trả hạn chính thức.
+    payment-ttl: PT10M
     expiry-delay-ms: 10000
     outbox-delay-ms: 1000
+    # C06: chu kỳ thử lại confirm Ticket cho đơn PAID chưa phát vé.
+    confirm-retry-delay-ms: 15000
+  # C06 VNPay sandbox. Chỉ đặt giá trị thật qua biến môi trường (IntelliJ Run Configuration), không commit secret.
+  vnpay:
+    tmn-code: ${VNPAY_TMN_CODE:}
+    hash-secret: ${VNPAY_HASH_SECRET:}
+    pay-url: ${VNPAY_PAY_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+    api-url: ${VNPAY_API_URL:https://sandbox.vnpayment.vn/merchant_webapi/api/transaction}
+    return-url: ${VNPAY_RETURN_URL:http://localhost:3000/checkout/result}

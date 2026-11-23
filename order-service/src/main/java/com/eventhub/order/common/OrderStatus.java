@@ -5,5 +5,7 @@ public enum OrderStatus {
     PAID,
     FAILED,
     EXPIRED,
+    /** C19: khách tự hủy đơn chưa thanh toán để chọn lại ghế; không phát Kafka. */
+    CANCELLED,
     REFUNDED
 }

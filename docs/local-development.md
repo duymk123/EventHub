@@ -48,11 +48,34 @@ Cấu hình local nằm trực tiếp trong `src/main/resources/application.yml`
 | notification-service | eventhub_notification | 8085 |
 | analytics-service | eventhub_analytics | 8086 |
 
-Connector/J tạo database nếu chưa tồn tại và tài khoản có quyền tạo database. Gateway và cả 6 service dùng Hibernate `ddl-auto: update` để tạo/cập nhật bảng từ entity; Flyway tắt ở Notification và Analytics. Kafka của Notification/Analytics vẫn dùng `localhost:29092`.
+Connector/J tạo database nếu chưa tồn tại và tài khoản có quyền tạo database. Hiện tại Gateway và cả 6 service dùng Hibernate `ddl-auto: update` để tạo/cập nhật bảng từ entity; Notification và Analytics đã có file Flyway (`db/migration/V1__…`) nhưng `spring.flyway.enabled: false` khi chạy local. Kafka của Notification/Analytics vẫn dùng `localhost:29092`.
+
+`ddl-auto: update` chỉ **thêm** bảng/cột còn thiếu; nó không xóa cột, không bỏ `NOT NULL`, không sửa `CHECK` hay kiểu cột. Vì vậy theo C15 (2026-11-22), Ticket và Order chuyển sang Flyway **bật mặc định**: `spring.flyway.enabled: true`, `ddl-auto: validate`, schema lấy từ `db/migration/V1__init.sql` (bằng DDL tham chiếu trong `docs/database/<service>/init.sql`). Khi chuyển lần đầu, xóa database dev cũ (chỉ có dữ liệu thử) để Flyway tạo lại từ đầu:
+
+```sql
+DROP DATABASE IF EXISTS eventhub_ticket;
+DROP DATABASE IF EXISTS eventhub_order;
+```
+
+Sau đó chạy lại ticket-service và order-service; Flyway tạo bảng và ghi lịch sử vào `flyway_schema_history`. Mọi thay đổi schema sau này là file mới `V2__…`, `V3__…`; không sửa file đã chạy.
 
 Username/password mặc định là `root/root`. Có thể ghi đè bằng `DB_USERNAME`/`DB_PASSWORD` khi cần. Nếu trước đây đã khai báo `SPRING_PROFILES_ACTIVE=local`, có thể bỏ biến này. Kiểm tra và xóa/sửa các biến `DB_URL`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` hoặc `SPRING_DATASOURCE_*` trong Run Configuration nếu chúng ghi đè cấu hình local. Các biến `SPRING_JPA_HIBERNATE_DDL_AUTO` và `SPRING_FLYWAY_ENABLED` cũng có thể ghi đè YAML.
 
 Analytics hiện chưa có Redis dependency hoặc nghiệp vụ dùng Redis. Các service có tích hợp Spring Data Redis có thể kết nối bằng `spring.data.redis.host: localhost` và `spring.data.redis.port: 6379`.
+
+## VNPay sandbox (C06)
+
+Order thanh toán qua VNPay sandbox. Nhóm tự đăng ký tài khoản merchant sandbox của VNPay để nhận `vnp_TmnCode` và `vnp_HashSecret`; **không commit** hai giá trị này. Khai báo trong Run Configuration của order-service:
+
+| Biến | Ý nghĩa |
+|---|---|
+| `VNPAY_TMN_CODE` | Mã website merchant sandbox |
+| `VNPAY_HASH_SECRET` | Khóa ký HMAC-SHA512 |
+| `VNPAY_PAY_URL` | URL trang thanh toán sandbox (`…/paymentv2/vpcpay.html`) |
+| `VNPAY_API_URL` | URL API `querydr`/`refund` sandbox (`…/merchant_webapi/api/transaction`) |
+| `VNPAY_RETURN_URL` | Trang kết quả của frontend, ví dụ `http://localhost:3000/checkout/result` |
+
+IPN (`GET /api/v1/payments/vnpay/ipn`) cần URL public để VNPay gọi tới. Khi chạy local có hai cách: mở tunnel (ngrok, cloudflared) trỏ vào order-service và khai báo URL IPN trong trang quản trị merchant sandbox; hoặc không dùng IPN, để trang kết quả gọi `POST /api/v1/orders/{id}/payment/verify` (Order hỏi lại VNPay bằng `querydr`). Thanh toán thử bằng thẻ test do VNPay công bố cho môi trường sandbox.
 
 ## Lỗi cổng đã được sử dụng
 

@@ -33,7 +33,7 @@ public class TicketScan {
     private Ticket ticket;
     @JdbcTypeCode(SqlTypes.CHAR) @Column(name = "gate_id", nullable = false, length = 36)
     private UUID gateId;
-    @Enumerated(EnumType.STRING) @Column(name = "scan_type", nullable = false, length = 10)
+    @Enumerated(EnumType.STRING) @JdbcTypeCode(SqlTypes.VARCHAR) @Column(name = "scan_type", nullable = false, length = 10)
     private ScanType scanType;
     @Column(name = "scanned_at", nullable = false, updatable = false)
     private Instant scannedAt;

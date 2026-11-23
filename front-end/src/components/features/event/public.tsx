@@ -19,8 +19,7 @@ import {
   Clock3,
   Share2,
   Check,
-  Minus,
-  Plus,
+  X,
   ChevronRight,
   SlidersHorizontal,
 } from "lucide-react";
@@ -40,6 +39,8 @@ import {
   Pagination,
 } from "../shared";
 import type { Event } from "@/types";
+import { parseSeatId } from "@/lib/seats";
+import { SeatSelector } from "./venue";
 import { toast } from "sonner";
 const categoryIcons = [Sparkles, Music2, Palette, Mic2, Ticket];
 function favorite(eventId: string) {
@@ -450,14 +451,20 @@ function ExploreContent({ saved }: { saved: boolean }) {
     </div>
   );
 }
-export function EventDetail({ id }: { id: string }) {
+export function EventDetail({
+  id,
+  initialSeats = [],
+}: {
+  id: string;
+  initialSeats?: string[];
+}) {
   const { events, user, favorites } = useDemo();
   const now = useNow();
   const event = events.find(
     (e) => e.id === id && ["PUBLISHED", "CLOSED"].includes(e.status),
   );
   const router = useRouter();
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [picked, setPicked] = useState<string[]>(initialSeats);
   if (!event)
     return (
       <div className="container page-section">
@@ -472,11 +479,20 @@ export function EventDetail({ id }: { id: string }) {
         />
       </div>
     );
-  const total = event.ticketTypes.reduce(
-    (s, t) => s + t.price * (quantities[t.id] ?? 0),
-    0,
-  );
-  const count = Object.values(quantities).reduce((s, q) => s + q, 0);
+  // Ghế vừa bị người khác giữ vẫn nằm trong `picked` để báo cho khách, nhưng không được đưa sang checkout.
+  const groups = event.ticketTypes
+    .map((t) => ({
+      type: t,
+      seats: picked
+        .map(parseSeatId)
+        .filter((p) => p.tierId === t.id && !t.taken[p.code])
+        .map((p) => p.code)
+        .sort(),
+    }))
+    .filter((g) => g.seats.length > 0);
+  const valid = groups.flatMap((g) => g.seats.map((c) => `${g.type.id}:${c}`));
+  const total = groups.reduce((s, g) => s + g.type.price * g.seats.length, 0);
+  const count = valid.length;
   const minutesLeft = Math.max(
     0,
     Math.floor((Date.parse(event.startTime) - now) / 60000),
@@ -493,14 +509,7 @@ export function EventDetail({ id }: { id: string }) {
       );
       return;
     }
-    const query = new URLSearchParams({
-      event: id,
-      ...Object.fromEntries(
-        Object.entries(quantities)
-          .filter(([, q]) => q > 0)
-          .map(([k, q]) => [k, String(q)]),
-      ),
-    });
+    const query = new URLSearchParams({ event: id, seats: valid.join(",") });
     router.push(`/checkout?${query}`);
   }
   return (
@@ -540,6 +549,7 @@ export function EventDetail({ id }: { id: string }) {
       <div className="container detail-layout">
         <div className="detail-body">
           <div className="detail-tabs">
+            <a href="#seats">Chọn chỗ</a>
             <a href="#about">Giới thiệu</a>
             <a href="#schedule">Lịch trình</a>
             <a href="#policy">Thông tin cần biết</a>
@@ -560,6 +570,20 @@ export function EventDetail({ id }: { id: string }) {
               <Share2 size={18} />
             </button>
           </div>
+          <section id="seats">
+            <h2>Chọn khu và ghế</h2>
+            <p>
+              Chọn khu ngồi trên sơ đồ để xem góc nhìn ra sân khấu, sau đó chọn
+              từng ghế. Mỗi đơn tối đa 10 ghế, ghế được giữ 10 phút khi bạn tiếp
+              tục sang bước thông tin.
+            </p>
+            <SeatSelector
+              event={event}
+              selected={picked}
+              onChange={setPicked}
+              salesClosed={salesClosed}
+            />
+          </section>
           <section id="about">
             <h2>Một cuộc hẹn với cảm xúc</h2>
             <p>{event.description}</p>
@@ -658,68 +682,46 @@ export function EventDetail({ id }: { id: string }) {
             <h2>Chọn trải nghiệm của bạn</h2>
           </div>
           <p className="muted text-xs mb-5">
-            Chọn hạng vé và số lượng bạn muốn.
+            Chọn khu và ghế ở mục “Chọn khu và ghế”. Ghế đã chọn hiện ở đây.
           </p>
-          {event.ticketTypes.map((t) => {
-            const unavailable = !t.active || !t.available || salesClosed;
-            const qty = quantities[t.id] ?? 0;
-            return (
-              <motion.div
-                layout
-                key={t.id}
-                className={cn(
-                  "ticket-choice",
-                  qty > 0 && "selected",
-                  unavailable && "unavailable",
-                )}
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3>{t.name}</h3>
-                    {t.name === "VIP" && <Sparkles size={12} />}
-                  </div>
-                  <strong>{t.price ? money(t.price) : "Miễn phí"}</strong>
-                  <small>
-                    {unavailable
-                      ? !t.available
-                        ? "Hết vé"
-                        : "Tạm ngừng bán"
-                      : t.available <= 20
-                        ? `Chỉ còn ${t.available} vé`
-                        : t.name === "VIP"
-                          ? "Vị trí gần sân khấu"
-                          : t.name === "PREMIUM"
-                            ? "Tầm nhìn trọn vẹn"
-                            : "Hòa nhịp cùng đám đông"}
-                  </small>
+          {!groups.length && (
+            <a className="seat-summary-empty" href="#seats">
+              Chưa chọn ghế nào
+              <ArrowRight size={14} />
+            </a>
+          )}
+          {groups.map(({ type: t, seats }) => (
+            <motion.div layout key={t.id} className="ticket-choice selected">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3>{t.name}</h3>
+                  {t.name === "VIP" && <Sparkles size={12} />}
                 </div>
-                <div className="quantity-control">
-                  <button
-                    aria-label={`Giảm vé ${t.name}`}
-                    disabled={!qty || unavailable}
-                    onClick={() =>
-                      setQuantities({ ...quantities, [t.id]: qty - 1 })
-                    }
-                  >
-                    <Minus size={13} />
-                  </button>
-                  <span>{qty}</span>
-                  <button
-                    aria-label={`Thêm vé ${t.name}`}
-                    disabled={unavailable || qty >= Math.min(6, t.available)}
-                    onClick={() =>
-                      setQuantities({ ...quantities, [t.id]: qty + 1 })
-                    }
-                  >
-                    <Plus size={13} />
-                  </button>
+                <strong>{money(t.price * seats.length)}</strong>
+                <div className="seat-tags">
+                  {seats.map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      aria-label={`Bỏ ghế ${code}`}
+                      onClick={() =>
+                        setPicked(picked.filter((x) => x !== `${t.id}:${code}`))
+                      }
+                    >
+                      {code}
+                      <X size={10} />
+                    </button>
+                  ))}
                 </div>
-              </motion.div>
-            );
-          })}
+              </div>
+              <small>
+                {seats.length} × {money(t.price)}
+              </small>
+            </motion.div>
+          ))}
           <div className="booking-total">
             <span>
-              Tạm tính <small>({count} vé)</small>
+              Tạm tính <small>({count} ghế)</small>
             </span>
             <strong>{money(total)}</strong>
           </div>
@@ -735,7 +737,7 @@ export function EventDetail({ id }: { id: string }) {
             <Benefit>Thanh toán an toàn</Benefit>
             <span>
               <Clock3 size={14} />
-              Giữ vé 3 phút
+              Giữ ghế 10 phút
             </span>
           </div>
           <p className="text-[10px] muted text-center mt-3">

@@ -66,7 +66,9 @@ flowchart LR
     TC --> WAIT["Topic đã khai báo<br/>consumer dành cho giai đoạn sau"]
 ```
 
-Đường nét đứt là publisher nghiệp vụ cần nhóm Order/Ticket nối vào. Khi đối chiếu ngày 2026-11-05, các lệnh phát Kafka nghiệp vụ ở hai module đó còn cần triển khai. Đường liền vào Notification/Analytics tương ứng các listener đã có code.
+Đường nét đứt là publisher nghiệp vụ của Order/Ticket. Đối chiếu code ngày 2026-11-19: Ticket đã phát `ticket.issued`, `ticket.checked-in/out`, `ticket.cancelled` qua outbox; Order mới phát `order.failed` lý do EXPIRED, còn `order.paid`/`order.refunded` chờ luồng thanh toán C06. Đường liền vào Notification/Analytics tương ứng các listener đã có code.
+
+Giữ chỗ (giữ ghế theo C12) không đi qua Kafka: Order gọi Ticket bằng REST đồng bộ và biết ngay ghế còn hay đã bị lấy. Thiết kế giữ chỗ qua Kafka (C11) đã bị thay, lý do ở [C12](../project-clarifications.md#c12--đặt-vé-theo-ghế-cụ-thể).
 
 | Topic | Publisher | Consumer | Việc consumer thực hiện |
 |---|---|---|---|

@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * expiresAt là hạn Order đề xuất; Ticket không cho vượt TTL 3 phút, thiếu thì tự cấp.
+ * expiresAt là hạn Order đề xuất; Ticket không cho vượt TTL 10 phút (C16), thiếu thì tự cấp.
  */
 public record ReserveRequest(
         @NotNull UUID orderId,

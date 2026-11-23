@@ -1,9 +1,16 @@
 package com.eventhub.ticket.dto.request;
 
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotNull;
+import com.eventhub.ticket.common.SeatLabels;
 
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+import java.util.List;
 import java.util.UUID;
 
-public record ReserveItem(@NotNull UUID ticketTypeId, @NotNull @Min(1) Integer quantity) {
+/** C12: các ghế khách chọn trong một zone; tổng mọi item tối đa 10 ghế. */
+public record ReserveItem(
+        @NotNull UUID ticketTypeId,
+        @NotEmpty @Size(max = SeatLabels.MAX_SEATS_PER_ORDER) List<@NotNull UUID> seatIds) {
 }
