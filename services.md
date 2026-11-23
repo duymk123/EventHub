@@ -4,7 +4,7 @@ Cập nhật 2026-10-27. Đây là thiết kế mục tiêu, mã nguồn hiện 
 
 Kế hoạch triển khai chi tiết ngày 2026-10-28: [docs/plans](docs/plans/README.md), gồm từng hàm service/repository, API, transaction, worker, migration và test cho cả sáu service.
 
-Bổ sung 2026-10-31: [plan API Gateway](docs/plans/api-gateway.md) và [tài liệu nhập môn có sơ đồ luồng](docs/architecture/api-gateway.md). Gateway hiện vẫn là scaffold, chưa có route/security.
+Bổ sung 2026-10-31: [plan API Gateway](docs/plans/api-gateway.md) và [tài liệu nhập môn có sơ đồ luồng](docs/architecture/api-gateway.md). Gateway đã triển khai ngày 2026-11-24 (route, JWT, CORS, X-Request-Id; không dùng DB), xem plan §10.
 
 Public API có prefix /api/v1 ở server URL OpenAPI; /internal/** là đường trực tiếp service, WS /ws/dashboard là ngoại lệ có route Gateway riêng. UUID cho mọi PK/tham chiếu bảng. Không FK/JOIN xuyên DB.
 

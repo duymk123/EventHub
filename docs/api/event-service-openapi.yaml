@@ -677,7 +677,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     Forbidden:
-      description: Không đủ quyền (sai role)
+      description: FORBIDDEN (sai role) hoặc FORBIDDEN_NOT_OWNER (ORGANIZER thao tác trên sự kiện của organizer khác)
       content:
         application/json:
           schema:
