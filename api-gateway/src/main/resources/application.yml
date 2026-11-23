@@ -1,14 +1,89 @@
 spring:
   application:
     name: api-gateway
-  datasource:
-    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_gateway}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
-    username: "${DB_USERNAME:root}"
-    password: "${DB_PASSWORD:root}"
-  jpa:
-    hibernate:
-      ddl-auto: update
-    open-in-view: false
+  cloud:
+    gateway:
+      server:
+        webflux:
+          # Gateway tự đặt X-Forwarded-For = IP kết nối thật (ClientIpHeadersFilter) và bỏ giá trị client tự gửi;
+          # tắt bộ lọc mặc định để không nối thêm giá trị không đáng tin.
+          x-forwarded:
+            enabled: false
+          forwarded:
+            enabled: false
+          httpclient:
+            # Plan api-gateway §5: giá trị khởi đầu, đo rồi chỉnh.
+            connect-timeout: 2000
+            response-timeout: 10s
+          # Route theo owner, chỉ liệt kê path có thật trong controller của service (không mở /api/v1/**).
+          # Quyền theo method + path nằm ở SecurityConfig; đường không khai báo ở đó bị từ chối trước khi tới đây.
+          routes:
+            - id: auth-service
+              uri: ${AUTH_SERVICE_URI:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/auth/**,/api/v1/me/**,/api/v1/admin/users,/api/v1/admin/users/**
+
+            - id: event-service
+              uri: ${EVENT_SERVICE_URI:http://localhost:8082}
+              predicates:
+                - Path=/api/v1/events,/api/v1/events/{id},/api/v1/events/{id}/submit,/api/v1/events/{id}/publish,/api/v1/events/{id}/close,/api/v1/organizer/events,/api/v1/admin/events,/api/v1/admin/events/{id}/review,/api/v1/categories,/api/v1/categories/{id}
+
+            - id: ticket-service
+              uri: ${TICKET_SERVICE_URI:http://localhost:8083}
+              predicates:
+                - Path=/api/v1/events/{eventId}/ticket-types,/api/v1/ticket-types,/api/v1/ticket-types/{id},/api/v1/ticket-types/{id}/seats,/api/v1/tickets/me,/api/v1/tickets/{id}/qr,/api/v1/gate/check-in,/api/v1/gate/check-out
+
+            # Các API gọi VNPay (querydr/refund, đọc tối đa 15 giây) và Ticket trong cùng request: timeout dài hơn.
+            - id: order-service-vnpay
+              uri: ${ORDER_SERVICE_URI:http://localhost:8084}
+              predicates:
+                - Path=/api/v1/orders/{id}/payment/verify,/api/v1/admin/refunds/{id}/approve,/api/v1/admin/refunds/{id}/retry
+              metadata:
+                response-timeout: 40000
+
+            - id: order-service
+              uri: ${ORDER_SERVICE_URI:http://localhost:8084}
+              predicates:
+                # IPN VNPay giữ nguyên query string để Order kiểm chữ ký; Gateway không retry, không trả ACK thay.
+                - Path=/api/v1/orders,/api/v1/orders/me,/api/v1/orders/{id},/api/v1/orders/{id}/cancel,/api/v1/orders/{id}/payment,/api/v1/orders/{id}/refunds,/api/v1/payments/vnpay/ipn,/api/v1/admin/refunds,/api/v1/admin/refunds/{id}/reject,/api/v1/admin/payments/reconciliation,/api/v1/admin/payments/{id}/resolve
+
+            - id: notification-service
+              uri: ${NOTIFICATION_SERVICE_URI:http://localhost:8085}
+              predicates:
+                - Path=/api/v1/notifications/**,/api/v1/admin/notification-templates,/api/v1/admin/notification-templates/**
+
+            - id: analytics-service
+              uri: ${ANALYTICS_SERVICE_URI:http://localhost:8086}
+              predicates:
+                - Path=/api/v1/analytics/**
+
+            # STOMP dashboard: handshake public, JWT kiểm ở frame CONNECT tại Analytics.
+            - id: analytics-ws
+              uri: ${ANALYTICS_WS_URI:ws://localhost:8086}
+              predicates:
+                - Path=/ws/dashboard
 
 server:
   port: "${SERVER_PORT:8080}"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Chỉ health; không public env/config/route management.
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+eventhub:
+  security:
+    # Cùng cấu hình với các service (Keycloak local cổng 8180); Docker Compose truyền giá trị riêng.
+    issuer: ${KEYCLOAK_ISSUER:http://localhost:8180/realms/eventhub}
+    jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/eventhub/protocol/openid-connect/certs}
+    # Mapper eventhub-api-audience của realm thêm aud này vào mọi token; để trống thì không kiểm tra.
+    audience: ${EVENTHUB_JWT_AUDIENCE:eventhub-api}
+    role-claim: ${EVENTHUB_ROLE_CLAIM:realm_access.roles}
+  gateway:
+    # Origin frontend được gọi API qua trình duyệt, phân tách bằng dấu phẩy; không dùng "*".
+    cors-allowed-origins: ${GATEWAY_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}

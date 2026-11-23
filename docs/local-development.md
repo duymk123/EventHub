@@ -40,7 +40,7 @@ Cấu hình local nằm trực tiếp trong `src/main/resources/application.yml`
 
 | Service | Database | Cổng DB | Cổng HTTP |
 |---|---|---:|---:|
-| api-gateway | eventhub_gateway | 3306 | 8080 |
+| api-gateway | Không dùng DB | — | 8080 |
 | auth-service | eventhub_auth | **33101** ⚠️ | 8081 |
 | event-service | eventhub_event | 3306 (Flyway V1 + `validate`) | 8082 |
 | ticket-service | eventhub_ticket | 3306 | 8083 |

@@ -248,26 +248,6 @@ services:
     networks:
       - eventhub
 
-  api-gateway-db:
-    image: mysql:8.4
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
-      MYSQL_ROOT_HOST: "%"
-      MYSQL_DATABASE: eventhub_gateway
-    ports:
-      - "33107:3306"
-    volumes:
-      - api_gateway_mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    restart: unless-stopped
-    networks:
-      - eventhub
-
 # Application Services
   auth-service:
     image: eventhub/auth-service:local
@@ -434,18 +414,20 @@ services:
     ports:
       - "8080:8080"
     environment:
+      <<: *keycloak-env
       SERVER_PORT: "8080"
-      DB_HOST: api-gateway-db
-      DB_PORT: "3306"
-      DB_NAME: eventhub_gateway
-      DB_USERNAME: root
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      # Trong mạng Docker gọi service theo tên container và cổng nội bộ 8080.
+      AUTH_SERVICE_URI: http://auth-service:8080
+      EVENT_SERVICE_URI: http://event-service:8080
+      TICKET_SERVICE_URI: http://ticket-service:8080
+      ORDER_SERVICE_URI: http://order-service:8080
+      NOTIFICATION_SERVICE_URI: http://notification-service:8080
+      ANALYTICS_SERVICE_URI: http://analytics-service:8080
+      ANALYTICS_WS_URI: ws://analytics-service:8080
+      GATEWAY_CORS_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
     restart: unless-stopped
     networks:
       - eventhub
-    depends_on:
-      api-gateway-db:
-        condition: service_healthy
 
 networks:
   eventhub:
@@ -461,4 +443,5 @@ volumes:
   order_mysql_data:
   notification_mysql_data:
   analytics_mysql_data:
+  # Không còn dùng từ khi Gateway bỏ DB (2026-11-24); giữ khai báo để không xóa dữ liệu cũ.
   api_gateway_mysql_data:

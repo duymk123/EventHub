@@ -17,7 +17,7 @@ Gateway chuyển response về frontend
 
 Gateway không tự truy vấn bảng events, tính giá vé hay tạo đơn. Logic đó vẫn thuộc service nghiệp vụ. Nó cũng không cấp token: Keycloak là nơi quản lý identity và cấp token, Auth là facade gọi Keycloak.
 
-Module `api-gateway` hiện chỉ có Application, starter MVC, JPA/MySQL và datasource `eventhub_gateway`; chưa có Spring Cloud Gateway, route, security hay filter. Compose còn tạo MySQL riêng cho Gateway. Cần thực hiện plan trước khi các ví dụ trong tài liệu chạy được.
+Đã triển khai ngày 2026-11-24: Spring Cloud Gateway Server WebFlux 4.3.5 (Cloud 2025.0.3), route theo owner, JWT + quyền theo method/path, CORS, X-Request-Id, lỗi chuẩn; Gateway không còn DB. Trạng thái và cách kiểm thử ở [plan §10](../plans/api-gateway.md#10-trạng-thái-triển-khai-2026-11-24).
 
 ## 2. Các thuật ngữ sẽ gặp
 

@@ -1,6 +1,6 @@
 # Kế hoạch triển khai API Gateway
 
-Cập nhật 2026-10-31. Gateway là thành phần hạ tầng thứ bảy, bên cạnh sáu service nghiệp vụ. Đây là **kế hoạch đề xuất, chưa triển khai**; tài liệu nhập môn và sơ đồ luồng ở [API Gateway từ đầu](../architecture/api-gateway.md). Tuân thủ [hợp đồng chung](00-cross-service-contracts.md), [quyết định nguồn](../architecture/source-decisions.md) và [các điểm còn mở](../project-clarifications.md).
+Cập nhật 2026-10-31; **đã triển khai G1–G4 ngày 2026-11-24, xem [§10](#10-trạng-thái-triển-khai-2026-11-24)**. Gateway là thành phần hạ tầng thứ bảy, bên cạnh sáu service nghiệp vụ; tài liệu nhập môn và sơ đồ luồng ở [API Gateway từ đầu](../architecture/api-gateway.md). Tuân thủ [hợp đồng chung](00-cross-service-contracts.md), [quyết định nguồn](../architecture/source-decisions.md) và [các điểm còn mở](../project-clarifications.md).
 
 > **Chốt 2026-11-22 (C15):** cấu hình Gateway **sau khi** các service hoàn thiện API. Trong lúc đó frontend dùng dữ liệu mock và service được gọi trực tiếp khi kiểm thử. Khi bắt đầu, cập nhật route theo các quyết định mới: IPN VNPay (C06), sơ đồ ghế (C12), cookie refresh token (C13).
 
@@ -171,3 +171,22 @@ Bàn giao kèm bằng chứng build/chạy thử, config mẫu không chứa sec
 - **C06 VNPay:** thay route webhook chung bằng `vnpay-ipn` (GET). `POST /api/v1/orders/{id}/payment/verify` đi theo route order thường (cần JWT).
 - **C12 ghế:** `seat-map-public` (GET `/api/v1/ticket-types/{id}/seats`) public, nên giới hạn tần suất theo IP vì frontend gọi lại mỗi 3–5 giây.
 - **C14:** chuyển nguyên header `Idempotency-Key` xuống Order.
+
+## 10. Trạng thái triển khai (2026-11-24)
+
+Bảng route ở §2 viết trước nhiều quyết định nên thiếu endpoint; bản triển khai lấy **controller thật** của sáu service làm chuẩn: 61 endpoint public + WebSocket `/ws/dashboard`; 8 endpoint `/internal/**` không bao giờ qua Gateway.
+
+| Thành phần | Cách làm |
+|---|---|
+| Runtime (G1) | `spring-cloud-starter-gateway-server-webflux` 4.3.5 qua BOM `spring-cloud-dependencies` 2025.0.3 (chỉ import trong module Gateway), Security, OAuth2 Resource Server, Actuator. Bỏ MVC/JPA/MySQL; Compose bỏ `api-gateway-db` (giữ volume). |
+| Route (G2) | `application.yml`, mỗi owner một route với danh sách path cụ thể (không `/api/v1/**`); `uri` lấy từ `AUTH_SERVICE_URI`… `ANALYTICS_WS_URI`, mặc định `localhost:808x`. Route `order-service-vnpay` (verify, approve, retry hoàn tiền) timeout 40 giây vì gọi VNPay; còn lại connect 2 giây, response 10 giây. Không retry. |
+| Security (G3) | `config/SecurityConfig`: JWT RS256 + issuer + audience `eventhub-api` (giống service); `security/BusinessRoleConverter` lấy đúng một role CUSTOMER/ORGANIZER/ADMIN từ `realm_access.roles`, không có hoặc nhiều role thì không có quyền. Luật method + path chép từ SecurityConfig của từng service; `/internal/**`, `/api/v1/internal/**`, actuator (trừ health) và mọi đường không khai báo bị từ chối. Public: đăng ký/đăng nhập/refresh/logout/quên mật khẩu, xem sự kiện/danh mục/hạng vé/sơ đồ ghế, IPN VNPay, handshake WS. |
+| CORS | Chỉ Gateway trả header CORS; origin từ `GATEWAY_CORS_ALLOWED_ORIGINS` (mặc định `http://localhost:3000,http://127.0.0.1:3000`), `allowCredentials=true` cho C13, header `Authorization`, `Content-Type`, `Idempotency-Key`; expose `X-Request-Id`. |
+| Header | `filter/RequestContextWebFilter` chạy trước security: sinh `X-Request-Id` mới (request + response, kể cả 401/403), xóa header danh tính/proxy client tự gửi (`X-User-Id`, `X-Role`, `X-Forwarded-*`, `Forwarded`…). Gateway 4.3 tự xóa `X-Forwarded-*` khi chưa có trusted proxy, nên `filter/ClientIpHeadersFilter` đặt lại `X-Forwarded-For` = IP kết nối thật khi gửi xuống (Order dùng làm `vnp_IpAddr`). Sau reverse proxy/TLS (G6) cần cấu hình tin IP của proxy. |
+| Lỗi | Lỗi của service giữ nguyên. Lỗi tại Gateway theo `{code, message, timestamp, path}`: 401 `UNAUTHORIZED` (+ `WWW-Authenticate: Bearer`), 403 `FORBIDDEN`, 503 `SERVICE_UNAVAILABLE` (service tắt/không kết nối được), 504 `GATEWAY_TIMEOUT`, 404 `ROUTE_NOT_FOUND`, 502 `BAD_GATEWAY`. |
+| Log | `filter/AccessLogGlobalFilter`: `requestId`, method, path (không query vì IPN chứa chữ ký), route, status, thời gian; không ghi token/cookie/body. |
+| Chưa làm | G5 kiểm thử WS qua trình duyệt; G6 rate limit (cần Redis, nhất là sơ đồ ghế gọi lại 3–5 giây), giới hạn body, trusted proxy/TLS, metrics. |
+
+**Kiểm tra (2026-11-24, máy local, Keycloak + Kafka thật):** 31/31 kiểm tra riêng Gateway (health; public GET; 401 thiếu/sai token có `X-Request-Id`; 403 sai role tại Gateway; route tới đúng owner cho admin users/events/refunds/reconciliation; chặn `/internal/**` có và không token, đường mã hóa `..%2F`, path lạ, sai method; IPN public trả `97` từ Order; qua server echo: giữ query, xóa header giả, `X-Forwarded-For` là IP thật, `X-Request-Id` do Gateway sinh, chuyển `Authorization`; preflight CORS đúng/sai origin; service tắt → 503). Chạy lại kịch bản mua vé/hoàn tiền 37 bước với **mọi request qua Gateway**: 37/37; VNPay nhận `vnp_IpAddr` đúng IP client.
+
+**Chạy local:** bật các service như cũ rồi chạy `ApiGatewayApplication` (Shift+F10, không cần DB) hoặc `.\mvnw.cmd -pl api-gateway spring-boot:run`; gọi API qua `http://localhost:8080`. Lấy token: `POST http://localhost:8080/api/v1/auth/login`.
