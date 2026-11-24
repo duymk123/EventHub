@@ -30,10 +30,24 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { useDemo, useAction } from "@/hooks/use-demo";
-import { demoStore } from "@/lib/mock/store";
-import { mock, refundEligible } from "@/lib/mock/engine";
-import { VENUE, roleNames } from "@/lib/mock/seed";
+import {
+  useAction,
+  useEventsById,
+  useMyOrders,
+  useMyTickets,
+  useNotifications,
+  useOrderRefunds,
+  useProfile,
+  useRefresh,
+  useSession,
+  useTicketQr,
+  useUnreadCount,
+} from "@/hooks/use-api";
+import { useNow } from "@/hooks/use-now";
+import { authApi, notificationApi, orderApi } from "@/lib/api/endpoints";
+import { eventImage } from "@/lib/api/adapters";
+import { session } from "@/lib/auth/session";
+import { VENUE, roleNames } from "@/lib/labels";
 import { money, dateLabel, timeLabel, cn } from "@/lib/utils";
 import {
   DataBoundary,
@@ -44,8 +58,20 @@ import {
   Pagination,
   Disclosure,
 } from "../shared";
-import type { Ticket, Order } from "@/types";
+import { QrImage, downloadQr } from "../ticket/qr-image";
+import type { Event, Ticket, Order } from "@/types";
 import { toast } from "sonner";
+
+/** Sự kiện đã đóng bán không còn đọc công khai được: dùng ảnh theo id và tiêu đề chung. */
+function eventView(events: Map<string, Event>, eventId: string) {
+  const e = events.get(eventId);
+  return {
+    title: e?.title ?? "Sự kiện đã kết thúc bán vé",
+    image: e?.image ?? eventImage("", eventId),
+    startTime: e?.startTime,
+  };
+}
+
 export function Tickets() {
   return (
     <RoleGuard roles={["CUSTOMER"]}>
@@ -54,32 +80,22 @@ export function Tickets() {
   );
 }
 function TicketList() {
-  const state = useDemo();
+  const query = useMyTickets();
+  const all = query.data ?? [];
+  const { events } = useEventsById(all.map((t) => t.eventId));
   const [tab, setTab] = useState("all");
   const [selected, setSelected] = useState<Ticket | null>(null);
-  const tickets = state.tickets.filter(
+  const tickets = all.filter(
     (t) =>
-      t.customerId === state.userId &&
-      (tab === "all" ||
-        (tab === "active"
-          ? ["ISSUED", "CHECKED_IN"].includes(t.status)
-          : ["CANCELLED", "CHECKED_OUT"].includes(t.status))),
+      tab === "all" ||
+      (tab === "active"
+        ? ["ISSUED", "CHECKED_IN"].includes(t.status)
+        : ["CANCELLED", "CHECKED_OUT"].includes(t.status)),
   );
-  const selectedNow = state.tickets.find((t) => t.id === selected?.id);
-  const selectedEvent = state.events.find((e) => e.id === selectedNow?.eventId);
-  function download() {
-    if (!selectedNow || !selectedEvent) return;
-    const body = `EVENTHUB - VE TRAI NGHIEM (KHONG CO GIA TRI VAO CONG)\n\n${selectedEvent.title}\n${selectedNow.id}\n${selectedNow.tier}${selectedNow.seatLabel ? ` - GHE ${selectedNow.seatLabel}` : ""}\n${selectedNow.holderName}\n${dateLabel(selectedEvent.startTime)} - ${timeLabel(selectedEvent.startTime)}\n${VENUE}`;
-    const url = URL.createObjectURL(
-      new Blob([body], { type: "text/plain;charset=utf-8" }),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${selectedNow.id}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Đã lưu thông tin vé trải nghiệm");
-  }
+  // Vé đã hủy/đã ra cổng không còn mã QR hợp lệ.
+  const usable = selected && ["ISSUED", "CHECKED_IN"].includes(selected.status);
+  const qr = useTicketQr(usable ? selected.id : null);
+  const selectedEvent = selected ? eventView(events, selected.eventId) : null;
   return (
     <div className="container page-section">
       <PageTitle
@@ -111,13 +127,16 @@ function TicketList() {
         ))}
       </div>
       <DataBoundary
+        loading={query.isLoading}
+        error={query.isError}
+        onRetry={() => void query.refetch()}
         empty={!tickets.length}
         title="Chưa có vé ở đây"
         description="Khám phá một sự kiện yêu thích và đặt vé để bắt đầu cuộc hẹn tiếp theo."
       >
         <div className="wallet-grid">
           {tickets.map((t) => {
-            const e = state.events.find((e) => e.id === t.eventId)!;
+            const e = eventView(events, t.eventId);
             return (
               <article className="wallet-ticket" key={t.id}>
                 <div className="wallet-art">
@@ -139,13 +158,15 @@ function TicketList() {
                     <Status value={t.status} />
                   </div>
                   <h2>{e.title}</h2>
-                  <p>
-                    <CalendarDays size={14} />
-                    {dateLabel(e.startTime)} · {timeLabel(e.startTime)}
-                  </p>
+                  {e.startTime && (
+                    <p>
+                      <CalendarDays size={14} />
+                      {dateLabel(e.startTime)} · {timeLabel(e.startTime)}
+                    </p>
+                  )}
                   <p>
                     <MapPin size={14} />
-                    EventHub, TP. Hồ Chí Minh
+                    {VENUE}
                   </p>
                   <div className="wallet-holder">
                     <span>
@@ -176,32 +197,43 @@ function TicketList() {
           <DialogHeader>
             <DialogTitle>Vé điện tử của bạn</DialogTitle>
             <DialogDescription>
-              Mã minh họa để trải nghiệm giao diện, không có giá trị vào cổng
-              thật.
+              Đưa mã QR này cho nhân viên soát vé tại cổng.
             </DialogDescription>
           </DialogHeader>
-          {selectedNow && selectedEvent && (
+          {selected && selectedEvent && (
             <>
               <h3 className="text-center font-semibold text-lg mt-3">
                 {selectedEvent.title}
               </h3>
               <div className="qr-ticket">
-                <QrCode size={164} strokeWidth={1.2} />
-                <span>DEMO</span>
+                {!usable ? (
+                  <>
+                    <QrCode size={164} strokeWidth={1.2} />
+                    <span>KHÔNG CÒN HIỆU LỰC</span>
+                  </>
+                ) : qr.data ? (
+                  <QrImage value={qr.data.qrCodeValue} />
+                ) : qr.isError ? (
+                  <Button variant="secondary" onClick={() => void qr.refetch()}>
+                    Tải lại mã QR
+                  </Button>
+                ) : (
+                  <div className="skeleton" style={{ width: 220, height: 220 }} />
+                )}
               </div>
               <div className="text-center">
-                <Status value={selectedNow.status} />
-                <p className="font-mono mt-3">{selectedNow.id}</p>
+                <Status value={selected.status} />
+                <p className="font-mono mt-3">{selected.id}</p>
                 <p className="muted text-xs mt-2">
-                  {selectedNow.holderName} · {selectedNow.tier}
-                  {selectedNow.seatLabel && ` · Ghế ${selectedNow.seatLabel}`}
+                  {selected.holderName} · {selected.tier}
+                  {selected.seatLabel && ` · Ghế ${selected.seatLabel}`}
                 </p>
               </div>
               <div className="notice-box">
                 <Info size={16} />
                 <p>
-                  Để thử check-in, đổi sang Ban tổ chức → Kiểm soát vé và nhập
-                  mã vé ở trên. Vé đã ra cổng không thể vào lại.
+                  Cổng mở từ 60 phút trước giờ diễn. Mỗi vé chỉ vào cổng một
+                  lần; vé đã ra cổng không thể vào lại.
                 </p>
               </div>
               <div className="flex gap-3">
@@ -210,16 +242,23 @@ function TicketList() {
                   className="flex-1"
                   onClick={() => {
                     navigator.clipboard
-                      ?.writeText(selectedNow.id)
+                      ?.writeText(selected.id)
                       .then(() => toast.success("Đã sao chép mã vé"));
                   }}
                 >
                   <Copy size={15} />
-                  Sao chép mã
+                  Sao chép mã vé
                 </Button>
-                <Button className="flex-1" onClick={download}>
+                <Button
+                  className="flex-1"
+                  disabled={!qr.data}
+                  onClick={() =>
+                    qr.data &&
+                    void downloadQr(qr.data.qrCodeValue, `eventhub-${selected.id}.png`)
+                  }
+                >
                   <Download size={15} />
-                  Lưu thông tin
+                  Lưu mã QR
                 </Button>
               </div>
             </>
@@ -229,6 +268,7 @@ function TicketList() {
     </div>
   );
 }
+
 export function Orders() {
   return (
     <RoleGuard roles={["CUSTOMER"]}>
@@ -236,8 +276,11 @@ export function Orders() {
     </RoleGuard>
   );
 }
+const ORDER_PAGE = 5;
 function OrderList() {
-  const state = useDemo();
+  const query = useMyOrders(0, 100);
+  const all = query.data?.orders ?? [];
+  const { events } = useEventsById(all.map((o) => o.eventId));
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [page, setPage] = useState(0);
@@ -245,15 +288,13 @@ function OrderList() {
   const [refund, setRefund] = useState<Order | null>(null);
   const [reason, setReason] = useState("");
   const { busy, run } = useAction();
-  const orders = state.orders.filter(
+  const refresh = useRefresh();
+  const needle = search.trim().toLowerCase();
+  const orders = all.filter(
     (o) =>
-      o.customerId === state.userId &&
       (filter === "all" || o.status === filter) &&
-      (o.id.toLowerCase().includes(search.toLowerCase()) ||
-        state.events
-          .find((e) => e.id === o.eventId)
-          ?.title.toLowerCase()
-          .includes(search.toLowerCase())),
+      (o.id.toLowerCase().includes(needle) ||
+        eventView(events, o.eventId).title.toLowerCase().includes(needle)),
   );
   return (
     <div className="container page-section">
@@ -287,91 +328,36 @@ function OrderList() {
           <option value="PENDING_PAYMENT">Chờ thanh toán</option>
           <option value="REFUNDED">Đã hoàn tiền</option>
           <option value="EXPIRED">Hết hạn</option>
+          <option value="CANCELLED">Đã hủy</option>
         </select>
       </div>
-      <DataBoundary empty={!orders.length} title="Chưa có đơn hàng phù hợp">
+      <DataBoundary
+        loading={query.isLoading}
+        error={query.isError}
+        onRetry={() => void query.refetch()}
+        empty={!orders.length}
+        title="Chưa có đơn hàng phù hợp"
+      >
         <div className="order-list">
-          {orders.slice(page * 5, (page + 1) * 5).map((o) => {
-            const e = state.events.find((e) => e.id === o.eventId)!;
-            const r = state.refunds.find((r) => r.orderId === o.id);
-            return (
-              <article className="order-card" key={o.id}>
-                <div className="order-card-top">
-                  <span>
-                    {o.id}
-                    <small>{dateLabel(o.createdAt)}</small>
-                  </span>
-                  <Status
-                    value={r?.status === "REQUESTED" ? "REQUESTED" : o.status}
-                  />
-                </div>
-                <div className="order-card-content">
-                  <Image src={e.image} alt="" width={120} height={90} />
-                  <div>
-                    <h3>{e.title}</h3>
-                    <p>
-                      {o.lines
-                        .map((l) => `${l.quantity} ${l.tier}`)
-                        .join(" · ")}
-                    </p>
-                    <span>{dateLabel(e.startTime)}</span>
-                  </div>
-                  <strong>{money(o.total)}</strong>
-                </div>
-                {r && (
-                  <div className="order-refund-status">
-                    {r.status === "REQUESTED"
-                      ? `Đang chờ Admin xét duyệt hoàn ${money(r.amount)}.`
-                      : r.status === "REJECTED"
-                        ? `Yêu cầu bị từ chối: ${r.reviewReason}`
-                        : `Đã hoàn ${money(r.amount)}. Tất cả vé trong đơn đã hủy.`}
-                  </div>
-                )}
-                <div className="order-card-actions">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setDetail(o)}
-                  >
-                    Chi tiết đơn
-                  </Button>
-                  {o.status === "PENDING_PAYMENT" && (
-                    <Button asChild size="sm">
-                      <Link href={`/checkout?order=${o.id}`}>
-                        Tiếp tục thanh toán
-                        <ArrowRight size={14} />
-                      </Link>
-                    </Button>
-                  )}
-                  {o.status === "PAID" && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={
-                          !refundEligible(state, o) || r?.status === "REQUESTED"
-                        }
-                        onClick={() => {
-                          setRefund(o);
-                          setReason("");
-                        }}
-                      >
-                        Yêu cầu hoàn tiền
-                      </Button>
-                      <Button variant="secondary" asChild size="sm">
-                        <Link href="/tickets">
-                          <TicketIcon size={14} />
-                          Xem vé
-                        </Link>
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </article>
-            );
-          })}
+          {orders.slice(page * ORDER_PAGE, (page + 1) * ORDER_PAGE).map((o) => (
+            <OrderCard
+              key={o.id}
+              order={o}
+              event={events.get(o.eventId)}
+              onDetail={() => setDetail(o)}
+              onRefund={() => {
+                setRefund(o);
+                setReason("");
+              }}
+            />
+          ))}
         </div>
-        <Pagination page={page} total={orders.length} onChange={setPage} />
+        <Pagination
+          page={page}
+          total={orders.length}
+          onChange={setPage}
+          pageSize={ORDER_PAGE}
+        />
       </DataBoundary>
       <div className="notice-box mt-6">
         <Info size={17} />
@@ -386,7 +372,7 @@ function OrderList() {
           if (!open) setRefund(null);
         }}
         title="Gửi yêu cầu hoàn tiền?"
-        description={`Bạn đang yêu cầu hoàn cả đơn ${refund?.id ?? ""}. Khi được duyệt, tất cả vé sẽ hủy. Số tiền hoàn: ${money(Math.round((refund?.total ?? 0) * 0.7))}; giữ lại 30% giá mua.`}
+        description={`Bạn đang yêu cầu hoàn cả đơn ${refund?.id ?? ""}. Khi được duyệt, tất cả vé trong đơn sẽ bị hủy. Số tiền hoàn dự kiến: ${money(Math.round((refund?.total ?? 0) * 0.7))} (70% giá mua), số tiền chính thức do hệ thống xác nhận.`}
         busy={busy}
         confirmLabel="Gửi yêu cầu"
         onConfirm={() => {
@@ -396,8 +382,9 @@ function OrderList() {
           }
           if (refund)
             run(
-              () => mock.requestRefund(refund.id, reason),
+              () => orderApi.requestRefund(refund.id, reason.trim()),
               () => {
+                void refresh(["refunds", refund.id], ["orders"]);
                 setRefund(null);
                 toast.success("Đã gửi yêu cầu đến Admin");
               },
@@ -410,6 +397,7 @@ function OrderList() {
         <Textarea
           id="refund-reason"
           value={reason}
+          maxLength={500}
           onChange={(e) => setReason(e.target.value)}
           placeholder="Hãy cho chúng tôi biết lý do..."
         />
@@ -440,10 +428,14 @@ function OrderList() {
               ))}
               <hr className="border-border" />
               <h3 className="font-semibold">Người sử dụng vé</h3>
-              {detail.holders.map((h, i) => (
-                <div key={i}>
-                  <strong className="text-sm">{h.name}</strong>
-                  <p className="muted text-xs">{h.email}</p>
+              {detail.holders.map((h) => (
+                <div key={h.seatId}>
+                  <strong className="text-sm">
+                    {h.name} · Ghế {h.seatLabel}
+                  </strong>
+                  <p className="muted text-xs">
+                    {h.email || "Gửi vé về email người mua"}
+                  </p>
                 </div>
               ))}
               <div className="summary-total">
@@ -457,102 +449,252 @@ function OrderList() {
     </div>
   );
 }
-export function Notifications() {
-  const state = useDemo();
-  const [unread, setUnread] = useState(false);
-  const notices = state.notices.filter(
-    (n) => n.userId === state.userId && (!unread || !n.read),
-  );
+
+const REFUND_TEXT: Record<string, (amount: string, reason?: string) => string> = {
+  REQUESTED: (a) => `Đang chờ Admin xét duyệt hoàn ${a}.`,
+  APPROVED: (a) => `Đã duyệt hoàn ${a}, đang chuyển tiền qua VNPay.`,
+  PROCESSING: (a) => `Đang hoàn ${a} qua VNPay.`,
+  REFUNDED: (a) => `Đã hoàn ${a}. Tất cả vé trong đơn đã hủy.`,
+  FAILED: (a) => `Hoàn ${a} chưa thành công, Admin đang xử lý lại.`,
+  REJECTED: (_, r) => `Yêu cầu bị từ chối${r ? `: ${r}` : "."}`,
+};
+
+function OrderCard({
+  order: o,
+  event,
+  onDetail,
+  onRefund,
+}: {
+  order: Order;
+  event: Event | undefined;
+  onDetail: () => void;
+  onRefund: () => void;
+}) {
+  const now = useNow();
+  const withRefund = o.status === "PAID" || o.status === "REFUNDED";
+  const refunds = useOrderRefunds(withRefund ? o.id : undefined);
+  // Yêu cầu mới nhất quyết định trạng thái hiển thị.
+  const r = [...(refunds.data ?? [])].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  )[0];
+  const open = r && !["REJECTED"].includes(r.status);
+  // Gợi ý theo điều kiện C09; server kiểm tra lại khi gửi và khi duyệt.
+  const eligible =
+    o.status === "PAID" &&
+    !open &&
+    Boolean(event) &&
+    Boolean(now) &&
+    Date.parse(event!.startTime) - now >= 48 * 3_600_000;
+  const view = {
+    title: event?.title ?? "Sự kiện đã kết thúc bán vé",
+    image: event?.image ?? eventImage("", o.eventId),
+  };
   return (
-    <RoleGuard roles={["CUSTOMER", "ORGANIZER", "ADMIN"]}>
-      <div className="content-narrow">
-        <PageTitle
-          title="Thông báo"
-          description="Những cập nhật dành riêng cho bạn."
-          action={
+    <article className="order-card">
+      <div className="order-card-top">
+        <span>
+          {o.id}
+          <small>{dateLabel(o.createdAt)}</small>
+        </span>
+        <Status value={r && open && r.status !== "REFUNDED" ? r.status : o.status} />
+      </div>
+      <div className="order-card-content">
+        <Image src={view.image} alt="" width={120} height={90} />
+        <div>
+          <h3>{view.title}</h3>
+          <p>{o.lines.map((l) => `${l.quantity} ${l.tier}`).join(" · ")}</p>
+          {event && <span>{dateLabel(event.startTime)}</span>}
+        </div>
+        <strong>{money(o.total)}</strong>
+      </div>
+      {r && (
+        <div className="order-refund-status">
+          {REFUND_TEXT[r.status]?.(money(r.amount), r.reviewReason) ?? ""}
+        </div>
+      )}
+      <div className="order-card-actions">
+        <Button variant="ghost" size="sm" onClick={onDetail}>
+          Chi tiết đơn
+        </Button>
+        {o.status === "PENDING_PAYMENT" && (
+          <Button asChild size="sm">
+            <Link href={`/checkout?order=${o.id}`}>
+              Tiếp tục thanh toán
+              <ArrowRight size={14} />
+            </Link>
+          </Button>
+        )}
+        {o.status === "PAID" && (
+          <>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => {
-                demoStore.set((s) => ({
-                  ...s,
-                  notices: s.notices.map((n) =>
-                    n.userId === s.userId ? { ...n, read: true } : n,
-                  ),
-                }));
-                toast.success("Đã đánh dấu tất cả là đã đọc");
-              }}
-            >
-              <CheckCheck size={16} />
-              Đọc tất cả
-            </Button>
-          }
-        />
-        <div className="tab-row">
-          <button
-            className={!unread ? "selected" : ""}
-            onClick={() => setUnread(false)}
-          >
-            Tất cả
-          </button>
-          <button
-            className={unread ? "selected" : ""}
-            onClick={() => setUnread(true)}
-          >
-            Chưa đọc
-            <span className="count-badge">
-              {
-                state.notices.filter(
-                  (n) => n.userId === state.userId && !n.read,
-                ).length
+              disabled={!eligible}
+              title={
+                eligible
+                  ? undefined
+                  : "Chỉ hoàn được khi còn ít nhất 48 giờ trước sự kiện và chưa có yêu cầu đang xử lý"
               }
-            </span>
-          </button>
-        </div>
-        <DataBoundary empty={!notices.length} title="Bạn đã xem hết thông báo">
-          <div className="notices">
-            {notices.map((n) => (
-              <Link
-                key={n.id}
-                href={n.href}
-                className={cn("notice-item", !n.read && "unread")}
-                onClick={() =>
-                  demoStore.set((s) => ({
-                    ...s,
-                    notices: s.notices.map((x) =>
-                      x.id === n.id ? { ...x, read: true } : x,
-                    ),
-                  }))
-                }
-              >
-                <span className="notice-icon">
-                  <Bell size={20} />
-                </span>
-                <div>
-                  <h3>{n.title}</h3>
-                  <p>{n.content}</p>
-                  <small>{dateLabel(n.createdAt)}</small>
-                </div>
-                <ArrowUpRight size={16} />
+              onClick={onRefund}
+            >
+              Yêu cầu hoàn tiền
+            </Button>
+            <Button variant="secondary" asChild size="sm">
+              <Link href="/tickets">
+                <TicketIcon size={14} />
+                Xem vé
               </Link>
-            ))}
-          </div>
-        </DataBoundary>
+            </Button>
+          </>
+        )}
       </div>
+    </article>
+  );
+}
+
+export function Notifications() {
+  return (
+    <RoleGuard roles={["CUSTOMER", "ORGANIZER", "ADMIN"]}>
+      <NoticeList />
     </RoleGuard>
   );
 }
+function NoticeList() {
+  const [unread, setUnread] = useState(false);
+  const query = useNotifications(0, 50, unread);
+  const count = useUnreadCount();
+  const refresh = useRefresh();
+  const { busy, run } = useAction();
+  const notices = query.data?.notices ?? [];
+  function markRead(id: string) {
+    void notificationApi
+      .markRead(id)
+      .then(() => refresh(["notifications"]))
+      .catch(() => undefined);
+  }
+  return (
+    <div className="content-narrow">
+      <PageTitle
+        title="Thông báo"
+        description="Những cập nhật dành riêng cho bạn."
+        action={
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy || !notices.some((n) => !n.read)}
+            onClick={() =>
+              run(
+                () =>
+                  Promise.all(
+                    notices
+                      .filter((n) => !n.read)
+                      .map((n) => notificationApi.markRead(n.id)),
+                  ),
+                () => {
+                  void refresh(["notifications"]);
+                  toast.success("Đã đánh dấu tất cả là đã đọc");
+                },
+              )
+            }
+          >
+            <CheckCheck size={16} />
+            Đọc tất cả
+          </Button>
+        }
+      />
+      <div className="tab-row">
+        <button
+          className={!unread ? "selected" : ""}
+          onClick={() => setUnread(false)}
+        >
+          Tất cả
+        </button>
+        <button
+          className={unread ? "selected" : ""}
+          onClick={() => setUnread(true)}
+        >
+          Chưa đọc
+          <span className="count-badge">{count.data ?? 0}</span>
+        </button>
+      </div>
+      <DataBoundary
+        loading={query.isLoading}
+        error={query.isError}
+        onRetry={() => void query.refetch()}
+        empty={!notices.length}
+        title="Bạn đã xem hết thông báo"
+      >
+        <div className="notices">
+          {notices.map((n) => (
+            <Link
+              key={n.id}
+              href={n.href}
+              className={cn("notice-item", !n.read && "unread")}
+              onClick={() => {
+                if (!n.read) markRead(n.id);
+              }}
+            >
+              <span className="notice-icon">
+                <Bell size={20} />
+              </span>
+              <div>
+                <h3>{n.title}</h3>
+                <p>{n.content}</p>
+                <small>{dateLabel(n.createdAt)}</small>
+              </div>
+              <ArrowUpRight size={16} />
+            </Link>
+          ))}
+        </div>
+      </DataBoundary>
+    </div>
+  );
+}
+
 export function Profile() {
   return (
     <RoleGuard roles={["CUSTOMER", "ORGANIZER", "ADMIN"]}>
-      <ProfileForm />
+      <ProfileLoader />
     </RoleGuard>
   );
 }
-function ProfileForm() {
-  const { user } = useDemo();
-  const [name, setName] = useState(user?.name ?? "");
+function ProfileLoader() {
+  const query = useProfile();
+  if (query.isLoading || query.isError)
+    return (
+      <div className="content-narrow">
+        <DataBoundary
+          loading={query.isLoading}
+          error={query.isError}
+          onRetry={() => void query.refetch()}
+        >
+          {null}
+        </DataBoundary>
+      </div>
+    );
+  return (
+    <ProfileForm
+      initialName={query.data?.fullName ?? ""}
+      initialPhone={query.data?.phoneNumber ?? ""}
+      exists={Boolean(query.data)}
+    />
+  );
+}
+function ProfileForm({
+  initialName,
+  initialPhone,
+  exists,
+}: {
+  initialName: string;
+  initialPhone: string;
+  exists: boolean;
+}) {
+  const { user } = useSession();
+  const [name, setName] = useState(initialName || user?.name || "");
+  const [phone, setPhone] = useState(initialPhone);
   const { busy, run } = useAction();
+  const verify = useAction();
+  const refresh = useRefresh();
   return (
     <div className="content-narrow">
       <PageTitle
@@ -564,7 +706,7 @@ function ProfileForm() {
           <UserRound size={35} />
           <div>
             <h2>{user?.name}</h2>
-            <p>{roleNames[user!.role]}</p>
+            <p>{user ? roleNames[user.role] : ""}</p>
           </div>
         </div>
         <form
@@ -572,17 +714,19 @@ function ProfileForm() {
             e.preventDefault();
             run(
               async () => {
-                await new Promise((r) => setTimeout(r, 500));
-                if (name.trim().length < 2)
+                const fullName = name.trim().replace(/\s+/g, " ");
+                if (fullName.length < 2)
                   throw new Error("Họ và tên cần ít nhất 2 ký tự");
-                demoStore.set((s) => ({
-                  ...s,
-                  users: s.users.map((u) =>
-                    u.id === user!.id ? { ...u, name: name.trim() } : u,
-                  ),
-                }));
+                const body = { fullName, phoneNumber: phone.trim() || undefined };
+                await (exists
+                  ? authApi.updateProfile(body)
+                  : authApi.initProfile(body));
+                await session.reloadUser();
               },
-              () => toast.success("Đã lưu thông tin trải nghiệm"),
+              () => {
+                void refresh(["profile"]);
+                toast.success("Đã lưu thông tin tài khoản");
+              },
             );
           }}
         >
@@ -593,8 +737,21 @@ function ProfileForm() {
             <Input
               id="profile-name"
               required
+              maxLength={100}
               value={name}
               onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="profile-phone">
+              Số điện thoại
+            </label>
+            <Input
+              id="profile-phone"
+              type="tel"
+              maxLength={20}
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
             />
           </div>
           <div className="field">
@@ -605,9 +762,29 @@ function ProfileForm() {
               <Mail />
               <Input id="profile-email" readOnly value={user?.email ?? ""} />
             </div>
-            <p className="muted text-xs mt-2">
-              Email tài khoản mẫu được giữ cố định trong bản trải nghiệm.
-            </p>
+            {user?.emailVerified ? (
+              <p className="muted text-xs mt-2">Email đã được xác minh.</p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3 mt-2">
+                <p className="muted text-xs">
+                  Email chưa xác minh, bạn cần xác minh trước khi đặt vé.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={verify.busy}
+                  onClick={() =>
+                    verify.run(
+                      () => authApi.resendVerification(),
+                      () => toast.success("Đã gửi lại email xác minh"),
+                    )
+                  }
+                >
+                  Gửi lại email xác minh
+                </Button>
+              </div>
+            )}
           </div>
           <Button disabled={busy} type="submit">
             {busy ? "Đang lưu..." : "Lưu thay đổi"}
@@ -619,6 +796,7 @@ function ProfileForm() {
     </div>
   );
 }
+
 export function Help() {
   return (
     <div className="content-narrow">
@@ -629,13 +807,14 @@ export function Help() {
       />
       <div className="panel">
         <Disclosure title="Làm thế nào để đặt vé?">
-          Khám phá sự kiện → chọn hạng và số lượng → điền thông tin từng người
-          dùng vé → giữ vé → thanh toán trong 10 phút. Vé xuất hiện trong Ví vé
-          của tôi khi thanh toán thành công.
+          Khám phá sự kiện → chọn khu và từng ghế → điền thông tin người sử dụng
+          vé → giữ ghế → thanh toán qua VNPay trong 10 phút. Vé xuất hiện trong
+          Ví vé của tôi và được gửi qua email khi thanh toán thành công.
         </Disclosure>
         <Disclosure title="Hết thời gian thanh toán thì sao?">
-          Đơn chuyển sang hết hạn và vé được trả lại tồn kho. Bạn có thể chọn
-          lại vé nếu vẫn còn chỗ.
+          Đơn chuyển sang hết hạn và ghế được trả lại. Nếu thanh toán trên VNPay
+          chưa thành công, bạn có thể thanh toán lại cho tới khi hết giờ giữ
+          ghế.
         </Disclosure>
         <div id="refund">
           <Disclosure title="Chính sách hoàn tiền là gì?">
@@ -646,13 +825,13 @@ export function Help() {
         </div>
         <Disclosure title="Vé có được gửi tới người khác không?">
           Bạn nhập tên và email riêng cho từng người sử dụng. Nếu không nhập
-          email, vé dùng email người mua. Người mua vẫn là chủ sở hữu và quản lý
-          toàn bộ đơn.
+          email, vé được gửi về email người mua. Người mua vẫn là chủ sở hữu và
+          quản lý toàn bộ đơn.
         </Disclosure>
-        <Disclosure title="Bản trải nghiệm này có giao dịch thật không?">
-          Không. Tất cả dữ liệu và thao tác được mô phỏng trên trình duyệt. Bạn
-          có thể đổi vai trò, thử trạng thái lỗi/rỗng/đang tải và khôi phục dữ
-          liệu tại bảng Trải nghiệm.
+        <Disclosure title="Tôi cần xác minh email không?">
+          Có. Sau khi đăng ký, mở đường dẫn trong email xác minh. Tài khoản chưa
+          xác minh email chưa đặt được vé; bạn có thể gửi lại email xác minh ở
+          trang Tài khoản.
         </Disclosure>
       </div>
     </div>

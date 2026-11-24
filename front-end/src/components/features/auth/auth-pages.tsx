@@ -2,16 +2,27 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { loginSchema, type LoginForm } from "@/schemas/forms";
-import { mock } from "@/lib/mock/engine";
-import { useAction } from "@/hooks/use-demo";
+import { useAction } from "@/hooks/use-api";
+import { authApi } from "@/lib/api/endpoints";
+import { session } from "@/lib/auth/session";
+import type { Role } from "@/types";
 import { toast } from "sonner";
+
+function homeOf(role: Role) {
+  return role === "CUSTOMER" ? "/" : role === "ADMIN" ? "/admin" : "/organizer";
+}
+
+/** Chỉ cho quay lại đường dẫn nội bộ (tránh open redirect qua ?next=). */
+function safeNext(next: string | null) {
+  return next && next.startsWith("/") && !next.startsWith("//") ? next : null;
+}
 export function AuthPage({
   register = false,
   forgot = false,
@@ -22,21 +33,18 @@ export function AuthPage({
   const [visible, setVisible] = useState(false);
   const { busy, run } = useAction();
   const router = useRouter();
+  const next = safeNext(useSearchParams().get("next"));
   const form = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
-    defaultValues: {
-      name: "",
-      email: "minhanh@example.com",
-      password: "EventHub2026",
-    },
+    defaultValues: { name: "", email: "", password: forgot ? "--------" : "" },
   });
   const submit = form.handleSubmit((v) =>
     run(async () => {
       if (forgot) {
-        await new Promise((r) => setTimeout(r, 600));
-        toast.success(
-          "Đã mô phỏng gửi hướng dẫn đặt lại mật khẩu. Không có email thật được gửi.",
-        );
+        await authApi.forgotPassword(v.email.trim());
+        // Backend luôn trả 204 (không tiết lộ email có tồn tại hay không).
+        toast.success("Nếu email đã đăng ký, hướng dẫn đặt lại mật khẩu sẽ được gửi tới hộp thư của bạn.");
+        router.push("/login");
         return;
       }
       if (register) {
@@ -44,19 +52,14 @@ export function AuthPage({
           form.setError("name", { message: "Vui lòng nhập họ và tên" });
           return;
         }
-        await mock.register(v.name, v.email);
-        toast.success("Tài khoản trải nghiệm đã được tạo");
-        router.push("/");
+        await authApi.register({ email: v.email.trim(), password: v.password, fullName: v.name.trim() });
+        const user = await session.login(v.email.trim(), v.password);
+        toast.success("Tạo tài khoản thành công. Hãy mở email để xác minh trước khi đặt vé.");
+        router.push(next ?? homeOf(user.role));
       } else {
-        const user = await mock.login(v.email);
+        const user = await session.login(v.email.trim(), v.password);
         toast.success(`Chào mừng ${user.name}`);
-        router.push(
-          user.role === "CUSTOMER"
-            ? "/"
-            : user.role === "ADMIN"
-              ? "/admin"
-              : "/organizer",
-        );
+        router.push(next ?? homeOf(user.role));
       }
     }),
   );
@@ -90,7 +93,7 @@ export function AuthPage({
         </h1>
         <p className="muted mt-3 mb-8">
           {forgot
-            ? "Nhập email để thử luồng khôi phục tài khoản."
+            ? "Nhập email đã đăng ký, chúng tôi sẽ gửi đường dẫn đặt lại mật khẩu."
             : register
               ? "Tạo tài khoản để lưu giữ những trải nghiệm của bạn."
               : "Đăng nhập để tiếp tục những cuộc hẹn còn đang chờ."}
@@ -117,7 +120,7 @@ export function AuthPage({
             <label className="field-label" htmlFor="auth-email">
               Địa chỉ email
             </label>
-            <Input id="auth-email" type="email" {...form.register("email")} />
+            <Input id="auth-email" type="email" autoComplete="email" {...form.register("email")} />
             {form.formState.errors.email && (
               <p className="form-error">
                 {form.formState.errors.email.message}
@@ -178,8 +181,8 @@ export function AuthPage({
         <div className="notice-box">
           <ShieldCheck size={17} />
           <p>
-            Chế độ trải nghiệm: dùng email mẫu và mật khẩu bất kỳ từ 8 ký tự.
-            Mật khẩu không được lưu. Đổi vai trò tại nút Trải nghiệm.
+            Phiên đăng nhập được giữ an toàn bằng cookie bảo mật. Mật khẩu chỉ
+            được gửi tới máy chủ xác thực, không lưu trên trình duyệt.
           </p>
         </div>
       </div>

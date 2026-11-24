@@ -1,15 +1,10 @@
 "use client";
-import { useMemo } from "react";
-import { useDemo } from "@/hooks/use-demo";
+// Số liệu cho trang Phân tích và Tổng quan: GET /analytics/overview + GET /analytics/events (C10).
+// ADMIN thấy mọi sự kiện, ORGANIZER chỉ sự kiện của mình (Analytics service tự lọc theo token).
+import { useAnalyticsEvents, useAnalyticsOverview } from "@/hooks/use-api";
 import { useNow } from "@/hooks/use-now";
-import {
-  addDays,
-  dayKey,
-  eventBreakdown,
-  metricSource,
-  overview,
-} from "@/lib/mock/platform-analytics";
-import type { Granularity } from "@/types/analytics";
+import type { AnalyticsOverviewDto } from "@/types/api";
+import type { EventAnalyticsRow, Granularity } from "@/types/analytics";
 
 export type RangePreset = "7d" | "30d" | "90d" | "12m" | "ytd";
 export const rangePresets: { value: RangePreset; label: string }[] = [
@@ -22,9 +17,18 @@ export const rangePresets: { value: RangePreset; label: string }[] = [
 export const defaultGranularity = (p: RangePreset): Granularity =>
   p === "12m" || p === "ytd" ? "MONTH" : "DAY";
 
+const TZ = "Asia/Ho_Chi_Minh";
+/** Ngày theo giờ Việt Nam, dạng yyyy-MM-dd (Analytics gom số liệu theo ngày VN). */
+export const dayKey = (value: string | number | Date) =>
+  new Date(value).toLocaleDateString("en-CA", { timeZone: TZ });
+export function addDays(day: string, n: number) {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 export function rangeOf(preset: RangePreset, today: string) {
-  if (preset === "ytd")
-    return { from: `${today.slice(0, 4)}-01-01`, to: today };
+  if (preset === "ytd") return { from: `${today.slice(0, 4)}-01-01`, to: today };
   if (preset === "12m") {
     const d = new Date(`${today.slice(0, 7)}-01T00:00:00Z`);
     d.setUTCMonth(d.getUTCMonth() - 11);
@@ -34,43 +38,51 @@ export function rangeOf(preset: RangePreset, today: string) {
   return { from: addDays(today, 1 - days), to: today };
 }
 
-/**
- * Admin analytics data. Today this aggregates mock data on the client; with the
- * real backend it becomes two TanStack queries:
- *   GET /api/v1/analytics/overview?from&to&granularity&eventId
- *   GET /api/v1/analytics/events?from&to&sort&page&size
- */
+export interface PlatformAnalytics {
+  today: string;
+  range: { from: string; to: string };
+  /** Sự kiện có trong bảng thống kê, dùng cho ô chọn sự kiện. */
+  catalog: { id: string; title: string }[];
+  overview: AnalyticsOverviewDto;
+  events: EventAnalyticsRow[];
+}
+
 export function usePlatformAnalytics(
   preset: RangePreset,
   granularity: Granularity,
   eventId: string | null,
 ) {
-  const { events, orders, refunds, tickets, ready } = useDemo();
   const now = useNow();
-  return useMemo(() => {
-    if (!now || !ready) return null;
-    const today = dayKey(now);
-    const range = rangeOf(preset, today);
-    const { rows, catalog } = metricSource(
-      { events, orders, refunds, tickets },
-      today,
-    );
-    return {
-      today,
-      range,
-      catalog,
-      overview: overview(rows, { ...range, granularity, eventId }),
-      events: eventBreakdown(rows, catalog, range),
-    };
-  }, [
-    now,
-    ready,
-    events,
-    orders,
-    refunds,
-    tickets,
-    preset,
-    granularity,
-    eventId,
-  ]);
+  const today = now ? dayKey(now) : null;
+  const range = today ? rangeOf(preset, today) : null;
+  const overview = useAnalyticsOverview(
+    range ? { ...range, granularity, eventId: eventId ?? undefined } : null,
+  );
+  // Bảng theo sự kiện sắp xếp phía client trong trang, lấy một lần tối đa 100 sự kiện.
+  const events = useAnalyticsEvents(
+    range ? { ...range, page: 0, size: 100, sort: "netRevenue" } : null,
+  );
+  const rows: EventAnalyticsRow[] | undefined = events.data?.content.map((r) => ({
+    ...r,
+    capacity: r.capacity ?? 0,
+  }));
+  const data: PlatformAnalytics | null =
+    today && range && overview.data && rows
+      ? {
+          today,
+          range,
+          catalog: rows.map((r) => ({ id: r.eventId, title: r.title })),
+          overview: overview.data,
+          events: rows,
+        }
+      : null;
+  return {
+    data,
+    isLoading: !data && !overview.isError && !events.isError,
+    isError: overview.isError || events.isError,
+    refetch: () => {
+      void overview.refetch();
+      void events.refetch();
+    },
+  };
 }

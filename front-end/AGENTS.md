@@ -8,7 +8,7 @@ Hướng dẫn cố định cho Codex khi viết frontend của EventHub (hệ t
 - Làm từng tính năng nhỏ, mỗi lần một trang hoặc một luồng.
 - Trước khi báo hoàn thành: chạy `npm run lint`, `npm run build`, và tự đối chiếu với mục 8 (Checklist).
 - Không tự thêm thư viện ngoài Tech Stack. Cần thêm thì nói rõ lý do.
-- Giai đoạn hiện tại (quyết định C15, 2026-11-22) frontend chạy bằng dữ liệu mock trong `src/lib/mock` để demo UI. Chỉ nối API thật khi các service đã xong API và API Gateway đã cấu hình; khi nối, giữ nguyên kiểu dữ liệu ở `src/types` khớp OpenAPI trong `docs/api`.
+- Từ 2026-11-24 frontend gọi API thật qua API Gateway (đã bỏ dữ liệu mock của giai đoạn C15). Kiểu DTO backend ở `src/types/api.ts` (khớp OpenAPI trong `docs/api`), chuyển sang kiểu giao diện ở `src/lib/api/adapters.ts`; hàm gọi API ở `src/lib/api/endpoints.ts`, hook TanStack Query ở `src/hooks/use-api.ts`. Chạy local: copy `.env.example` thành `.env.local`, mở `http://localhost:3000` (không dùng 127.0.0.1, xem mục 3).
 
 ## 1. Tech Stack
 

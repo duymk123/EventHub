@@ -15,7 +15,7 @@ import {
   ShieldCheck,
   Ticket,
 } from "lucide-react";
-import { useDemo } from "@/hooks/use-demo";
+import { useAdminEvents, useAdminRefunds, useSession } from "@/hooks/use-api";
 import { RoleGuard } from "../shared";
 import { cn } from "@/lib/utils";
 const organizerNav = [
@@ -41,11 +41,30 @@ export function Workspace({
   admin?: boolean;
   children: React.ReactNode;
 }) {
-  const path = usePathname();
-  const { user, refunds, events } = useDemo();
-  const nav = admin ? adminNav : organizerNav;
   return (
     <RoleGuard roles={[admin ? "ADMIN" : "ORGANIZER"]}>
+      <WorkspaceBody admin={admin}>{children}</WorkspaceBody>
+    </RoleGuard>
+  );
+}
+/** Số việc đang chờ Admin xử lý, chỉ gọi API khi đã chắc là Admin (nằm trong RoleGuard). */
+function PendingCount({ kind }: { kind: "refunds" | "events" }) {
+  const refunds = useAdminRefunds(kind === "refunds" ? "REQUESTED" : undefined);
+  const events = useAdminEvents(kind === "events" ? "SUBMITTED" : undefined);
+  const count = kind === "refunds" ? (refunds.data?.length ?? 0) : (events.data?.length ?? 0);
+  return count > 0 ? <span>{count}</span> : null;
+}
+function WorkspaceBody({
+  admin,
+  children,
+}: {
+  admin: boolean;
+  children: React.ReactNode;
+}) {
+  const path = usePathname();
+  const { user } = useSession();
+  const nav = admin ? adminNav : organizerNav;
+  return (
       <div className="workspace">
         <aside className="workspace-sidebar">
           <div className="workspace-identity">
@@ -66,17 +85,12 @@ export function Workspace({
                 href === (admin ? "/admin" : "/organizer")
                   ? path === href
                   : path.startsWith(href);
-              const count =
-                href === "/admin/refunds"
-                  ? refunds.filter((r) => r.status === "REQUESTED").length
-                  : href === "/admin/events"
-                    ? events.filter((e) => e.status === "SUBMITTED").length
-                    : 0;
               return (
                 <Link key={href} href={href} className={cn(active && "active")}>
                   <Icon size={18} />
                   {name}
-                  {count > 0 && <span>{count}</span>}
+                  {href === "/admin/refunds" && <PendingCount kind="refunds" />}
+                  {href === "/admin/events" && <PendingCount kind="events" />}
                 </Link>
               );
             })}
@@ -109,11 +123,9 @@ export function Workspace({
               {[...nav].reverse().find((n) => path.startsWith(n.href))?.name ??
                 "Tổng quan"}
             </span>
-            <span className="workspace-demo-note">Không gian trải nghiệm</span>
           </div>
           {children}
         </div>
       </div>
-    </RoleGuard>
   );
 }

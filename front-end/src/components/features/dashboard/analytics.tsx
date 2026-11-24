@@ -17,6 +17,7 @@ import {
   defaultGranularity,
   rangePresets,
   usePlatformAnalytics,
+  type PlatformAnalytics,
   type RangePreset,
 } from "@/hooks/use-platform-analytics";
 import type {
@@ -71,7 +72,11 @@ export function AnalyticsAdmin() {
   const [preset, setPreset] = useState<RangePreset>("12m");
   const [granularity, setGranularity] = useState<Granularity>("MONTH");
   const [eventId, setEventId] = useState<string | null>(null);
-  const data = usePlatformAnalytics(preset, granularity, eventId);
+  const { data, isError, refetch } = usePlatformAnalytics(
+    preset,
+    granularity,
+    eventId,
+  );
   const unit = granularity === "MONTH" ? "tháng" : "ngày";
   const selected = data?.catalog.find((e) => e.id === eventId);
 
@@ -182,7 +187,7 @@ export function AnalyticsAdmin() {
           </span>
         )}
       </div>
-      <DataBoundary>
+      <DataBoundary error={isError} onRetry={refetch}>
         {!data ? (
           <div aria-label="Đang tải dữ liệu" className="skeleton-grid">
             {Array.from({ length: 4 }, (_, i) => (
@@ -279,7 +284,7 @@ export function AnalyticsAdmin() {
 function Kpis({
   data,
 }: {
-  data: NonNullable<ReturnType<typeof usePlatformAnalytics>>["overview"];
+  data: PlatformAnalytics["overview"];
 }) {
   const { totals: t, previousTotals: p } = data;
   const cards = [
@@ -477,9 +482,7 @@ function BarChart({
 function TierBreakdown({
   items,
 }: {
-  items: NonNullable<
-    ReturnType<typeof usePlatformAnalytics>
-  >["overview"]["byTicketType"];
+  items: PlatformAnalytics["overview"]["byTicketType"];
 }) {
   const total = items.reduce((s, t) => s + t.ticketsSold, 0);
   if (!total)

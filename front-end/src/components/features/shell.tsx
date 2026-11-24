@@ -11,8 +11,6 @@ import {
   Ticket,
   UserRound,
   X,
-  SlidersHorizontal,
-  RotateCcw,
   LayoutDashboard,
   Sparkles,
   Search,
@@ -27,13 +25,9 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { useDemo } from "@/hooks/use-demo";
-import { useExperience } from "@/components/providers";
-import { demoStore } from "@/lib/mock/store";
-import { mock } from "@/lib/mock/engine";
-import { roleNames } from "@/lib/mock/seed";
-import { ConfirmDialog } from "./shared";
-import type { Role, DataMode } from "@/types";
+import { useSession, useUnreadCount } from "@/hooks/use-api";
+import { session } from "@/lib/auth/session";
+import { roleNames } from "@/lib/labels";
 import { toast } from "sonner";
 export function Brand() {
   return (
@@ -51,7 +45,8 @@ export function Brand() {
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
-  const { user, notices } = useDemo();
+  const { user } = useSession();
+  const unread = useUnreadCount();
   const [menu, setMenu] = useState(false);
   const workspace = path.startsWith("/organizer") || path.startsWith("/admin");
   return (
@@ -86,9 +81,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   aria-label="Thông báo"
                 >
                   <Bell size={19} />
-                  {notices.some((n) => n.userId === user.id && !n.read) && (
-                    <span />
-                  )}
+                  {(unread.data ?? 0) > 0 && <span />}
                 </Link>
                 <DropdownMenu>
                   <DropdownMenuTrigger
@@ -148,8 +141,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
-                      onClick={() => {
-                        demoStore.set((s) => ({ ...s, userId: null }));
+                      onClick={async () => {
+                        await session.logout();
                         router.push("/");
                         toast.success("Đã đăng xuất");
                       }}
@@ -230,7 +223,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 <ArrowUpRight size={14} />
               </Link>
               <span className="muted text-xs mt-3 block">
-                Bản trải nghiệm UI/UX · Dữ liệu minh họa
+                141 Đường Chiến Thắng, Hà Nội
               </span>
             </div>
           </div>
@@ -241,7 +234,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </footer>
       )}
-      <DemoControls />
       <nav className="mobile-bottom-nav">
         <Link href="/">
           <Sparkles size={19} />
@@ -275,109 +267,5 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </Link>
       </nav>
     </>
-  );
-}
-function DemoControls() {
-  const [open, setOpen] = useState(false);
-  const [reset, setReset] = useState(false);
-  const { mode, setMode } = useExperience();
-  const { user } = useDemo();
-  const router = useRouter();
-  return (
-    <div className="demo-control">
-      {open && (
-        <div className="demo-panel">
-          <div className="flex items-center justify-between">
-            <strong>Không gian trải nghiệm</strong>
-            <button
-              className="icon-button"
-              aria-label="Đóng bảng trải nghiệm"
-              onClick={() => setOpen(false)}
-            >
-              <X size={16} />
-            </button>
-          </div>
-          <p className="text-xs muted my-3">
-            Mọi thanh toán và dữ liệu đều là mô phỏng, được lưu trên trình duyệt
-            này.
-          </p>
-          <label className="field-label" htmlFor="demo-role">
-            Trải nghiệm với vai trò
-          </label>
-          <select
-            id="demo-role"
-            value={user?.role ?? ""}
-            onChange={(e) => {
-              const role = e.target.value as Role;
-              if (!mock.switchRole(role)) {
-                toast.error(
-                  "Chưa có tài khoản đang hoạt động cho vai trò này. Hãy mở khóa hoặc khôi phục dữ liệu mẫu.",
-                );
-                return;
-              }
-              setMode("ready");
-              router.push(
-                role === "CUSTOMER"
-                  ? "/"
-                  : role === "ADMIN"
-                    ? "/admin"
-                    : "/organizer",
-              );
-              setOpen(false);
-            }}
-          >
-            <option value="" disabled>
-              Chọn vai trò
-            </option>
-            {Object.entries(roleNames).map(([r, name]) => (
-              <option key={r} value={r}>
-                {name}
-              </option>
-            ))}
-          </select>
-          <label className="field-label mt-4" htmlFor="demo-state">
-            Trạng thái màn hình dữ liệu
-          </label>
-          <select
-            id="demo-state"
-            value={mode}
-            onChange={(e) => setMode(e.target.value as DataMode)}
-          >
-            <option value="ready">Có dữ liệu</option>
-            <option value="loading">Đang tải</option>
-            <option value="empty">Trống</option>
-            <option value="error">Lỗi kết nối</option>
-          </select>
-          <Button
-            variant="secondary"
-            className="w-full mt-4"
-            size="sm"
-            onClick={() => setReset(true)}
-          >
-            <RotateCcw size={14} />
-            Khôi phục dữ liệu mẫu
-          </Button>
-        </div>
-      )}
-      <button className="demo-trigger" onClick={() => setOpen(!open)}>
-        <SlidersHorizontal size={14} />
-        <span>Trải nghiệm</span>
-        <span className="demo-tag">DEMO</span>
-      </button>
-      <ConfirmDialog
-        open={reset}
-        onOpenChange={setReset}
-        title="Bắt đầu lại bản trải nghiệm?"
-        description="Các đơn hàng, vé và thay đổi bạn đã tạo trên trình duyệt này sẽ được thay bằng dữ liệu mẫu ban đầu."
-        onConfirm={() => {
-          demoStore.reset();
-          setMode("ready");
-          setReset(false);
-          setOpen(false);
-          router.push("/");
-          toast.success("Đã khôi phục dữ liệu mẫu");
-        }}
-      />
-    </div>
   );
 }

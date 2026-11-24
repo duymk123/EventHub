@@ -6,8 +6,8 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { passwordSchema, type PasswordFormValues } from "@/schemas/forms";
-import { useAction } from "@/hooks/use-demo";
-import { wait } from "@/lib/utils";
+import { useAction } from "@/hooks/use-api";
+import { authApi } from "@/lib/api/endpoints";
 export function PasswordForm() {
   const { busy, run } = useAction();
   const form = useForm<PasswordFormValues>({
@@ -18,16 +18,15 @@ export function PasswordForm() {
     <section className="panel mt-6">
       <h2 className="text-xl font-semibold mb-3">Đổi mật khẩu</h2>
       <p className="muted text-xs mb-6">
-        Dùng mật khẩu thử nghiệm để kiểm tra form. Bản này chỉ mô phỏng xác
-        nhận, không kiểm tra hoặc lưu mật khẩu.
+        Mật khẩu mới cần ít nhất 8 ký tự và khác mật khẩu hiện tại.
       </p>
       <form
-        onSubmit={form.handleSubmit(() =>
+        onSubmit={form.handleSubmit((v) =>
           run(
-            () => wait(600),
+            () => authApi.changePassword({ currentPassword: v.current, newPassword: v.next }),
             () => {
               form.reset();
-              toast.success("Đã mô phỏng đổi mật khẩu thành công");
+              toast.success("Đã đổi mật khẩu");
             },
           ),
         )}
@@ -46,7 +45,7 @@ export function PasswordForm() {
             <Input
               id={`password-${name}`}
               type="password"
-              autoComplete="off"
+              autoComplete={name === "current" ? "current-password" : "new-password"}
               {...form.register(name)}
             />
             {form.formState.errors[name] && (

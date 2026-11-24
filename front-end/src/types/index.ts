@@ -12,6 +12,8 @@ export interface User {
   email: string;
   role: Role;
   status: "ACTIVE" | "LOCKED";
+  emailVerified: boolean;
+  createdAt?: string;
 }
 /** Trạng thái một ghế đã có người giữ hoặc mua; ghế không có trong map là còn trống. */
 export type TakenSeatState = "HELD" | "SOLD";
@@ -30,12 +32,18 @@ export interface TicketType {
   /** Ghế đã giữ/đã bán theo mã ghế, ví dụ "B-07". */
   taken: Record<string, TakenSeatState>;
   active: boolean;
+  /** Nhãn ghế (B-07) → UUID ghế ở Ticket Service; chỉ có khi đã tải sơ đồ ghế. */
+  seatIds?: Record<string, string>;
+  /** Số ghế đang được giữ và đã bán (từ Ticket Service). */
+  held?: number;
+  sold?: number;
 }
 export interface Event {
   id: string;
   title: string;
   subtitle: string;
   category: string;
+  categoryId: string;
   startTime: string;
   endTime: string;
   image: string;
@@ -45,6 +53,7 @@ export interface Event {
   description: string;
   ticketTypes: TicketType[];
   reviewReason?: string;
+  createdAt?: string;
 }
 export interface Holder {
   name: string;
@@ -65,7 +74,6 @@ export interface Order {
   id: string;
   eventId: string;
   customerId: string;
-  customerEmail: string;
   lines: OrderLine[];
   holders: Holder[];
   total: number;
@@ -78,27 +86,26 @@ export interface Ticket {
   id: string;
   orderId: string;
   eventId: string;
-  customerId: string;
   holderName: string;
-  holderEmail: string;
   tier: TierName;
   seatLabel?: string;
   status: TicketStatus;
-  scannedAt?: string;
+  issuedAt: string;
 }
 export interface Refund {
   id: string;
   orderId: string;
   reason: string;
   amount: number;
-  status: "REQUESTED" | "REFUNDED" | "REJECTED";
+  status: "REQUESTED" | "APPROVED" | "PROCESSING" | "REFUNDED" | "FAILED" | "REJECTED";
   createdAt: string;
   reviewedAt?: string;
   reviewReason?: string;
+  refundedAt?: string;
+  failureReason?: string;
 }
 export interface Notice {
   id: string;
-  userId: string;
   title: string;
   content: string;
   read: boolean;
@@ -112,17 +119,3 @@ export interface Template {
   subject: string;
   body: string;
 }
-export interface DemoState {
-  version: 1;
-  userId: string | null;
-  users: User[];
-  events: Event[];
-  orders: Order[];
-  tickets: Ticket[];
-  refunds: Refund[];
-  notices: Notice[];
-  favorites: string[];
-  categories: string[];
-  templates: Template[];
-}
-export type DataMode = "ready" | "loading" | "empty" | "error";

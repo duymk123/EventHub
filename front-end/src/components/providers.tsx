@@ -1,32 +1,47 @@
 "use client";
-import { createContext, useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "framer-motion";
 import { Toaster } from "sonner";
-import { demoStore } from "@/lib/mock/store";
-import { expireOrders } from "@/lib/mock/engine";
-import type { DataMode } from "@/types";
-const ExperienceContext = createContext<{
-  mode: DataMode;
-  setMode: (mode: DataMode) => void;
-}>({ mode: "ready", setMode: () => {} });
-export const useExperience = () => useContext(ExperienceContext);
+import { session } from "@/lib/auth/session";
+import { ApiError } from "@/lib/api/errors";
+
+function makeQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 10_000,
+        refetchOnWindowFocus: false,
+        // Lỗi nghiệp vụ (4xx) không thử lại; lỗi mạng/5xx thử lại một lần.
+        retry: (count, error) =>
+          count < 1 && !(error instanceof ApiError && error.status >= 400 && error.status < 500),
+      },
+    },
+  });
+}
+
+const PUBLIC_KEYS = new Set(["event", "categories", "ticket-types", "seat-map"]);
+/** Dữ liệu công khai giữ lại khi đăng xuất; dữ liệu riêng của người dùng thì xóa. */
+function isPublicQuery(key: readonly unknown[]) {
+  return PUBLIC_KEYS.has(String(key[0])) || (key[0] === "events" && key[1] === "search");
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
-  const [mode, setMode] = useState<DataMode>("ready");
+  const [queryClient] = useState(makeQueryClient);
   useEffect(() => {
-    demoStore.hydrate();
-    expireOrders();
-    const timer = setInterval(expireOrders, 1000);
-    return () => clearInterval(timer);
-  }, []);
+    // Khôi phục phiên bằng cookie refresh (C13) khi tải trang; đăng xuất thì xóa cache dữ liệu riêng tư.
+    void session.bootstrap();
+    return session.subscribe(() => {
+      if (session.get().status === "anonymous") {
+        queryClient.removeQueries({ predicate: (q) => !isPublicQuery(q.queryKey) });
+      }
+    });
+  }, [queryClient]);
   return (
     <QueryClientProvider client={queryClient}>
       <MotionConfig reducedMotion="user">
-        <ExperienceContext.Provider value={{ mode, setMode }}>
-          {children}
-          <Toaster theme="light" richColors position="top-right" closeButton />
-        </ExperienceContext.Provider>
+        {children}
+        <Toaster theme="light" richColors position="top-right" closeButton />
       </MotionConfig>
     </QueryClientProvider>
   );

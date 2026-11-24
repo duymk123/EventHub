@@ -1,7 +1,7 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -25,10 +25,18 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useDemo } from "@/hooks/use-demo";
+import {
+  useCategories,
+  useEventSearch,
+  useEventsById,
+  usePublicEvent,
+  useSession,
+  useTicketTypes,
+} from "@/hooks/use-api";
 import { useNow } from "@/hooks/use-now";
-import { demoStore } from "@/lib/mock/store";
-import { VENUE } from "@/lib/mock/seed";
+import { toggleFavorite, useFavorites } from "@/lib/favorites";
+import { VENUE } from "@/lib/labels";
+import { ApiError } from "@/lib/api/errors";
 import { money, dateLabel, timeLabel, cn } from "@/lib/utils";
 import {
   DataBoundary,
@@ -43,19 +51,20 @@ import { parseSeatId } from "@/lib/seats";
 import { SeatSelector } from "./venue";
 import { toast } from "sonner";
 const categoryIcons = [Sparkles, Music2, Palette, Mic2, Ticket];
-function favorite(eventId: string) {
-  demoStore.set((s) => ({
-    ...s,
-    favorites: s.favorites.includes(eventId)
-      ? s.favorites.filter((id) => id !== eventId)
-      : [...s.favorites, eventId],
-  }));
-}
+const PAGE_SIZE = 6;
+const SORTS = [
+  { value: "startTime,asc", label: "Sắp diễn ra" },
+  { value: "createdAt,desc", label: "Mới đăng" },
+  { value: "title,asc", label: "Tên A → Z" },
+];
 export function EventCard({ event }: { event: Event }) {
-  const { favorites } = useDemo();
-  const price = Math.min(
-    ...event.ticketTypes.filter((t) => t.active).map((t) => t.price),
-  );
+  const favorites = useFavorites();
+  // Danh sách sự kiện không kèm hạng vé: đọc riêng (có cache) để hiện giá thấp nhất.
+  const types = useTicketTypes(event.ticketTypes.length ? undefined : event.id);
+  const tiers = event.ticketTypes.length ? event.ticketTypes : (types.data ?? []);
+  const prices = tiers.filter((t) => t.active).map((t) => t.price);
+  const price = prices.length ? Math.min(...prices) : null;
+  const saved = favorites.includes(event.id);
   return (
     <article className="event-card">
       <div className="event-image">
@@ -68,21 +77,11 @@ export function EventCard({ event }: { event: Event }) {
           />
         </Link>
         <button
-          aria-label={
-            favorites.includes(event.id)
-              ? `Bỏ lưu ${event.title}`
-              : `Lưu ${event.title}`
-          }
-          className={cn(
-            "favorite-button",
-            favorites.includes(event.id) && "is-favorite",
-          )}
-          onClick={() => favorite(event.id)}
+          aria-label={saved ? `Bỏ lưu ${event.title}` : `Lưu ${event.title}`}
+          className={cn("favorite-button", saved && "is-favorite")}
+          onClick={() => toggleFavorite(event.id)}
         >
-          <Heart
-            size={17}
-            fill={favorites.includes(event.id) ? "currentColor" : "none"}
-          />
+          <Heart size={17} fill={saved ? "currentColor" : "none"} />
         </button>
       </div>
       <div className="event-info">
@@ -95,11 +94,13 @@ export function EventCard({ event }: { event: Event }) {
         </h3>
         <p className="event-location">
           <MapPin size={13} />
-          TP. Hồ Chí Minh
+          Hà Nội
         </p>
         <div className="event-bottom">
           <span>
-            {price === 0 ? (
+            {price === null ? (
+              <small>{types.isLoading ? "Đang cập nhật giá" : "Sắp mở bán"}</small>
+            ) : price === 0 ? (
               "Miễn phí"
             ) : (
               <>
@@ -119,16 +120,25 @@ export function EventCard({ event }: { event: Event }) {
     </article>
   );
 }
+function heroDate(value: string) {
+  const d = new Date(value);
+  return { day: d.getDate(), month: `THÁNG ${d.getMonth() + 1}` };
+}
 export function Home() {
-  const { events, categories } = useDemo();
-  const [category, setCategory] = useState("Tất cả");
+  const categories = useCategories();
+  const [category, setCategory] = useState("");
   const [search, setSearch] = useState("");
   const router = useRouter();
-  const visible = events.filter(
-    (e) =>
-      e.status === "PUBLISHED" &&
-      (category === "Tất cả" || e.category === category),
-  );
+  const top = useEventSearch({ page: 0, size: 4, sort: "startTime,asc" });
+  const feed = useEventSearch({
+    category: category || undefined,
+    page: 0,
+    size: 4,
+    sort: "startTime,asc",
+  });
+  const featured = top.data?.events[0];
+  const spotlight = top.data?.events[1] ?? featured;
+  const visible = feed.data?.events ?? [];
   return (
     <>
       <section className="hero">
@@ -166,18 +176,22 @@ export function Home() {
               </Link>
             </Button>
           </motion.div>
-          <Link href="/events/echoes" className="hero-feature">
-            <span className="hero-feature-date">
-              <b>21</b>
-              <span>THÁNG 11</span>
-            </span>
-            <div>
-              <p>Đêm nhạc nổi bật</p>
-              <h2>ECHOES OF THE NIGHT</h2>
-              <span>19:00 · EventHub Live</span>
-            </div>
-            <ArrowUpRight size={22} />
-          </Link>
+          {featured && (
+            <Link href={`/events/${featured.id}`} className="hero-feature">
+              <span className="hero-feature-date">
+                <b>{heroDate(featured.startTime).day}</b>
+                <span>{heroDate(featured.startTime).month}</span>
+              </span>
+              <div>
+                <p>Sắp diễn ra</p>
+                <h2>{featured.title.toLocaleUpperCase("vi")}</h2>
+                <span>
+                  {timeLabel(featured.startTime)} · {featured.category}
+                </span>
+              </div>
+              <ArrowUpRight size={22} />
+            </Link>
+          )}
         </div>
       </section>
       <div className="container">
@@ -197,7 +211,7 @@ export function Home() {
           />
           <div className="search-location">
             <MapPin size={16} />
-            TP. Hồ Chí Minh
+            Hà Nội
           </div>
           <Button type="submit" aria-label="Tìm sự kiện">
             <span>Tìm sự kiện</span>
@@ -213,23 +227,32 @@ export function Home() {
             </Link>
           </div>
           <div className="category-tabs">
-            {["Tất cả", ...categories].map((name, i) => {
-              const Icon = categoryIcons[i % categoryIcons.length];
-              return (
-                <button
-                  key={name}
-                  className={cn(category === name && "selected")}
-                  onClick={() => setCategory(name)}
-                >
-                  <Icon size={16} />
-                  {name}
-                </button>
-              );
-            })}
+            {[{ id: "", name: "Tất cả" }, ...(categories.data ?? [])].map(
+              (c, i) => {
+                const Icon = categoryIcons[i % categoryIcons.length];
+                return (
+                  <button
+                    key={c.id || "all"}
+                    className={cn(category === c.id && "selected")}
+                    onClick={() => setCategory(c.id)}
+                  >
+                    <Icon size={16} />
+                    {c.name}
+                  </button>
+                );
+              },
+            )}
           </div>
-          <DataBoundary empty={!visible.length}>
+          <DataBoundary
+            loading={feed.isLoading}
+            error={feed.isError}
+            onRetry={() => void feed.refetch()}
+            empty={!visible.length}
+            title="Chưa có sự kiện đang mở bán"
+            description="Các sự kiện mới sẽ xuất hiện tại đây ngay khi được công bố."
+          >
             <div className="event-grid">
-              {visible.slice(0, 4).map((e) => (
+              {visible.map((e) => (
                 <EventCard key={e.id} event={e} />
               ))}
             </div>
@@ -238,24 +261,29 @@ export function Home() {
         <section className="spotlight">
           <div className="spotlight-image">
             <Image
-              src="/images/festival.jpg"
-              alt="Không gian lễ hội âm nhạc ngoài trời"
+              src={spotlight?.image ?? "/images/festival.jpg"}
+              alt="Không gian sự kiện âm nhạc"
               fill
               sizes="60vw"
             />
           </div>
           <div className="spotlight-copy">
-            <span className="eyebrow">AFTERGLOW FESTIVAL</span>
+            <span className="eyebrow">
+              {spotlight?.title.toLocaleUpperCase("vi") ?? "EVENTHUB LIVE"}
+            </span>
             <h2>
               Có những đêm
               <br />
               chỉ đến một lần.
             </h2>
             <p>
-              Âm nhạc, bạn bè và cả một bầu trời cảm xúc. Cuộc hẹn tiếp theo của
-              bạn đang chờ.
+              {spotlight?.subtitle ||
+                "Âm nhạc, bạn bè và cả một bầu trời cảm xúc. Cuộc hẹn tiếp theo của bạn đang chờ."}
             </p>
-            <Link href="/events/afterglow" className="text-link">
+            <Link
+              href={spotlight ? `/events/${spotlight.id}` : "/explore"}
+              className="text-link"
+            >
               Khám phá sự kiện
               <ArrowUpRight size={17} />
             </Link>
@@ -284,7 +312,7 @@ export function Home() {
               {
                 Icon: Ticket,
                 title: "Giữ chỗ thật dễ dàng",
-                description: "Chọn vé, điền thông tin và hoàn tất thanh toán.",
+                description: "Chọn ghế, điền thông tin và thanh toán qua VNPay.",
               },
               {
                 Icon: Sparkles,
@@ -308,35 +336,63 @@ export function Home() {
     </>
   );
 }
+/** Giá trị trễ một nhịp để không gọi API theo từng phím gõ. */
+function useDebounced<T>(value: T, delay = 350) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
 export function Explore({ saved = false }: { saved?: boolean }) {
   const params = useSearchParams();
   return <ExploreContent key={`${saved}-${params.toString()}`} saved={saved} />;
 }
 function ExploreContent({ saved }: { saved: boolean }) {
   const params = useSearchParams();
-  const { events, categories, favorites } = useDemo();
+  const categories = useCategories();
+  const favorites = useFavorites();
   const [search, setSearch] = useState(params.get("q") ?? "");
-  const [category, setCategory] = useState(params.get("category") ?? "Tất cả");
-  const [sort, setSort] = useState("soon");
+  const keyword = useDebounced(search.trim());
+  // ?category= nhận cả id lẫn tên danh mục (menu đầu trang dùng tên); null = chưa chọn tay, lấy theo URL.
+  const [picked, setPicked] = useState<string | null>(null);
+  const fromUrl = params.get("category");
+  const category =
+    picked ??
+    categories.data?.find((c) => c.id === fromUrl || c.name === fromUrl)?.id ??
+    "";
+  const [sort, setSort] = useState(SORTS[0].value);
   const [date, setDate] = useState("");
   const [page, setPage] = useState(0);
-  const list = events
+  const remote = useEventSearch({
+    keyword: keyword || undefined,
+    category: category || undefined,
+    startDate: date || undefined,
+    page,
+    size: PAGE_SIZE,
+    sort,
+  });
+  const favoriteEvents = useEventsById(saved ? favorites : []);
+  const savedList = [...favoriteEvents.events.values()]
     .filter(
       (e) =>
-        e.status === "PUBLISHED" &&
-        (!saved || favorites.includes(e.id)) &&
-        (category === "Tất cả" || e.category === category) &&
-        e.title
-          .toLocaleLowerCase("vi")
-          .includes(search.toLocaleLowerCase("vi")) &&
+        (!category || e.categoryId === category) &&
+        e.title.toLocaleLowerCase("vi").includes(keyword.toLocaleLowerCase("vi")) &&
         (!date || e.startTime.slice(0, 10) >= date),
     )
     .sort((a, b) =>
-      sort === "price"
-        ? Math.min(...a.ticketTypes.map((t) => t.price)) -
-          Math.min(...b.ticketTypes.map((t) => t.price))
-        : a.startTime.localeCompare(b.startTime),
+      sort === "title,asc"
+        ? a.title.localeCompare(b.title, "vi")
+        : sort === "createdAt,desc"
+          ? (b.createdAt ?? "").localeCompare(a.createdAt ?? "")
+          : a.startTime.localeCompare(b.startTime),
     );
+  const list = saved
+    ? savedList.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+    : (remote.data?.events ?? []);
+  const total = saved ? savedList.length : (remote.data?.total ?? 0);
+  const loading = saved ? favoriteEvents.isLoading : remote.isLoading;
   return (
     <div className="container page-section">
       <PageTitle
@@ -344,7 +400,7 @@ function ExploreContent({ saved }: { saved: boolean }) {
         title={saved ? "Những cuộc hẹn đã lưu" : "Thế giới trải nghiệm của bạn"}
         description={
           saved
-            ? "Lưu lại điều bạn thích. Quay lại khi bạn sẵn sàng."
+            ? "Lưu lại điều bạn thích trên trình duyệt này. Quay lại khi bạn sẵn sàng."
             : "Âm nhạc, nghệ thuật và những cuộc gặp gỡ đáng nhớ."
         }
       />
@@ -355,17 +411,17 @@ function ExploreContent({ saved }: { saved: boolean }) {
             Bộ lọc
           </h3>
           <label className="field-label mt-7">Loại sự kiện</label>
-          {["Tất cả", ...categories].map((c) => (
+          {[{ id: "", name: "Tất cả" }, ...(categories.data ?? [])].map((c) => (
             <button
-              key={c}
-              className={cn("filter-option", c === category && "selected")}
+              key={c.id || "all"}
+              className={cn("filter-option", c.id === category && "selected")}
               onClick={() => {
-                setCategory(c);
+                setPicked(c.id);
                 setPage(0);
               }}
             >
-              <span>{c}</span>
-              {c === category && <Check size={15} />}
+              <span>{c.name}</span>
+              {c.id === category && <Check size={15} />}
             </button>
           ))}
           <label className="field-label mt-7" htmlFor="event-date">
@@ -384,7 +440,7 @@ function ExploreContent({ saved }: { saved: boolean }) {
             variant="ghost"
             className="mt-5 w-full"
             onClick={() => {
-              setCategory("Tất cả");
+              setPicked("");
               setDate("");
               setSearch("");
               setPage(0);
@@ -394,10 +450,7 @@ function ExploreContent({ saved }: { saved: boolean }) {
           </Button>
           <div className="filter-note">
             <MapPin size={18} />
-            <p>
-              Các sự kiện trong bản trải nghiệm diễn ra tại địa điểm minh họa ở
-              TP. Hồ Chí Minh.
-            </p>
+            <p>Mọi sự kiện trên EventHub diễn ra tại {VENUE}.</p>
           </div>
         </aside>
         <div className="min-w-0">
@@ -422,28 +475,38 @@ function ExploreContent({ saved }: { saved: boolean }) {
                 setPage(0);
               }}
             >
-              <option value="soon">Sắp diễn ra</option>
-              <option value="price">Giá tăng dần</option>
+              {SORTS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
             </select>
           </div>
-          <p className="muted text-xs mb-6">
-            {list.length} sự kiện dành cho bạn
-          </p>
+          <p className="muted text-xs mb-6">{total} sự kiện dành cho bạn</p>
           <DataBoundary
+            loading={loading}
+            error={!saved && remote.isError}
+            onRetry={() => void remote.refetch()}
             empty={!list.length}
-            title="Chưa tìm thấy sự kiện phù hợp"
-            description="Thử từ khóa khác hoặc bỏ bớt bộ lọc để khám phá thêm."
+            title={
+              saved ? "Bạn chưa lưu sự kiện nào" : "Chưa tìm thấy sự kiện phù hợp"
+            }
+            description={
+              saved
+                ? "Bấm biểu tượng trái tim trên một sự kiện để lưu lại."
+                : "Thử từ khóa khác hoặc bỏ bớt bộ lọc để khám phá thêm."
+            }
           >
             <div className="event-grid explore-grid">
-              {list.slice(page * 6, (page + 1) * 6).map((e) => (
+              {list.map((e) => (
                 <EventCard key={e.id} event={e} />
               ))}
             </div>
             <Pagination
               page={page}
-              total={list.length}
+              total={total}
               onChange={setPage}
-              pageSize={6}
+              pageSize={PAGE_SIZE}
             />
           </DataBoundary>
         </div>
@@ -458,13 +521,29 @@ export function EventDetail({
   id: string;
   initialSeats?: string[];
 }) {
-  const { events, user, favorites } = useDemo();
+  const { user } = useSession();
+  const favorites = useFavorites();
   const now = useNow();
-  const event = events.find(
-    (e) => e.id === id && ["PUBLISHED", "CLOSED"].includes(e.status),
-  );
+  // Sơ đồ ghế tự làm mới mỗi vài giây để thấy ghế người khác vừa giữ.
+  const query = usePublicEvent(id, { withSeats: true });
+  const event = query.data;
   const router = useRouter();
   const [picked, setPicked] = useState<string[]>(initialSeats);
+  if (query.isLoading)
+    return (
+      <div className="container page-section">
+        <DataBoundary loading>{null}</DataBoundary>
+      </div>
+    );
+  const notFound = query.error instanceof ApiError && query.error.status === 404;
+  if (query.isError && !notFound)
+    return (
+      <div className="container page-section">
+        <DataBoundary error onRetry={() => void query.refetch()}>
+          {null}
+        </DataBoundary>
+      </div>
+    );
   if (!event)
     return (
       <div className="container page-section">
@@ -500,13 +579,13 @@ export function EventDetail({
   const salesClosed = event.status !== "PUBLISHED" || minutesLeft === 0;
   function checkout() {
     if (!user) {
-      router.push("/login");
+      // Đăng nhập xong quay lại đúng sự kiện với các ghế đã chọn.
+      const back = `/events/${id}?${new URLSearchParams({ seats: valid.join(",") })}`;
+      router.push(`/login?next=${encodeURIComponent(back)}`);
       return;
     }
     if (user.role !== "CUSTOMER") {
-      toast.info(
-        "Hãy chuyển sang vai trò Khách hàng ở bảng Trải nghiệm để đặt vé.",
-      );
+      toast.info("Chỉ tài khoản Khách hàng mới đặt được vé.");
       return;
     }
     const query = new URLSearchParams({ event: id, seats: valid.join(",") });
@@ -529,9 +608,7 @@ export function EventDetail({
             <ChevronRight size={14} />
             {event.category}
           </div>
-          <span className="eyebrow">
-            {event.category} · {event.organizerName}
-          </span>
+          <span className="eyebrow">{event.category} · EventHub Live</span>
           <h1>{event.title}</h1>
           <p>{event.subtitle}</p>
           <div className="detail-facts">
@@ -553,7 +630,7 @@ export function EventDetail({
             <a href="#about">Giới thiệu</a>
             <a href="#schedule">Lịch trình</a>
             <a href="#policy">Thông tin cần biết</a>
-            <button aria-label="Lưu sự kiện" onClick={() => favorite(event.id)}>
+            <button aria-label="Lưu sự kiện" onClick={() => toggleFavorite(event.id)}>
               <Heart
                 size={18}
                 fill={favorites.includes(id) ? "currentColor" : "none"}
@@ -615,27 +692,24 @@ export function EventDetail({
             <div className="timeline">
               {[
                 [
-                  "18:00",
-                  "Mở cửa đón khách",
-                  "Đổi vòng tay, tìm vị trí và khám phá không gian.",
+                  timeLabel(
+                    new Date(Date.parse(event.startTime) - 3_600_000).toISOString(),
+                  ),
+                  "Mở cổng soát vé",
+                  "Cổng check-in mở trước giờ diễn 60 phút. Chuẩn bị sẵn mã QR trong Ví vé.",
                 ],
                 [
-                  "19:00",
+                  timeLabel(event.startTime),
                   "Bắt đầu chương trình",
                   "Cùng hòa nhịp với những màn trình diễn mở đầu.",
                 ],
                 [
-                  "20:00",
-                  "Khoảnh khắc chính",
-                  "Thưởng thức trọn vẹn những tiết mục đặc biệt.",
-                ],
-                [
-                  "23:00",
+                  timeLabel(event.endTime),
                   "Khép lại cuộc hẹn",
                   "Cảm ơn bạn đã tạo nên một đêm đáng nhớ.",
                 ],
               ].map(([time, title, desc]) => (
-                <div key={time}>
+                <div key={title}>
                   <time>{time}</time>
                   <div>
                     <h4>{title}</h4>
@@ -644,9 +718,6 @@ export function EventDetail({
                 </div>
               ))}
             </div>
-            <p className="text-xs muted mt-4">
-              Lịch trình minh họa cho bản trải nghiệm UI/UX.
-            </p>
           </section>
           <section id="policy">
             <h2>Trước khi đến, bạn cần biết</h2>
@@ -741,7 +812,7 @@ export function EventDetail({
             </span>
           </div>
           <p className="text-[10px] muted text-center mt-3">
-            Giá hiển thị là dữ liệu minh họa. Không phát sinh giao dịch thật.
+            Tổng tiền cuối cùng do hệ thống xác nhận khi giữ ghế.
           </p>
         </aside>
       </div>

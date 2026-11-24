@@ -19,9 +19,8 @@ import {
   DialogDescription,
   DialogHeader,
 } from "@/components/ui/dialog";
-import { useExperience } from "@/components/providers";
-import { useDemo } from "@/hooks/use-demo";
-import { statusLabels } from "@/lib/mock/seed";
+import { useSession } from "@/hooks/use-api";
+import { statusLabels } from "@/lib/labels";
 import type { Role } from "@/types";
 import { cn } from "@/lib/utils";
 export function Status({ value }: { value: string }) {
@@ -42,6 +41,7 @@ export function Status({ value }: { value: string }) {
                 "SUBMITTED",
                 "PENDING_PAYMENT",
                 "REQUESTED",
+                "PROCESSING",
                 "CHECKED_IN",
               ].includes(value)
             ? "status-amber"
@@ -96,19 +96,25 @@ export function Empty({
     </div>
   );
 }
+/** Bốn trạng thái của màn hình dữ liệu: đang tải, lỗi (có thử lại), rỗng, có dữ liệu. */
 export function DataBoundary({
   children,
   empty = false,
+  loading = false,
+  error = false,
+  onRetry,
   title,
   description,
 }: {
   children: React.ReactNode;
   empty?: boolean;
+  loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void;
   title?: string;
   description?: string;
 }) {
-  const { mode, setMode } = useExperience();
-  if (mode === "loading")
+  if (loading)
     return (
       <div aria-label="Đang tải dữ liệu" className="skeleton-grid">
         {Array.from({ length: 4 }, (_, i) => (
@@ -116,19 +122,21 @@ export function DataBoundary({
         ))}
       </div>
     );
-  if (mode === "error")
+  if (error)
     return (
       <div className="empty-state">
         <AlertCircle size={36} />
         <h3>Chưa tải được nội dung</h3>
-        <p>Hãy thử lại để tiếp tục khám phá.</p>
-        <Button onClick={() => setMode("ready")}>
-          <RefreshCw size={16} />
-          Thử lại
-        </Button>
+        <p>Hãy thử lại để tiếp tục.</p>
+        {onRetry && (
+          <Button onClick={onRetry}>
+            <RefreshCw size={16} />
+            Thử lại
+          </Button>
+        )}
       </div>
     );
-  if (mode === "empty" || empty)
+  if (empty)
     return <Empty title={title} description={description} />;
   return <>{children}</>;
 }
@@ -139,13 +147,13 @@ export function RoleGuard({
   roles: Role[];
   children: React.ReactNode;
 }) {
-  const { user, ready } = useDemo();
+  const { user, ready } = useSession();
   if (!ready)
     return (
       <div
         className="container py-16"
         role="status"
-        aria-label="Đang khôi phục phiên trải nghiệm"
+        aria-label="Đang khôi phục phiên đăng nhập"
       >
         <div className="skeleton" />
       </div>
@@ -172,7 +180,7 @@ export function RoleGuard({
       <div className="container py-20">
         <Empty
           title="Khu vực dành cho vai trò khác"
-          description="Bạn có thể đổi vai trò ở bảng Trải nghiệm để khám phá màn hình này."
+          description="Tài khoản của bạn không có quyền vào khu vực này."
           action={
             <Button asChild variant="secondary">
               <Link href="/">Về trang chủ</Link>

@@ -11,21 +11,29 @@ import {
   Download,
   Plus,
   RotateCcw,
-  CheckCircle2,
   Clock3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useDemo } from "@/hooks/use-demo";
+import {
+  useAdminEvents,
+  useAdminRefunds,
+  useAdminUsers,
+  useOrganizerEvents,
+  useSession,
+} from "@/hooks/use-api";
+import {
+  usePlatformAnalytics,
+  type RangePreset,
+} from "@/hooks/use-platform-analytics";
 import { DailyReport } from "./daily-report";
-import { useNow } from "@/hooks/use-now";
 import { money, dateLabel } from "@/lib/utils";
 import { PageTitle, DataBoundary, Status, Pagination } from "../shared";
 import { Input } from "@/components/ui/input";
-import type { Event, Order } from "@/types";
+import type { AnalyticsSeriesPoint, EventAnalyticsRow } from "@/types/analytics";
 export function downloadCsv(rows: string[][], filename: string) {
   const safe = (v: string) =>
     `"${(/^[=+@-]/.test(v) ? "'" : "") + v.replaceAll('"', '""')}"`;
-  const csv = "\uFEFF" + rows.map((r) => r.map(safe).join(",")).join("\r\n");
+  const csv = "﻿" + rows.map((r) => r.map(safe).join(",")).join("\r\n");
   const url = URL.createObjectURL(
     new Blob([csv], { type: "text/csv;charset=utf-8" }),
   );
@@ -35,6 +43,11 @@ export function downloadCsv(rows: string[][], filename: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
+const PERIODS: { value: RangePreset; label: string }[] = [
+  { value: "7d", label: "7 ngày gần nhất" },
+  { value: "30d", label: "30 ngày gần nhất" },
+  { value: "12m", label: "12 tháng gần nhất" },
+];
 export function Overview({
   admin = false,
   reports = false,
@@ -42,105 +55,151 @@ export function Overview({
   admin?: boolean;
   reports?: boolean;
 }) {
-  const s = useDemo();
-  const now = useNow();
+  return admin ? (
+    <AdminOverview />
+  ) : (
+    <OrganizerOverview reports={reports} />
+  );
+}
+function AdminOverview() {
+  const submitted = useAdminEvents("SUBMITTED");
+  const refunds = useAdminRefunds("REQUESTED");
+  const activeUsers = useAdminUsers({ page: 0, size: 1, status: "ACTIVE" });
+  const all = useAdminEvents();
+  const pendingEvents = submitted.data?.length ?? 0;
+  const pendingRefunds = refunds.data?.length ?? 0;
+  return (
+    <Dashboard
+      admin
+      events={all.data ?? []}
+      eventsLoading={all.isLoading}
+      counters={{
+        pendingEvents,
+        pendingRefunds,
+        activeUsers: activeUsers.data?.total ?? 0,
+      }}
+    />
+  );
+}
+function OrganizerOverview({ reports }: { reports: boolean }) {
+  const mine = useOrganizerEvents();
+  return (
+    <Dashboard
+      reports={reports}
+      events={mine.data ?? []}
+      eventsLoading={mine.isLoading}
+    />
+  );
+}
+function Dashboard({
+  admin = false,
+  reports = false,
+  events,
+  eventsLoading,
+  counters,
+}: {
+  admin?: boolean;
+  reports?: boolean;
+  events: { id: string; title: string; category: string; startTime: string; status: string }[];
+  eventsLoading: boolean;
+  counters?: { pendingEvents: number; pendingRefunds: number; activeUsers: number };
+}) {
+  const { user } = useSession();
   const [eventId, setEventId] = useState("all");
-  const [period, setPeriod] = useState("365");
-  const events = s.events.filter((e) => admin || e.organizerId === s.userId);
-  const eventIds = new Set(events.map((e) => e.id));
-  const minDate = reports ? now - Number(period) * 86400000 : 0;
-  const relevantOrders = s.orders.filter(
-    (o) =>
-      eventIds.has(o.eventId) && (eventId === "all" || o.eventId === eventId),
+  const [period, setPeriod] = useState<RangePreset>(reports ? "12m" : "7d");
+  const granularity = period === "12m" ? "MONTH" : "DAY";
+  const analytics = usePlatformAnalytics(
+    period,
+    granularity,
+    eventId === "all" ? null : eventId,
   );
-  const orders = relevantOrders.filter(
-    (o) => Date.parse(o.paidAt ?? o.createdAt) >= minDate,
-  );
-  const paid = orders.filter((o) => ["PAID", "REFUNDED"].includes(o.status));
-  const revenue = paid.reduce((sum, o) => sum + o.total, 0);
-  const refunds = s.refunds.filter(
-    (r) =>
-      r.status === "REFUNDED" &&
-      Date.parse(r.reviewedAt ?? r.createdAt) >= minDate &&
-      relevantOrders.some((o) => o.id === r.orderId),
-  );
-  const refunded = refunds.reduce((sum, r) => sum + r.amount, 0);
-  const tickets = s.tickets.filter(
-    (t) =>
-      eventIds.has(t.eventId) && (eventId === "all" || t.eventId === eventId),
-  );
-  const sales = paid.reduce(
-    (sum, o) => sum + o.lines.reduce((n, l) => n + l.quantity, 0),
-    0,
-  );
-  const attendance = tickets.filter((t) => t.status === "CHECKED_IN").length;
+  const data = analytics.data;
+  const totals = data?.overview.totals;
+  const rowsById = new Map(data?.events.map((r) => [r.eventId, r]));
   const stats = admin
     ? [
         {
-          label: "Tổng doanh thu gộp",
-          value: money(revenue),
+          label: "Doanh thu gộp",
+          value: money(totals?.grossRevenue ?? 0),
           Icon: Wallet,
-          caption: "Từ các đơn đã thanh toán",
+          caption: "Đơn đã thanh toán trong 7 ngày",
         },
         {
           label: "Sự kiện chờ duyệt",
-          value: String(events.filter((e) => e.status === "SUBMITTED").length),
+          value: String(counters?.pendingEvents ?? 0),
           Icon: CalendarDays,
           caption: "Cần xem xét trước khi mở bán",
         },
         {
           label: "Yêu cầu hoàn tiền",
-          value: String(
-            s.refunds.filter((r) => r.status === "REQUESTED").length,
-          ),
+          value: String(counters?.pendingRefunds ?? 0),
           Icon: RotateCcw,
           caption: "Đang chờ Admin xử lý",
         },
         {
           label: "Tài khoản hoạt động",
-          value: String(s.users.filter((u) => u.status === "ACTIVE").length),
+          value: String(counters?.activeUsers ?? 0),
           Icon: Users,
-          caption: "Trong không gian trải nghiệm",
+          caption: "Không tính tài khoản đã khóa",
         },
       ]
-    : [
-        {
-          label: reports ? "Doanh thu gộp" : "Tổng doanh thu",
-          value: money(revenue),
-          Icon: Wallet,
-          caption: "Giá trị vé đã thanh toán",
-        },
-        {
-          label: reports ? "Đã hoàn tiền" : "Vé đã bán",
-          value: reports ? money(refunded) : String(sales),
-          Icon: reports ? RotateCcw : Ticket,
-          caption: reports
-            ? "Theo kết quả duyệt hoàn"
-            : "Tính từ các đơn thanh toán",
-        },
-        {
-          label: reports ? "Doanh thu thuần" : "Đang có mặt",
-          value: reports ? money(revenue - refunded) : String(attendance),
-          Icon: reports ? Wallet : Users,
-          caption: reports
-            ? "Doanh thu gộp trừ tiền hoàn"
-            : "Đã check-in, chưa check-out",
-        },
-        {
-          label: reports ? "Số vé đã hoàn" : "Sự kiện mở bán",
-          value: String(
-            reports
-              ? tickets.filter((t) =>
-                  refunds.some((r) => r.orderId === t.orderId),
-                ).length
-              : events.filter((e) => e.status === "PUBLISHED").length,
-          ),
-          Icon: CalendarDays,
-          caption: reports
-            ? "Hủy cả đơn khi được duyệt"
-            : "Đang đón những cuộc hẹn mới",
-        },
-      ];
+    : reports
+      ? [
+          {
+            label: "Doanh thu gộp",
+            value: money(totals?.grossRevenue ?? 0),
+            Icon: Wallet,
+            caption: "Giá trị vé đã thanh toán",
+          },
+          {
+            label: "Đã hoàn tiền",
+            value: money(totals?.refundedAmount ?? 0),
+            Icon: RotateCcw,
+            caption: "Theo kết quả hoàn tiền",
+          },
+          {
+            label: "Doanh thu thuần",
+            value: money(totals?.netRevenue ?? 0),
+            Icon: Wallet,
+            caption: "Doanh thu gộp trừ tiền hoàn",
+          },
+          {
+            label: "Số vé đã hoàn",
+            value: String(totals?.ticketsRefunded ?? 0),
+            Icon: CalendarDays,
+            caption: "Hủy cả đơn khi được duyệt",
+          },
+        ]
+      : [
+          {
+            label: "Doanh thu thuần",
+            value: money(totals?.netRevenue ?? 0),
+            Icon: Wallet,
+            caption: "7 ngày gần nhất, đã trừ hoàn tiền",
+          },
+          {
+            label: "Vé đã bán",
+            value: String(totals?.ticketsSold ?? 0),
+            Icon: Ticket,
+            caption: "7 ngày gần nhất",
+          },
+          {
+            label: "Khán giả check-in",
+            value: String(totals?.attendees ?? 0),
+            Icon: Users,
+            caption: "7 ngày gần nhất",
+          },
+          {
+            label: "Sự kiện mở bán",
+            value: String(events.filter((e) => e.status === "PUBLISHED").length),
+            Icon: CalendarDays,
+            caption: "Đang đón những cuộc hẹn mới",
+          },
+        ];
+  const sold = (data?.overview.byTicketType ?? []).reduce(
+    (s, t) => s + t.ticketsSold,
+    0,
+  );
   return (
     <>
       <PageTitle
@@ -149,11 +208,11 @@ export function Overview({
             ? "Báo cáo doanh thu"
             : admin
               ? "Tổng quan hệ thống"
-              : `Chào ${s.user?.name.split(" ").slice(-2).join(" ")},`
+              : `Chào ${(user?.name ?? "").split(" ").slice(-2).join(" ")},`
         }
         description={
           reports
-            ? "Theo dõi doanh số, hoàn tiền và hiệu quả từng hạng vé."
+            ? "Theo dõi doanh số, hoàn tiền và hiệu quả từng sự kiện."
             : admin
               ? "Những cập nhật cần bạn quan tâm hôm nay."
               : "Cùng tạo nên những trải nghiệm đáng nhớ hôm nay."
@@ -162,19 +221,23 @@ export function Overview({
           reports ? (
             <Button
               variant="secondary"
+              disabled={!data}
               onClick={() =>
+                data &&
                 downloadCsv(
                   [
-                    ["Mã đơn", "Sự kiện", "Ngày", "Trạng thái", "Doanh thu"],
-                    ...orders.map((o) => [
-                      o.id,
-                      s.events.find((e) => e.id === o.eventId)?.title ?? "",
-                      dateLabel(o.paidAt ?? o.createdAt),
-                      o.status,
-                      String(o.total),
+                    ["Sự kiện", "Ngày diễn ra", "Vé bán", "Vé hoàn", "Doanh thu gộp", "Hoàn tiền", "Doanh thu thuần"],
+                    ...data.events.map((r) => [
+                      r.title,
+                      dateLabel(r.startTime, true),
+                      String(r.ticketsSold),
+                      String(r.ticketsRefunded),
+                      String(r.grossRevenue),
+                      String(r.refundedAmount),
+                      String(r.netRevenue),
                     ]),
                   ],
-                  "eventhub-doanh-thu.csv",
+                  `eventhub-doanh-thu-${data.range.from}-${data.range.to}.csv`,
                 )
               }
             >
@@ -208,16 +271,26 @@ export function Overview({
           <select
             aria-label="Khoảng thời gian"
             value={period}
-            onChange={(e) => setPeriod(e.target.value)}
+            onChange={(e) => setPeriod(e.target.value as RangePreset)}
           >
-            <option value="7">7 ngày gần nhất</option>
-            <option value="30">30 ngày gần nhất</option>
-            <option value="365">12 tháng gần nhất</option>
+            {PERIODS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
           </select>
         )}
-        <span>Dữ liệu mô phỏng, cập nhật theo thao tác</span>
+        <span>
+          {data
+            ? `${dateLabel(data.range.from, true)} – ${dateLabel(data.range.to, true)} · Giờ Việt Nam`
+            : "Đang tải số liệu"}
+        </span>
       </div>
-      <DataBoundary>
+      <DataBoundary
+        loading={analytics.isLoading}
+        error={analytics.isError}
+        onRetry={analytics.refetch}
+      >
         <div className="metric-grid">
           {stats.map(({ label, value, Icon, caption }) => (
             <div className="metric-card" key={label}>
@@ -236,7 +309,8 @@ export function Overview({
               <div>
                 <h2>Nhịp độ bán vé</h2>
                 <p className="muted text-[10px] mt-2">
-                  7 ngày gần nhất · Giờ Việt Nam
+                  {granularity === "MONTH" ? "Theo tháng" : "Theo ngày"} · Giờ
+                  Việt Nam
                 </p>
               </div>
               <span className="chart-legend">
@@ -244,24 +318,22 @@ export function Overview({
                 Doanh thu gộp
               </span>
             </div>
-            <RevenueChart orders={paid} />
+            <RevenueChart
+              points={data?.overview.series ?? []}
+              monthly={granularity === "MONTH"}
+            />
           </section>
           <section className="panel distribution-panel">
             <h2>Vé theo hạng</h2>
             <div className="tier-total">
               <Ticket size={24} />
-              <strong>{sales}</strong>
-              <span>vé đã bán</span>
+              <strong>{sold}</strong>
+              <span>vé hợp lệ</span>
             </div>
             {(["STANDARD", "PREMIUM", "VIP"] as const).map((tier, i) => {
-              const n = paid.reduce(
-                (sum, o) =>
-                  sum +
-                  o.lines
-                    .filter((l) => l.tier === tier)
-                    .reduce((a, l) => a + l.quantity, 0),
-                0,
-              );
+              const n =
+                data?.overview.byTicketType.find((t) => t.ticketTypeName === tier)
+                  ?.ticketsSold ?? 0;
               return (
                 <div className="tier-breakdown" key={tier}>
                   <span>
@@ -270,25 +342,20 @@ export function Overview({
                   </span>
                   <strong>
                     {n} vé{" "}
-                    <small>
-                      ({sales ? Math.round((n / sales) * 100) : 0}%)
-                    </small>
+                    <small>({sold ? Math.round((n / sold) * 100) : 0}%)</small>
                   </strong>
                 </div>
               );
             })}
           </section>
         </div>
-        {admin && (
+        {admin && counters && (
           <div className="admin-task-row">
             <Link href="/admin/events">
               <CalendarDays size={22} />
               <div>
                 <strong>Duyệt sự kiện mới</strong>
-                <p>
-                  {events.filter((e) => e.status === "SUBMITTED").length} sự
-                  kiện đang chờ bạn xem xét
-                </p>
+                <p>{counters.pendingEvents} sự kiện đang chờ bạn xem xét</p>
               </div>
               <ArrowRight size={18} />
             </Link>
@@ -296,10 +363,7 @@ export function Overview({
               <RotateCcw size={22} />
               <div>
                 <strong>Xử lý hoàn tiền</strong>
-                <p>
-                  {s.refunds.filter((r) => r.status === "REQUESTED").length} yêu
-                  cầu đang chờ xử lý
-                </p>
+                <p>{counters.pendingRefunds} yêu cầu đang chờ xử lý</p>
               </div>
               <ArrowRight size={18} />
             </Link>
@@ -307,7 +371,7 @@ export function Overview({
         )}
         <section className="panel mt-6">
           <div className="section-heading">
-            <h2>{reports ? "Chi tiết giao dịch" : "Sự kiện của bạn"}</h2>
+            <h2>{reports ? "Chi tiết theo sự kiện" : "Sự kiện của bạn"}</h2>
             {!reports && (
               <Link
                 href={admin ? "/admin/events" : "/organizer/events"}
@@ -319,15 +383,17 @@ export function Overview({
             )}
           </div>
           {reports ? (
-            <RecentOrders orders={orders} events={events} />
-          ) : (
+            <EventRows rows={data?.events ?? []} />
+          ) : eventsLoading ? (
+            <div className="skeleton" />
+          ) : events.length ? (
             <div className="table-scroll">
               <table>
                 <thead>
                   <tr>
                     <th>SỰ KIỆN</th>
                     <th>NGÀY DIỄN RA</th>
-                    <th>VÉ ĐÃ BÁN</th>
+                    <th>VÉ HỢP LỆ</th>
                     <th>TRẠNG THÁI</th>
                     <th />
                   </tr>
@@ -340,9 +406,7 @@ export function Overview({
                         <span className="sub">{e.category}</span>
                       </td>
                       <td>{dateLabel(e.startTime, true)}</td>
-                      <td>
-                        {s.tickets.filter((t) => t.eventId === e.id).length}
-                      </td>
+                      <td>{rowsById.get(e.id)?.validTicketsLifetime ?? 0}</td>
                       <td>
                         <Status value={e.status} />
                       </td>
@@ -350,7 +414,9 @@ export function Overview({
                         <Link
                           className="icon-button"
                           aria-label={`Quản lý ${e.title}`}
-                          href={admin ? "/admin/events" : "/organizer/events"}
+                          href={
+                            admin ? "/admin/events" : `/organizer/events/${e.id}/edit`
+                          }
                         >
                           <ArrowUpRight size={16} />
                         </Link>
@@ -360,53 +426,50 @@ export function Overview({
                 </tbody>
               </table>
             </div>
+          ) : (
+            <p className="muted text-sm py-10 text-center">
+              Chưa có sự kiện nào.
+            </p>
           )}
         </section>
-        {reports && (
+        {reports && data && (
           <DailyReport
-            orders={relevantOrders}
-            refunds={refunds}
-            minDate={minDate}
+            points={data.overview.series}
+            monthly={granularity === "MONTH"}
             exportRows={downloadCsv}
           />
         )}
         <div className="dashboard-footnote">
-          <CheckCircle2 size={14} />
-          Thay đổi đơn hàng, hoàn tiền và check-in được phản ánh trực tiếp trong
-          dữ liệu này.
           <Clock3 size={14} />
+          Số liệu do Analytics tổng hợp từ sự kiện đặt vé, hoàn tiền và check-in;
+          có thể trễ vài giây so với thao tác thực tế.
         </div>
       </DataBoundary>
     </>
   );
 }
-function RevenueChart({ orders }: { orders: Order[] }) {
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - 6 + i);
-    const key = d.toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
-    return {
-      label: d.toLocaleDateString("vi-VN", {
-        day: "2-digit",
-        month: "2-digit",
-        timeZone: "Asia/Ho_Chi_Minh",
-      }),
-      value: orders
-        .filter(
-          (o) =>
-            new Date(o.paidAt ?? o.createdAt).toLocaleDateString("en-CA", {
-              timeZone: "Asia/Ho_Chi_Minh",
-            }) === key,
-        )
-        .reduce((s, o) => s + o.total, 0),
-    };
-  });
+function periodText(period: string, monthly: boolean) {
+  const parts = period.split("-");
+  return monthly ? `${parts[1]}/${parts[0].slice(2)}` : `${parts[2]}/${parts[1]}`;
+}
+function RevenueChart({
+  points,
+  monthly,
+}: {
+  points: AnalyticsSeriesPoint[];
+  monthly: boolean;
+}) {
+  // Nhiều kỳ quá thì chỉ hiện các kỳ gần nhất cho vừa khung.
+  const days = points.slice(-12).map((p) => ({
+    label: periodText(p.period, monthly),
+    value: p.grossRevenue,
+  }));
   const max = Math.max(...days.map((d) => d.value), 1000000);
   return (
     <div
       className="revenue-chart"
       role="img"
-      aria-label={`Biểu đồ doanh thu 7 ngày: ${days.map((d) => `${d.label}: ${money(d.value)}`).join(", ")}`}
+      aria-label={`Biểu đồ doanh thu: ${days.map((d) => `${d.label}: ${money(d.value)}`).join(", ")}`}
     >
       <div className="chart-y">
         <span>{money(max)}</span>
@@ -432,19 +495,11 @@ function RevenueChart({ orders }: { orders: Order[] }) {
     </div>
   );
 }
-function RecentOrders({
-  orders,
-  events,
-}: {
-  orders: Order[];
-  events: Event[];
-}) {
+function EventRows({ rows }: { rows: EventAnalyticsRow[] }) {
   const [query, setQuery] = useState("");
   const [requestedPage, setPage] = useState(0);
-  const filtered = orders.filter((o) =>
-    (o.id + " " + events.find((e) => e.id === o.eventId)?.title)
-      .toLowerCase()
-      .includes(query.toLowerCase()),
+  const filtered = rows.filter((r) =>
+    r.title.toLowerCase().includes(query.trim().toLowerCase()),
   );
   const page = Math.min(
     requestedPage,
@@ -454,8 +509,8 @@ function RecentOrders({
     <>
       <Input
         className="mb-5"
-        aria-label="Tìm giao dịch"
-        placeholder="Tìm mã đơn hoặc tên sự kiện..."
+        aria-label="Tìm sự kiện"
+        placeholder="Tìm theo tên sự kiện..."
         value={query}
         onChange={(e) => {
           setQuery(e.target.value);
@@ -467,29 +522,28 @@ function RecentOrders({
           <table>
             <thead>
               <tr>
-                <th>MÃ ĐƠN</th>
                 <th>SỰ KIỆN</th>
-                <th>NGÀY</th>
-                <th>GIÁ TRỊ ĐƠN</th>
+                <th>NGÀY DIỄN RA</th>
+                <th>VÉ BÁN</th>
+                <th>VÉ HOÀN</th>
+                <th>DOANH THU THUẦN</th>
                 <th>TRẠNG THÁI</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.slice(page * 8, (page + 1) * 8).map((o) => (
-                <tr key={o.id}>
-                  <td>{o.id}</td>
+              {filtered.slice(page * 8, (page + 1) * 8).map((r) => (
+                <tr key={r.eventId}>
                   <td>
-                    <span
-                      className="truncate-cell"
-                      title={events.find((e) => e.id === o.eventId)?.title}
-                    >
-                      {events.find((e) => e.id === o.eventId)?.title}
+                    <span className="truncate-cell" title={r.title}>
+                      {r.title}
                     </span>
                   </td>
-                  <td>{dateLabel(o.paidAt ?? o.createdAt, true)}</td>
-                  <td>{money(o.total)}</td>
+                  <td>{dateLabel(r.startTime, true)}</td>
+                  <td>{r.ticketsSold}</td>
+                  <td>{r.ticketsRefunded}</td>
+                  <td>{money(r.netRevenue)}</td>
                   <td>
-                    <Status value={o.status} />
+                    <Status value={r.status} />
                   </td>
                 </tr>
               ))}
@@ -498,7 +552,7 @@ function RecentOrders({
         </div>
       ) : (
         <p className="muted text-sm py-10 text-center">
-          Chưa có giao dịch phù hợp.
+          Chưa có số liệu trong khoảng thời gian này.
         </p>
       )}
       <Pagination

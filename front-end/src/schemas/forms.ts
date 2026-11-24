@@ -19,21 +19,29 @@ export type HolderForm = z.infer<typeof holderSchema>;
 export const loginSchema = z.object({
   name: z.string(),
   email: z.email("Email chưa đúng định dạng"),
-  password: z.string().min(8, "Mật khẩu cần ít nhất 8 ký tự"),
+  password: z.string().min(8, "Mật khẩu cần ít nhất 8 ký tự").max(128),
 });
 export type LoginForm = z.infer<typeof loginSchema>;
-export const eventSchema = z.object({
-  title: z.string().trim().min(5, "Tên sự kiện cần ít nhất 5 ký tự"),
-  subtitle: z.string().trim().min(5, "Nhập lời giới thiệu ngắn"),
-  description: z.string().trim().min(30, "Mô tả cần ít nhất 30 ký tự"),
-  category: z.string().min(1),
-  startTime: z.string().min(1, "Chọn thời gian bắt đầu"),
-  endTime: z.string().min(1, "Chọn thời gian kết thúc"),
-});
+export const eventSchema = z
+  .object({
+    title: z.string().trim().min(5, "Tên sự kiện cần ít nhất 5 ký tự").max(255),
+    description: z
+      .string()
+      .trim()
+      .min(30, "Mô tả cần ít nhất 30 ký tự")
+      .max(20000),
+    categoryId: z.string().min(1, "Chọn danh mục"),
+    startTime: z.string().min(1, "Chọn thời gian bắt đầu"),
+    endTime: z.string().min(1, "Chọn thời gian kết thúc"),
+  })
+  .refine((v) => v.endTime > v.startTime, {
+    message: "Thời gian kết thúc phải sau thời gian bắt đầu",
+    path: ["endTime"],
+  });
 export type EventForm = z.infer<typeof eventSchema>;
 export const passwordSchema = z
   .object({
-    current: z.string().min(8, "Nhập ít nhất 8 ký tự thử nghiệm"),
+    current: z.string().min(1, "Nhập mật khẩu hiện tại"),
     next: z.string().min(8, "Mật khẩu mới cần ít nhất 8 ký tự"),
     confirm: z.string(),
   })
