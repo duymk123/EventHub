@@ -144,6 +144,6 @@ Thiết kế đầy đủ: [plan Ticket](plans/ticket-service.md), [plan Order](
 
 ## Những việc còn cần trước khi tích hợp
 
-Mọi câu hỏi nghiệp vụ C02–C23 đã có quyết định. Order và Ticket đã có code đủ (2026-11-23): Flyway (C15), bán theo ghế (C12), VNPay (C06), hoàn tiền rút gọn (C04/C05), Idempotency-Key (C14), khung giờ quét (C07), C16–C23. Việc còn lại ở service khác: cookie refresh token (C13), text địa điểm `141 Đường Chiến Thắng, Hà Nội` (C03). Sau đó mới cấu hình API Gateway và nối frontend với API thật. Thứ tự và chi tiết ở các plan trong `docs/plans`.
+Mọi câu hỏi nghiệp vụ C02–C23 đã có quyết định. Order và Ticket đã có code đủ (2026-11-23): Flyway (C15), bán theo ghế (C12), VNPay (C06), hoàn tiền rút gọn (C04/C05), Idempotency-Key (C14), khung giờ quét (C07), C16–C23. Cookie refresh token (C13) đã làm ở Auth (2026-11-24); API Gateway đã cấu hình và frontend đã nối API thật qua Gateway (2026-11-24, bỏ dữ liệu mock C15). Thứ tự và chi tiết ở các plan trong `docs/plans`.
 
 Notification/Analytics đã có consumer/projection/batch/lease và attendance_state trong code hiện tại. Checklist kiểm tra dùng chạy thử thủ công theo quy ước repo; không tạo lại file/profile/dependency test tự động.

@@ -22,8 +22,11 @@ public interface TicketTypeService {
     /** Đổi giá/quota/trạng thái; quota mới không nhỏ hơn reserved + sold. */
     TicketTypeResponse updateType(Actor organizer, UUID typeId, UpdateTicketTypeRequest request);
 
-    /** Hạng vé của sự kiện đang công khai; số lượng chỉ tham khảo, reserve mới là bước quyết định. */
-    List<TicketTypeResponse> listPublicTypes(UUID eventId);
+    /**
+     * Hạng vé của sự kiện; số lượng chỉ tham khảo, reserve mới là bước quyết định. Sự kiện chưa công khai chỉ
+     * ORGANIZER chủ sự kiện và ADMIN đọc được (để cấu hình/duyệt), viewer null là khách chưa đăng nhập.
+     */
+    List<TicketTypeResponse> listTypes(UUID eventId, Actor viewer);
 
     /** C12: sơ đồ ghế của một zone (public, sự kiện phải đang công khai). */
     SeatMapResponse getSeatMap(UUID typeId);

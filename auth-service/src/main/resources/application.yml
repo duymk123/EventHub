@@ -8,9 +8,9 @@ spring:
   application:
     name: auth-service
   datasource:
-    # Mặc định chạy thẳng từ IntelliJ: MySQL cài trên máy (cổng 33101, root/root), database tự tạo nếu chưa có.
+    # Mặc định chạy thẳng từ IntelliJ: MySQL cài trên máy (cổng 3306, root/root) như các service khác, database tự tạo nếu chưa có.
     # Docker Compose tự truyền DB_HOST/DB_PORT/DB_PASSWORD riêng nên không bị ảnh hưởng.
-    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:33101}/${DB_NAME:eventhub_auth}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
+    url: "${DB_URL:jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:eventhub_auth}?serverTimezone=UTC&createDatabaseIfNotExist=true}"
     username: "${DB_USERNAME:root}"
     password: "${DB_PASSWORD:root}"
   jpa:

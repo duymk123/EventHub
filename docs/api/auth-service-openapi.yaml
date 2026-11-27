@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: EventHub - Auth Service API
   version: 2.0.0-draft
-  description: 'Hợp đồng mục tiêu BC_32_V2 + xác nhận 2026-10-27: giữ giao diện/API tài khoản riêng, Auth gọi Keycloak. Keycloak quản lý credentials, đăng nhập, cấp token và session; Auth không tự ký JWT hoặc lưu password_hash/refresh_tokens. Các endpoint dưới là facade EventHub, không phải endpoint tự cấp token. **Đã triển khai và chạy thật** (17 endpoint); realm/client/grant flow/role mapper/audience đã cấu hình trong `infrastructure/keycloak/eventhub-realm.json`. Access token TTL 300s, refresh token rotation bật. C13 (2026-11-22): refresh token chỉ đi trong cookie HttpOnly do Auth đặt (`eh_refresh`, SameSite=Strict, Path=/api/v1/auth, Secure khi HTTPS), không nằm trong body; frontend giữ access token trong bộ nhớ. (C13 chưa có code.) Mapping userId=sub UUID đã khớp realm (`registrationEmailAsUsername=true`). Profile lưu ở DB riêng của auth-service (`user_profiles`). Luồng chi tiết: `docs/architecture/auth-keycloak-flows.md`. Bộ test tay: `auth-service/postman/`.'
+  description: 'Hợp đồng mục tiêu BC_32_V2 + xác nhận 2026-10-27: giữ giao diện/API tài khoản riêng, Auth gọi Keycloak. Keycloak quản lý credentials, đăng nhập, cấp token và session; Auth không tự ký JWT hoặc lưu password_hash/refresh_tokens. Các endpoint dưới là facade EventHub, không phải endpoint tự cấp token. **Đã triển khai và chạy thật** (17 endpoint); realm/client/grant flow/role mapper/audience đã cấu hình trong `infrastructure/keycloak/eventhub-realm.json`. Access token TTL 300s, refresh token rotation bật. C13 (2026-11-22): refresh token chỉ đi trong cookie HttpOnly do Auth đặt (`eh_refresh`, SameSite=Strict, Path=/api/v1/auth, Secure khi HTTPS), không nằm trong body; frontend giữ access token trong bộ nhớ. (C13 đã triển khai 2026-11-24.) Mapping userId=sub UUID đã khớp realm (`registrationEmailAsUsername=true`). Profile lưu ở DB riêng của auth-service (`user_profiles`). Luồng chi tiết: `docs/architecture/auth-keycloak-flows.md`. Bộ test tay: `auth-service/postman/`.'
 servers:
 - url: http://localhost:8080/api/v1
   description: API Gateway (local)
@@ -53,11 +53,16 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: 'TokenResponse gồm accessToken và refreshToken. Code hiện tại (2026-11-24) CHƯA làm C13: refresh token trả trong body TokenResponse và gửi lại qua body RefreshRequest. C13 (đã chốt, chưa code) sẽ chuyển refresh token sang cookie HttpOnly eh_refresh (SameSite=Strict, Path=/api/v1/auth) và bỏ khỏi body.'
+          description: 'C13: body chỉ có access token (AccessTokenResponse); refresh token nằm trong cookie HttpOnly eh_refresh.'
+          headers:
+            Set-Cookie:
+              description: 'eh_refresh=<refresh token>; Max-Age=<refreshExpiresIn>; Path=/api/v1/auth; HttpOnly; SameSite=Strict (thêm Secure khi eventhub.auth.refresh-cookie.secure=true)'
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenResponse'
+                $ref: '#/components/schemas/AccessTokenResponse'
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -82,24 +87,30 @@ paths:
       - Auth
       operationId: refreshToken
       summary: AUTH-UC03 Refresh token (rotation)
-      description: 'Facade EventHub → Keycloak. Đổi refresh token lấy cặp token mới ở Keycloak (xoay vòng: refresh token cũ hết hiệu lực). Frontend gọi khi access token hết hạn (401), gộp các request đang chờ thành một lần refresh. Không đọc/ghi bảng refresh_tokens riêng. Code hiện tại (2026-11-24) CHƯA làm C13: refresh token trả trong body TokenResponse và gửi lại qua body RefreshRequest. C13 (đã chốt, chưa code) sẽ chuyển refresh token sang cookie HttpOnly eh_refresh (SameSite=Strict, Path=/api/v1/auth) và bỏ khỏi body.'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RefreshRequest'
+      description: 'Facade EventHub → Keycloak. Đổi refresh token lấy cặp token mới ở Keycloak (xoay vòng: refresh token cũ hết hiệu lực). Frontend gọi khi access token hết hạn (401), gộp các request đang chờ thành một lần refresh. Không đọc/ghi bảng refresh_tokens riêng. C13: không có body, đọc refresh token từ cookie eh_refresh (thiếu cookie → 401 INVALID_REFRESH_TOKEN); thành công ghi cookie mới (xoay vòng), lỗi thì xóa cookie. Tải lại trang, frontend gọi endpoint này để lấy lại access token.'
+      parameters:
+      - name: eh_refresh
+        in: cookie
+        required: false
+        description: Refresh token do Auth đặt ở login/refresh (HttpOnly, frontend không đọc được). Gọi với credentials include.
+        schema:
+          type: string
       responses:
         '200':
-          description: Cặp token mới (TokenResponse)
+          description: Access token mới (AccessTokenResponse), cookie eh_refresh được thay bằng refresh token mới.
+          headers:
+            Set-Cookie:
+              description: 'eh_refresh=<refresh token>; Max-Age=<refreshExpiresIn>; Path=/api/v1/auth; HttpOnly; SameSite=Strict (thêm Secure khi eventhub.auth.refresh-cookie.secure=true)'
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenResponse'
+                $ref: '#/components/schemas/AccessTokenResponse'
         '401':
           description: |
             INVALID_REFRESH_TOKEN, REFRESH_TOKEN_EXPIRED hoặc REFRESH_TOKEN_REUSED
-            (reuse thì toàn bộ token family bị thu hồi).
+            (reuse thì toàn bộ token family bị thu hồi). Cookie eh_refresh bị xóa (Max-Age=0).
           content:
             application/json:
               schema:
@@ -117,22 +128,17 @@ paths:
       - Auth
       operationId: logout
       summary: AUTH-UC04 Đăng xuất
-      description: 'Facade EventHub → Keycloak. Kết thúc session ở Keycloak bằng refresh token. Access token đã cấp vẫn còn hạn tối đa 5 phút; frontend tự bỏ token trong bộ nhớ. Code hiện tại (2026-11-24) CHƯA làm C13: refresh token trả trong body TokenResponse và gửi lại qua body RefreshRequest. C13 (đã chốt, chưa code) sẽ chuyển refresh token sang cookie HttpOnly eh_refresh (SameSite=Strict, Path=/api/v1/auth) và bỏ khỏi body.'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RefreshRequest'
+      description: 'Facade EventHub → Keycloak. Kết thúc session ở Keycloak bằng refresh token. Access token đã cấp vẫn còn hạn tối đa 5 phút; frontend tự bỏ token trong bộ nhớ. C13: không có body, đọc cookie eh_refresh; lỗi phía Keycloak hoặc thiếu cookie đều bỏ qua, luôn xóa cookie (Max-Age=0) và trả 204.'
+      parameters:
+      - name: eh_refresh
+        in: cookie
+        required: false
+        description: Refresh token do Auth đặt ở login/refresh (HttpOnly, frontend không đọc được). Gọi với credentials include.
+        schema:
+          type: string
       responses:
         '204':
-          description: Đăng xuất thành công
-        '401':
-          description: INVALID_REFRESH_TOKEN
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          description: Đăng xuất thành công, cookie eh_refresh đã bị xóa.
       x-contract-status: implemented
   /auth/me:
     get:
@@ -702,14 +708,19 @@ components:
           nullable: true
           description: Không bắt buộc; trùng với tài khoản khác trả 409 PHONE_ALREADY_EXISTS.
           example: '0901234567'
-    RefreshRequest:
+    AccessTokenResponse:
       type: object
-      required:
-      - refreshToken
+      description: C13. Refresh token không nằm trong body mà trong cookie HttpOnly eh_refresh.
       properties:
-        refreshToken:
+        accessToken:
           type: string
-          description: Refresh token nhận từ login/refresh trước đó (sẽ bỏ khi làm C13).
+          description: Access token do Keycloak cấp; frontend chỉ giữ trong bộ nhớ.
+        tokenType:
+          type: string
+          example: Bearer
+        expiresIn:
+          type: integer
+          description: TTL access token thực tế từ Keycloak, giây (realm hiện đặt 300). Frontend dùng để hẹn refresh, không hardcode.
     LoginRequest:
       type: object
       required:
@@ -743,24 +754,6 @@ components:
       properties:
         role:
           $ref: '#/components/schemas/Role'
-    TokenResponse:
-      type: object
-      properties:
-        accessToken:
-          type: string
-          description: Access token do Keycloak cấp; sub/role/issuer/audience theo mapping được cấu hình, Auth không tự ký.
-        tokenType:
-          type: string
-          example: Bearer
-        expiresIn:
-          type: integer
-          description: TTL access token thực tế từ Keycloak, giây (realm hiện đặt 300). Frontend dùng để hẹn refresh, không hardcode.
-        refreshToken:
-          type: string
-          description: Refresh token do Keycloak cấp (xoay vòng mỗi lần refresh). Sẽ bỏ khỏi body khi làm C13.
-        refreshExpiresIn:
-          type: integer
-          description: Số giây refresh token còn hiệu lực. Sẽ bỏ khỏi body khi làm C13.
     UserResponse:
       type: object
       properties:

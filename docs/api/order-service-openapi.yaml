@@ -225,14 +225,25 @@ paths:
       tags:
       - Payment
       operationId: verifyPayment
-      summary: Đối soát thanh toán với VNPay (querydr)
+      summary: Đối soát thanh toán khi khách quay về từ VNPay
       description: |-
-        C06. Frontend gọi khi khách quay về từ VNPay (trang kết quả), không tin tham số trên URL quay về. Nếu payment còn PENDING, Order gọi API `querydr` của VNPay và áp dụng kết quả giống IPN (cùng logic, cùng chống xử lý lặp).
-        Cần khi chạy local không có URL public cho IPN, hoặc IPN tới chậm. Payment đã SUCCEEDED/FAILED thì trả trạng thái hiện tại, không gọi VNPay.
+        C06. Frontend gọi khi khách quay về từ VNPay (trang kết quả) và chuyển nguyên các tham số `vnp_*` trên returnUrl trong body; frontend không tự diễn giải chúng.
+        Order kiểm `vnp_SecureHash` (cùng chữ ký HMAC với IPN), kiểm `vnp_TxnRef` là payment của chính đơn này và số tiền khớp, rồi áp kết quả bằng đúng luồng IPN (cùng chống xử lý lặp).
+        Không có tham số hoặc chữ ký sai thì payment còn PENDING được hỏi lại bằng `querydr` (2026-11-26: querydr của VNPay sandbox trả 99 "Unexpected error" với mọi request, nên khi chạy local luồng chữ ký returnUrl là đường chính).
+        Cần khi chạy local không có URL public cho IPN, hoặc IPN tới chậm. Payment đã SUCCEEDED/FAILED thì trả trạng thái hiện tại.
       security:
       - bearerAuth: []
       parameters:
       - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Các tham số vnp_* nguyên văn trên returnUrl (vnp_TxnRef, vnp_Amount, vnp_ResponseCode, vnp_TransactionStatus, vnp_TransactionNo, vnp_PayDate, vnp_SecureHash...).
+              additionalProperties:
+                type: string
       responses:
         '200':
           description: Trạng thái đơn sau đối soát (PAID, PENDING_PAYMENT hoặc EXPIRED; payment thất bại không đổi đơn, C18)

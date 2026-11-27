@@ -3,6 +3,7 @@ package com.eventhub.ticket.service.impl;
 import com.eventhub.ticket.client.EventClient;
 import com.eventhub.ticket.client.InternalEventResponse;
 import com.eventhub.ticket.common.Actor;
+import com.eventhub.ticket.common.BusinessRole;
 import com.eventhub.ticket.common.ErrorCode;
 import com.eventhub.ticket.common.SeatStatus;
 import com.eventhub.ticket.common.TicketTypeName;
@@ -160,9 +161,17 @@ public class TicketTypeServiceImpl implements TicketTypeService {
     }
 
     @Override
-    public List<TicketTypeResponse> listPublicTypes(UUID eventId) {
-        requirePublic(eventClient.getInternal(eventId));
+    public List<TicketTypeResponse> listTypes(UUID eventId, Actor viewer) {
+        InternalEventResponse event = eventClient.getInternal(eventId);
+        if (!canManage(viewer, event)) {
+            requirePublic(event);
+        }
         return responses(types.findByEventId(eventId));
+    }
+
+    private static boolean canManage(Actor viewer, InternalEventResponse event) {
+        return viewer != null && (viewer.role() == BusinessRole.ADMIN
+                || (viewer.role() == BusinessRole.ORGANIZER && event.organizerId().equals(viewer.userId())));
     }
 
     @Override

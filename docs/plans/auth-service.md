@@ -92,13 +92,13 @@ ErrorCode dự kiến: EMAIL_ALREADY_EXISTS 409, INVALID_CREDENTIALS 401, ACCOUN
 - Token quản trị được cache tới 30 giây trước khi hết hạn; Admin API trả 401 thì xin token mới và thử lại một lần (Keycloak khởi động lại/đổi khóa ký).
 - Đã kiểm thử thủ công với Keycloak 26.8.2 + MySQL local: đăng ký (cả tên tiếng Việt), trùng email/số điện thoại, sai mật khẩu, đăng nhập, me, refresh, dùng lại refresh token cũ, logout, tài khoản bị khóa.
 
-## C13 — Refresh token trong cookie HttpOnly (chốt 2026-11-22, chưa làm)
+## C13 — Refresh token trong cookie HttpOnly (chốt 2026-11-22, đã làm 2026-11-24)
 
 Frontend giữ access token trong bộ nhớ, không dùng `localStorage`/`sessionStorage`. Refresh token không còn nằm trong body.
 
 | Endpoint | Thay đổi |
 |---|---|
-| POST `/auth/login` | Body trả `accessToken`, `tokenType`, `expiresIn` (bỏ `refreshToken`). Header `Set-Cookie: eh_refresh=<token>; HttpOnly; SameSite=Strict; Path=/api/v1/auth; Max-Age=<refresh_expires_in>` (thêm `Secure` khi chạy HTTPS, cấu hình `eventhub.auth.cookie.secure`). |
+| POST `/auth/login` | Body trả `accessToken`, `tokenType`, `expiresIn` (bỏ `refreshToken`). Header `Set-Cookie: eh_refresh=<token>; HttpOnly; SameSite=Strict; Path=/api/v1/auth; Max-Age=<refresh_expires_in>` (thêm `Secure` khi chạy HTTPS, cấu hình `eventhub.auth.refresh-cookie.secure`, mặc định false). |
 | POST `/auth/refresh` | Không body. Đọc cookie `eh_refresh`; thiếu → 401 `INVALID_REFRESH_TOKEN`. Gọi Keycloak, ghi cookie mới (xoay vòng), trả access token mới. Lỗi reuse/expired → xóa cookie và trả mã lỗi như cũ. |
 | POST `/auth/logout` | Đọc cookie, gọi Keycloak logout (lỗi cũng bỏ qua), luôn xóa cookie (`Max-Age=0`) và trả 204. |
 

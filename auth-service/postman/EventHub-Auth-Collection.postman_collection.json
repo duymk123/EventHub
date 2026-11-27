@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "EventHub — Auth Service (tự lấy token)",
-    "description": "Bộ test tay cho auth-service.\n\nCÁCH DÙNG:\n1. Import file này + file Environment đi kèm.\n2. Chọn environment 'EventHub Local' ở góc trên phải.\n3. Bấm Run collection (hoặc Ctrl+Shift+R) — script tự đăng nhập lấy token, KHÔNG cần copy token thủ công.\n\nToken Keycloak sống 300 giây nên đừng dán tay; bộ này tự lấy lại mỗi lần chạy.\n\nYêu cầu trước khi chạy:\n- auth-service chạy ở http://localhost:8081\n- Keycloak ở http://localhost:8180 (realm eventhub)\n- MySQL ở cổng 33101\n\nThứ tự trong Run là quan trọng: Login phải chạy đầu, Logout cuối.",
+    "description": "Bộ test tay cho auth-service.\n\nCÁCH DÙNG:\n1. Import file này + file Environment đi kèm.\n2. Chọn environment 'EventHub Local' ở góc trên phải.\n3. Bấm Run collection (hoặc Ctrl+Shift+R) — script tự đăng nhập lấy token, KHÔNG cần copy token thủ công.\n\nToken Keycloak sống 300 giây nên đừng dán tay; bộ này tự lấy lại mỗi lần chạy.\n\nYêu cầu trước khi chạy:\n- auth-service chạy ở http://localhost:8081\n- Keycloak ở http://localhost:8180 (realm eventhub)\n- MySQL trên máy ở cổng 3306 (database eventhub_auth tự tạo)\n\nThứ tự trong Run là quan trọng: Login phải chạy đầu, Logout cuối.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -82,7 +82,7 @@
                   "const j = pm.response.json();",
                   "pm.test('có accessToken', () => pm.expect(j.accessToken).to.be.a('string'));",
                   "pm.environment.set('accessToken', j.accessToken);",
-                  "pm.environment.set('refreshToken', j.refreshToken);"
+                  "// C13: refresh token nằm trong cookie eh_refresh (Postman tự lưu theo domain), không có trong body."
                 ]
               }
             }
@@ -130,7 +130,7 @@
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
                   "pm.environment.set('customerToken', j.accessToken);",
-                  "pm.environment.set('customerRefreshToken', j.refreshToken);"
+                  "// C13: refresh token nằm trong cookie eh_refresh, Postman tự gửi lại khi gọi /auth/refresh và /auth/logout."
                 ]
               }
             }
@@ -426,10 +426,10 @@
                 "refresh"
               ]
             },
-            "description": "Đổi refresh token lấy cặp mới. Script tự cập nhật customerRefreshToken.\nLƯU Ý: chạy 1 lần, chạy lại với token cũ sẽ 401 REFRESH_TOKEN_REUSED.",
+            "description": "C13: không có body, refresh token đi trong cookie eh_refresh (cookie của lần đăng nhập gần nhất, tức customer). Response có access token mới và Set-Cookie refresh token mới.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"refreshToken\": \"{{customerRefreshToken}}\"\n}",
+              "raw": "",
               "options": {
                 "raw": {
                   "language": "json"
@@ -446,7 +446,7 @@
                   "pm.test('200', () => pm.response.to.have.status(200));",
                   "const j = pm.response.json();",
                   "pm.environment.set('customerToken', j.accessToken);",
-                  "pm.environment.set('customerRefreshToken', j.refreshToken);"
+                  "// C13: refresh token nằm trong cookie eh_refresh, Postman tự gửi lại khi gọi /auth/refresh và /auth/logout."
                 ]
               }
             }
@@ -2098,7 +2098,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"refreshToken\": \"{{customerRefreshToken}}\"\n}",
+              "raw": "",
               "options": {
                 "raw": {
                   "language": "json"

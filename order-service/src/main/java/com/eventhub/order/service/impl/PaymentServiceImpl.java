@@ -17,6 +17,7 @@ import com.eventhub.order.repository.PaymentRepository;
 import com.eventhub.order.service.OrderService;
 import com.eventhub.order.service.PaymentResultService;
 import com.eventhub.order.service.PaymentService;
+import com.eventhub.order.service.VnpayIpnService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -45,16 +46,19 @@ public class PaymentServiceImpl implements PaymentService {
     private final OrderService orderService;
     private final PaymentResultService results;
     private final VnpayClient vnpay;
+    private final VnpayIpnService returnHandler;
     private final TransactionTemplate tx;
     private final Clock clock;
 
     public PaymentServiceImpl(OrderRepository orders, PaymentRepository payments, OrderService orderService,
-                              PaymentResultService results, VnpayClient vnpay, TransactionTemplate tx, Clock clock) {
+                              PaymentResultService results, VnpayClient vnpay, VnpayIpnService returnHandler,
+                              TransactionTemplate tx, Clock clock) {
         this.orders = orders;
         this.payments = payments;
         this.orderService = orderService;
         this.results = results;
         this.vnpay = vnpay;
+        this.returnHandler = returnHandler;
         this.tx = tx;
         this.clock = clock;
     }
@@ -144,8 +148,11 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     @Override
-    public OrderResponse verify(Actor customer, UUID orderId, String clientIp) {
+    public OrderResponse verify(Actor customer, UUID orderId, String clientIp, Map<String, String> returnParams) {
         orders.findByIdAndCustomerId(orderId, customer.userId()).orElseThrow(PaymentServiceImpl::orderNotFound);
+        if (applySignedReturn(orderId, returnParams)) {
+            return orderService.getDetail(customer, orderId);
+        }
         var pending = payments.findByOrderIdAndStatusOrderByCreatedAtAsc(orderId, PaymentStatus.PENDING);
         if (!pending.isEmpty() && !vnpay.isConfigured()) {
             throw new BusinessException(ErrorCode.PAYMENT_PROVIDER_UNAVAILABLE, "VNPay is not configured");
@@ -154,6 +161,28 @@ public class PaymentServiceImpl implements PaymentService {
             reconcile(payment, clientIp);
         }
         return orderService.getDetail(customer, orderId);
+    }
+
+    /**
+     * Áp kết quả từ returnUrl bằng đúng luồng IPN (kiểm chữ ký, số tiền, đã xử lý). Chỉ nhận vnp_TxnRef của một
+     * payment thuộc chính đơn này, để không dùng return của đơn khác áp vào. Trả false khi không áp được (thiếu tham
+     * số, sai chữ ký, sai số tiền, lỗi) để verify hỏi querydr như cũ.
+     */
+    private boolean applySignedReturn(UUID orderId, Map<String, String> params) {
+        if (params == null || params.isEmpty() || !vnpay.isConfigured()) {
+            return false;
+        }
+        String txnRef = params.get("vnp_TxnRef");
+        boolean ownPayment = txnRef != null && payments.findByProviderAndProviderTxnRef(VnpayClient.PROVIDER, txnRef)
+                .flatMap(payment -> payments.findOrderIdById(payment.getId()))
+                .filter(orderId::equals)
+                .isPresent();
+        if (!ownPayment) {
+            return false;
+        }
+        String code = returnHandler.handle(params).rspCode();
+        // 00 vừa áp, 02 đã áp trước đó (IPN hoặc lần verify trước).
+        return "00".equals(code) || "02".equals(code);
     }
 
     /**

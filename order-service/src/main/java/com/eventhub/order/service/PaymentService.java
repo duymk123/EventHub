@@ -6,6 +6,7 @@ import com.eventhub.order.dto.response.PaymentResponse;
 import com.eventhub.order.dto.response.ReconciliationItem;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -19,10 +20,11 @@ public interface PaymentService {
     PaymentResponse initiate(Actor customer, UUID orderId, String idempotencyKey, String clientIp);
 
     /**
-     * Khách quay về từ VNPay: payment còn PENDING thì hỏi querydr và áp kết quả giống IPN. Không tin tham số trên
-     * URL quay về.
+     * Khách quay về từ VNPay. returnParams là các tham số vnp_* VNPay gắn vào returnUrl (có thể rỗng): cùng dữ liệu
+     * và cùng chữ ký HMAC với IPN, nên khi chữ ký đúng và vnp_TxnRef thuộc đơn này thì áp kết quả như IPN. Thiếu
+     * hoặc sai chữ ký thì payment còn PENDING được hỏi lại bằng querydr. Frontend chỉ chuyển tiếp, không tự tin URL.
      */
-    OrderResponse verify(Actor customer, UUID orderId, String clientIp);
+    OrderResponse verify(Actor customer, UUID orderId, String clientIp, Map<String, String> returnParams);
 
     /** C21: tối đa 100 payment đã trừ tiền khách mà đơn không dùng, cho ADMIN hoàn tiền thủ công. */
     List<ReconciliationItem> reconciliation();

@@ -156,11 +156,11 @@ export function useOrder(id: string | null | undefined) {
  * Trang kết quả VNPay (C06): không tin tham số trên URL, hỏi server đối soát giao dịch rồi đọc trạng thái đơn.
  * Chạy một lần mỗi lần mở trang; lỗi tạm thời (VNPay bận) để người dùng bấm thử lại.
  */
-export function usePaymentVerify(orderId: string | null) {
+export function usePaymentVerify(orderId: string | null, returnParams: Record<string, string> = {}) {
   const authed = useSignedIn();
   return useQuery({
     queryKey: ["payment-verify", orderId],
-    queryFn: async () => toOrder(await orderApi.verify(orderId!)),
+    queryFn: async () => toOrder(await orderApi.verify(orderId!, returnParams)),
     enabled: Boolean(orderId) && authed,
     retry: false,
     staleTime: Infinity,

@@ -83,7 +83,9 @@ export const orderApi = {
   cancel: (id: string) => api<OrderDto>(`/orders/${id}/cancel`, { method: "POST" }),
   pay: (id: string, idempotencyKey: string) =>
     api<PaymentDto>(`/orders/${id}/payment`, { method: "POST", headers: { "Idempotency-Key": idempotencyKey } }),
-  verify: (id: string) => api<OrderDto>(`/orders/${id}/payment/verify`, { method: "POST" }),
+  /** returnParams: các tham số vnp_* trên returnUrl, chuyển nguyên cho server tự kiểm chữ ký. */
+  verify: (id: string, returnParams: Record<string, string> = {}) =>
+    api<OrderDto>(`/orders/${id}/payment/verify`, { method: "POST", body: returnParams }),
   requestRefund: (id: string, reason: string) =>
     api<RefundDto>(`/orders/${id}/refunds`, { method: "POST", body: { reason } }),
   refundsOf: (id: string) => api<RefundDto[]>(`/orders/${id}/refunds`),

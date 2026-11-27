@@ -18,7 +18,7 @@ Trạng thái: Reservation RESERVED → CONFIRMED/RELEASED/EXPIRED; Ticket ISSUE
 |---|---|
 | `TicketTypeService.createTypes(Actor, CreateTicketTypesRequest)` | Xác minh owner qua `EventClient`; tên hợp lệ, không trùng; sinh `rowCount × seatsPerRow` ghế trong cùng transaction. |
 | `updateType(Actor, UUID, UpdateTicketTypeRequest)` | Khóa type. Thêm hàng tự do; bớt hàng hoặc đổi `seatsPerRow` chỉ khi các ghế bị ảnh hưởng chưa từng thuộc reservation nào (`reservation_seats` giữ lịch sử nên không xóa được). Vi phạm → 409 `SEAT_LAYOUT_LOCKED`. Không đổi giá đã snapshot. |
-| `listPublicTypes(UUID eventId)` | Event công khai (PUBLISHED/CLOSED); số ghế theo trạng thái bằng một query GROUP BY. Chỉ để tham khảo, giữ ghế mới là bước quyết định. |
+| `listTypes(UUID eventId, Actor viewer)` | Event công khai (PUBLISHED/CLOSED), hoặc ORGANIZER chủ sự kiện / ADMIN khi còn nháp; số ghế theo trạng thái bằng một query GROUP BY. Chỉ để tham khảo, giữ ghế mới là bước quyết định. |
 | `getSeatMap(UUID typeId)` | Public, read-only, ghế sắp theo hàng/số ghế. |
 | `ReservationService.reserve(ReserveRequest)` | 1–10 ghế không trùng, đúng hạng/sự kiện (404 `SEAT_NOT_FOUND`), hạng ACTIVE, Event PUBLISHED và chưa tới `startTime` (C17), nếu không → 409 `TICKET_TYPE_NOT_ON_SALE`. Hạn = min(đề xuất của Order, now + 10 phút) (C16). Một transaction: insert reservation → `holdSeats` (UPDATE có điều kiện `status = 'AVAILABLE'`) → thiếu dòng thì rollback, trả 409 `SEAT_TAKEN` kèm `takenSeatIds`; đủ thì insert items và `reservation_seats`. Idempotent theo orderId (cùng sự kiện + cùng bộ ghế trả reservation cũ, khác → 409 `RESERVATION_PAYLOAD_MISMATCH`). |
 | `confirm(UUID, ConfirmRequest)` | Khóa reservation. CONFIRMED trả bộ vé cũ; RELEASED/EXPIRED hoặc đã quá `expiresAt` → 409 `RESERVATION_RELEASED_OR_EXPIRED`. Hợp lệ: HELD → SOLD, mỗi ghế một vé/QR (holder ghép theo `seatId`), outbox `ticket.issued` cùng transaction. |
@@ -51,7 +51,7 @@ Trạng thái: Reservation RESERVED → CONFIRMED/RELEASED/EXPIRED; Ticket ISSUE
 |---|---|
 | POST `/api/v1/ticket-types` | createTypes |
 | PUT `/api/v1/ticket-types/{id}` | updateType |
-| GET `/api/v1/events/{eventId}/ticket-types` | listPublicTypes |
+| GET `/api/v1/events/{eventId}/ticket-types` | listTypes |
 | GET `/api/v1/ticket-types/{id}/seats` | getSeatMap |
 | POST `/internal/reservations` | reserve |
 | POST `/internal/reservations/{id}/confirm` | confirm |
@@ -104,7 +104,7 @@ Nhãn hàng: 1 → A … 26 → Z, 27 → AA. Nhãn ghế `B-07` (số 2 chữ s
 |---|---|
 | `TicketTypeService.createTypes` | Như cũ, thêm sinh `rowCount × seatsPerRow` dòng `seats` trong cùng transaction (batch insert). |
 | `updateType` | Khóa type. Tăng rowCount: thêm hàng mới. Giảm: chỉ khi mọi ghế ở các hàng bị bỏ còn AVAILABLE rồi xóa chúng. Đổi seatsPerRow: chỉ khi zone chưa có ghế HELD/SOLD (xóa và sinh lại). Vi phạm → 409 `SEAT_LAYOUT_LOCKED`. |
-| `listPublicTypes` | Thêm `availableSeats/heldSeats/soldSeats` bằng một query `GROUP BY ticket_type_id, status` cho cả sự kiện. |
+| `listTypes` | Thêm `availableSeats/heldSeats/soldSeats` bằng một query `GROUP BY ticket_type_id, status` cho cả sự kiện. |
 | `SeatQueryService.getSeatMap(UUID typeId)` (mới) | Public, read-only: mọi ghế của zone sắp theo row_index, seat_number, nhóm theo hàng. |
 | `ReservationService.reserve` | Validate: tổng ghế 1–10, không trùng, mọi ghế thuộc đúng hạng/sự kiện (404 `SEAT_NOT_FOUND`), hạng ACTIVE, Event PUBLISHED. Một transaction: insert reservation; `holdSeats(seatIds, reservationId)`; số dòng < số ghế → rollback, đọc lại ghế không AVAILABLE và trả 409 `SEAT_TAKEN` kèm `takenSeatIds`. Đủ → insert reservation_items (giá snapshot) và reservation_seats. Idempotent theo orderId như cũ, so danh sách ghế thay vì số lượng. |
 | `confirm` | Như cũ nhưng: `sellByReservation` (HELD → SOLD), mỗi `reservation_seat` một vé có `seat`/`seatLabel`, holder ghép theo `seatId`. Outbox `ticket.issued` thêm `seatId`, `seatLabel`. |

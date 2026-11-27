@@ -121,7 +121,7 @@ paths:
       - Ticket Type
       operationId: listTicketTypesByEvent
       summary: Xem các zone (Ticket Type), giá và số ghế còn trống
-      description: Public. C12 dùng cho màn 3D chọn zone; availableSeats đếm từ bảng seats, gần realtime.
+      description: Public với sự kiện PUBLISHED/CLOSED; sự kiện chưa công khai chỉ ORGANIZER chủ sự kiện hoặc ADMIN (gửi Bearer token) đọc được, người khác nhận 404 EVENT_NOT_FOUND. C12 dùng cho màn 3D chọn zone; availableSeats đếm từ bảng seats, gần realtime.
       parameters:
       - name: eventId
         in: path

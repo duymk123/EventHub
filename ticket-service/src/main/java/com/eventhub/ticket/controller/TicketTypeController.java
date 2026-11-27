@@ -53,7 +53,7 @@ public class TicketTypeController {
     }
 
     @GetMapping("/events/{eventId}/ticket-types")
-    public List<TicketTypeResponse> listByEvent(@PathVariable UUID eventId) {
-        return ticketTypeService.listPublicTypes(eventId);
+    public List<TicketTypeResponse> listByEvent(@AuthenticationPrincipal Actor actor, @PathVariable UUID eventId) {
+        return ticketTypeService.listTypes(eventId, actor);
     }
 }

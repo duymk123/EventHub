@@ -11,6 +11,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -40,10 +41,12 @@ public class PaymentController {
         return paymentService.initiate(actor, id, idempotencyKey, ClientIp.of(request));
     }
 
+    /** Body tùy chọn: các tham số vnp_* trên returnUrl, server tự kiểm chữ ký. */
     @PostMapping("/orders/{id}/payment/verify")
     public OrderResponse verify(@AuthenticationPrincipal Actor actor, @PathVariable UUID id,
+                                @RequestBody(required = false) Map<String, String> returnParams,
                                 HttpServletRequest request) {
-        return paymentService.verify(actor, id, ClientIp.of(request));
+        return paymentService.verify(actor, id, ClientIp.of(request), returnParams);
     }
 
     /** Không JWT; tin cậy dựa trên chữ ký vnp_SecureHash. */

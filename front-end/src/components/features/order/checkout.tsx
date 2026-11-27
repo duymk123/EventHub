@@ -793,11 +793,14 @@ function ResultContent() {
   const params = useSearchParams();
   const router = useRouter();
   const refresh = useRefresh();
-  // Chỉ dùng tham số URL để biết đơn nào cần xác nhận; trạng thái thật lấy từ verify.
+  // Không tự tin tham số URL: chuyển nguyên các vnp_* cho server kiểm chữ ký VNPay; trạng thái thật lấy từ verify.
   const [orderId] = useState(
     () => UUID.exec(params.get("vnp_OrderInfo") ?? "")?.[0] ?? pendingPayment(),
   );
-  const verify = usePaymentVerify(orderId);
+  const [returnParams] = useState(() =>
+    Object.fromEntries([...params.entries()].filter(([key]) => key.startsWith("vnp_"))),
+  );
+  const verify = usePaymentVerify(orderId, returnParams);
   const handled = useRef(false);
   useEffect(() => {
     const order = verify.data;
