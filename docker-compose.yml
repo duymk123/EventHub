@@ -1,5 +1,30 @@
 name: eventhub
 
+# Chạy toàn bộ EventHub (hạ tầng + 7 backend + frontend) bằng một lệnh, từ thư mục gốc repo:
+#   docker compose up -d --build
+# Lần đầu mất vài phút (Maven tải dependency, build frontend). Xem tiến độ: docker compose ps / docker compose logs -f
+#
+# Địa chỉ trên máy:
+#   Frontend        http://localhost:3000   (mở bằng "localhost", không dùng 127.0.0.1: cookie phiên SameSite=Strict)
+#   API Gateway     http://localhost:8080
+#   Keycloak        http://localhost:8180   (admin console: admin / admin_dev_password)
+#   Kafka UI        http://localhost:8089
+#   Mailpit         http://localhost:8025   (xem mọi email hệ thống gửi)
+#   Backend lẻ      8081 auth, 8082 event, 8083 ticket, 8084 order, 8085 notification, 8086 analytics
+#   MySQL           33101..33106 (user root, mật khẩu = MYSQL_ROOT_PASSWORD, mặc định "root")
+#
+# Tài khoản demo nạp sẵn từ infrastructure/keycloak/eventhub-realm.json:
+#   admin@eventhub.local / Admin@123            (ADMIN)
+#   organizer@eventhub.local / Organizer@123    (ORGANIZER)
+#   customer@eventhub.local / Customer@123      (CUSTOMER)
+#
+# Biến tùy chọn (đặt trong file .env cạnh file này, không commit):
+#   MYSQL_ROOT_PASSWORD   mật khẩu root MySQL, mặc định "root"
+#   VNPAY_TMN_CODE, VNPAY_HASH_SECRET   thông tin VNPay sandbox; để trống thì Order tắt thanh toán VNPay
+#   MAIL_USERNAME, MAIL_PASSWORD        chỉ cần khi đổi Mailpit sang SMTP thật
+#
+# Dừng: docker compose down (giữ dữ liệu). Xóa sạch dữ liệu: docker compose down -v
+
 # Cấu hình Keycloak dùng chung cho service chạy trong Docker: issuer là địa chỉ trình duyệt/Postman thấy
 # (KC_HOSTNAME), còn JWK và token endpoint gọi qua mạng nội bộ keycloak:8080.
 x-keycloak-env: &keycloak-env
@@ -8,7 +33,34 @@ x-keycloak-env: &keycloak-env
   KEYCLOAK_SERVICE_TOKEN_URI: http://keycloak:8080/realms/eventhub/protocol/openid-connect/token
   EVENTHUB_JWT_AUDIENCE: eventhub-api
 
+# Mẫu dùng chung cho 6 MySQL của các service.
+x-mysql: &mysql
+  image: mysql:8.4
+  healthcheck:
+    test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
+    interval: 5s
+    timeout: 5s
+    retries: 20
+    start_period: 20s
+  restart: unless-stopped
+  networks:
+    - eventhub
+
+x-mysql-env: &mysql-env
+  MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+  MYSQL_ROOT_HOST: "%"
+
+# Mẫu dùng chung cho backend Spring Boot: trong container mọi service nghe cổng 8080.
+x-backend-env: &backend-env
+  <<: *keycloak-env
+  SERVER_PORT: "8080"
+  DB_PORT: "3306"
+  DB_USERNAME: root
+  DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+  JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75
+
 services:
+  # ───────────────────────────── Hạ tầng ─────────────────────────────
   kafka:
     image: apache/kafka:3.8.1
     hostname: kafka
@@ -42,6 +94,7 @@ services:
     networks:
       - eventhub
 
+  # Tạo 7 topic nghiệp vụ + 2 DLQ rồi thoát; chạy lại an toàn.
   kafka-init:
     image: apache/kafka:3.8.1
     entrypoint: ["/bin/bash", "/scripts/init-topics.sh"]
@@ -68,6 +121,7 @@ services:
     networks:
       - eventhub
 
+  # Bắt mọi email (của Notification và Keycloak) để xem ở http://localhost:8025, không gửi ra ngoài.
   mailpit:
     image: axllent/mailpit:v1.20.5
     ports:
@@ -77,8 +131,6 @@ services:
     networks:
       - eventhub
 
-# Database Services
-# Database riêng dành cho Keycloak
   keycloak-db:
     image: postgres:17-alpine
     container_name: eventhub-keycloak-db
@@ -93,162 +145,111 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
     networks:
       - eventhub
 
-  # Keycloak Identity Provider
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.2
     container_name: eventhub-keycloak
-    # --import-realm nạp realm eventhub từ file dùng chung với chế độ chạy local; realm đã tồn tại thì bỏ qua.
+    # --import-realm nạp realm eventhub (user demo, client, role); realm đã tồn tại thì bỏ qua.
     command: start-dev --import-realm
     volumes:
       - ./infrastructure/keycloak/eventhub-realm.json:/opt/keycloak/data/import/eventhub-realm.json:ro
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin_dev_password
-
       KC_DB: postgres
       KC_DB_URL_HOST: keycloak-db
       KC_DB_URL_DATABASE: keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: keycloak_dev_password
-      # Issuer cố định http://localhost:8180 cho cả token lấy từ máy (IDE/Postman) lẫn từ container
+      # Issuer cố định http://localhost:8180 cho cả token lấy từ máy (trình duyệt/Postman) lẫn từ container
       # (gọi http://keycloak:8080): service chỉ chấp nhận đúng một issuer.
       KC_HOSTNAME: http://localhost:8180
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
-
+      # Bật /health/ready ở cổng quản trị 9000 để backend chỉ khởi động khi Keycloak sẵn sàng.
+      KC_HEALTH_ENABLED: "true"
     ports:
       - "8180:8080"
-
+    healthcheck:
+      # Image Keycloak không có curl; dùng /dev/tcp của bash.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
     depends_on:
       keycloak-db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
+    restart: unless-stopped
     networks:
       - eventhub
-# Auth Service DB
+
+  # ───────────────────────────── MySQL mỗi service một DB ─────────────────────────────
   auth-db:
-    image: mysql:8.4
+    <<: *mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
-      MYSQL_ROOT_HOST: "%"
+      <<: *mysql-env
       MYSQL_DATABASE: eventhub_auth
     ports:
       - "33101:3306"
     volumes:
       - auth_mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    restart: unless-stopped
-    networks:
-      - eventhub
 
-# Event Service DB
   event-db:
-    image: mysql:8.4
+    <<: *mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
-      MYSQL_ROOT_HOST: "%"
+      <<: *mysql-env
       MYSQL_DATABASE: eventhub_event
     ports:
       - "33102:3306"
     volumes:
       - event_mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    restart: unless-stopped
-    networks:
-      - eventhub
 
   ticket-db:
-    image: mysql:8.4
+    <<: *mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
-      MYSQL_ROOT_HOST: "%"
+      <<: *mysql-env
       MYSQL_DATABASE: eventhub_ticket
     ports:
       - "33103:3306"
     volumes:
       - ticket_mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    restart: unless-stopped
-    networks:
-      - eventhub
 
   order-db:
-    image: mysql:8.4
+    <<: *mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
-      MYSQL_ROOT_HOST: "%"
+      <<: *mysql-env
       MYSQL_DATABASE: eventhub_order
     ports:
       - "33104:3306"
     volumes:
       - order_mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    restart: unless-stopped
-    networks:
-      - eventhub
 
   notification-db:
-    image: mysql:8.4
+    <<: *mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
-      MYSQL_ROOT_HOST: "%"
+      <<: *mysql-env
       MYSQL_DATABASE: eventhub_notification
     ports:
       - "33105:3306"
     volumes:
       - notification_mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    restart: unless-stopped
-    networks:
-      - eventhub
 
   analytics-db:
-    image: mysql:8.4
+    <<: *mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
-      MYSQL_ROOT_HOST: "%"
+      <<: *mysql-env
       MYSQL_DATABASE: eventhub_analytics
     ports:
       - "33106:3306"
     volumes:
       - analytics_mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", 'mysqladmin ping -h localhost -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-    restart: unless-stopped
-    networks:
-      - eventhub
 
-# Application Services
+  # ───────────────────────────── Backend ─────────────────────────────
   auth-service:
     image: eventhub/auth-service:local
     build:
@@ -257,20 +258,18 @@ services:
     ports:
       - "8081:8080"
     environment:
-      <<: *keycloak-env
-      SERVER_PORT: "8080"
+      <<: *backend-env
       KEYCLOAK_SERVER_URL: http://keycloak:8080
       DB_HOST: auth-db
-      DB_PORT: "3306"
       DB_NAME: eventhub_auth
-      DB_USERNAME: root
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
-    restart: unless-stopped
-    networks:
-      - eventhub
     depends_on:
       auth-db:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - eventhub
 
   event-service:
     image: eventhub/event-service:local
@@ -280,20 +279,18 @@ services:
     ports:
       - "8082:8080"
     environment:
-      <<: *keycloak-env
-      SERVER_PORT: "8080"
+      <<: *backend-env
       TICKET_SERVICE_URL: http://ticket-service:8080
       DB_HOST: event-db
-      DB_PORT: "3306"
       DB_NAME: eventhub_event
-      DB_USERNAME: root
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
-    restart: unless-stopped
-    networks:
-      - eventhub
     depends_on:
       event-db:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - eventhub
 
   ticket-service:
     image: eventhub/ticket-service:local
@@ -303,23 +300,21 @@ services:
     ports:
       - "8083:8080"
     environment:
-      <<: *keycloak-env
-      SERVER_PORT: "8080"
+      <<: *backend-env
       EVENT_SERVICE_URL: http://event-service:8080
       DB_HOST: ticket-db
-      DB_PORT: "3306"
       DB_NAME: eventhub_ticket
-      DB_USERNAME: root
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-    restart: unless-stopped
-    networks:
-      - eventhub
     depends_on:
       ticket-db:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - eventhub
 
   order-service:
     image: eventhub/order-service:local
@@ -329,23 +324,25 @@ services:
     ports:
       - "8084:8080"
     environment:
-      <<: *keycloak-env
-      SERVER_PORT: "8080"
+      <<: *backend-env
       TICKET_SERVICE_URL: http://ticket-service:8080
       DB_HOST: order-db
-      DB_PORT: "3306"
       DB_NAME: eventhub_order
-      DB_USERNAME: root
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-    restart: unless-stopped
-    networks:
-      - eventhub
+      # VNPay sandbox: đặt trong .env; để trống thì không tạo được link thanh toán.
+      VNPAY_TMN_CODE: ${VNPAY_TMN_CODE:-}
+      VNPAY_HASH_SECRET: ${VNPAY_HASH_SECRET:-}
+      VNPAY_RETURN_URL: ${VNPAY_RETURN_URL:-http://localhost:3000/checkout/result}
     depends_on:
       order-db:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - eventhub
 
   notification-service:
     image: eventhub/notification-service:local
@@ -355,21 +352,14 @@ services:
     ports:
       - "8085:8080"
     environment:
-      <<: *keycloak-env
-      SERVER_PORT: "8080"
+      <<: *backend-env
       DB_HOST: notification-db
-      DB_PORT: "3306"
       DB_NAME: eventhub_notification
-      DB_USERNAME: root
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       MAIL_HOST: mailpit
       MAIL_PORT: "1025"
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
-    restart: unless-stopped
-    networks:
-      - eventhub
     depends_on:
       notification-db:
         condition: service_healthy
@@ -377,6 +367,11 @@ services:
         condition: service_completed_successfully
       mailpit:
         condition: service_started
+      keycloak:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - eventhub
 
   analytics-service:
     image: eventhub/analytics-service:local
@@ -386,25 +381,23 @@ services:
     ports:
       - "8086:8080"
     environment:
-      <<: *keycloak-env
-      SERVER_PORT: "8080"
-      DASHBOARD_ALLOWED_ORIGINS: http://localhost:3000
+      <<: *backend-env
+      DASHBOARD_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
       DB_HOST: analytics-db
-      DB_PORT: "3306"
       DB_NAME: eventhub_analytics
-      DB_USERNAME: root
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EVENT_SERVICE_URL: http://event-service:8080
       TICKET_SERVICE_URL: http://ticket-service:8080
-    restart: unless-stopped
-    networks:
-      - eventhub
     depends_on:
       analytics-db:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - eventhub
 
   api-gateway:
     image: eventhub/api-gateway:local
@@ -416,7 +409,8 @@ services:
     environment:
       <<: *keycloak-env
       SERVER_PORT: "8080"
-      # Trong mạng Docker gọi service theo tên container và cổng nội bộ 8080.
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75
+      # Trong mạng Docker gọi service theo tên và cổng nội bộ 8080.
       AUTH_SERVICE_URI: http://auth-service:8080
       EVENT_SERVICE_URI: http://event-service:8080
       TICKET_SERVICE_URI: http://ticket-service:8080
@@ -425,6 +419,47 @@ services:
       ANALYTICS_SERVICE_URI: http://analytics-service:8080
       ANALYTICS_WS_URI: ws://analytics-service:8080
       GATEWAY_CORS_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      event-service:
+        condition: service_started
+      ticket-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      analytics-service:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - eventhub
+
+  # ───────────────────────────── Frontend ─────────────────────────────
+  # Build và chạy Next.js bản production ngay trong image Node, không cần Dockerfile riêng.
+  # node_modules và .next nằm trong volume riêng để không lẫn với node_modules (Windows) trên máy.
+  # Sửa code frontend xong: docker compose restart frontend (build lại khi khởi động).
+  frontend:
+    image: node:22-slim
+    working_dir: /app
+    # npm ci cài đúng theo package-lock.json và không sửa file lock trên máy.
+    command: sh -c "npm ci --no-audit --no-fund && npm run build && exec npx next start -H 0.0.0.0 -p 3000"
+    environment:
+      # Trình duyệt gọi Gateway qua cổng đã publish trên máy, nên dùng localhost chứ không dùng api-gateway.
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+      NEXT_TELEMETRY_DISABLED: "1"
+    volumes:
+      - ./front-end:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_next:/app/.next
+    ports:
+      - "3000:3000"
+    depends_on:
+      api-gateway:
+        condition: service_started
     restart: unless-stopped
     networks:
       - eventhub
@@ -433,7 +468,6 @@ networks:
   eventhub:
     driver: bridge
 
-# Volumes is used to persist data for services that require it, such as databases and Kafka.
 volumes:
   kafka_data:
   keycloak_db_data:
@@ -443,5 +477,7 @@ volumes:
   order_mysql_data:
   notification_mysql_data:
   analytics_mysql_data:
+  frontend_node_modules:
+  frontend_next:
   # Không còn dùng từ khi Gateway bỏ DB (2026-11-24); giữ khai báo để không xóa dữ liệu cũ.
   api_gateway_mysql_data:
