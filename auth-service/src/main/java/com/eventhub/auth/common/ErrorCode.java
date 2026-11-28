@@ -7,6 +7,12 @@ package com.eventhub.auth.common;
 public enum ErrorCode {
     VALIDATION_ERROR(400),
     CURRENT_PASSWORD_INCORRECT(400),
+    /** Mã OTP đăng ký sai (còn lượt thử). */
+    OTP_INVALID(400),
+    /** Mã OTP đăng ký đã hết hạn, đã dùng hoặc chưa từng được gửi: bấm "Lấy mã" lần nữa. */
+    OTP_EXPIRED(400),
+    /** Đăng ký mà chưa xác thực email bằng OTP, hoặc verificationToken không khớp email / đã hết hạn. */
+    EMAIL_VERIFICATION_REQUIRED(400),
     UNAUTHORIZED(401),
     INVALID_CREDENTIALS(401),
     INVALID_REFRESH_TOKEN(401),
@@ -33,8 +39,12 @@ public enum ErrorCode {
     ROLE_MAPPING_CONFLICT(409),
     /** Gửi mail quá nhiều lần trong một khoảng thời gian (chống spam hộp thư người khác). */
     TOO_MANY_REQUESTS(429),
+    /** Nhập sai OTP quá số lần cho phép, mã bị hủy: phải lấy mã mới. */
+    OTP_TOO_MANY_ATTEMPTS(429),
     INTERNAL_ERROR(500),
-    AUTH_PROVIDER_UNAVAILABLE(503);
+    AUTH_PROVIDER_UNAVAILABLE(503),
+    /** Máy chủ mail (SMTP) không gửi được thư OTP. */
+    EMAIL_DELIVERY_FAILED(503);
 
     private final int httpStatus;
 

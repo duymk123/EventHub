@@ -1,6 +1,13 @@
 spring:
   application:
     name: notification-service
+  config:
+    # Chạy từ IntelliJ: đọc thêm file .env ở gốc repo (MAIL_*, không commit) để không phải nhập biến trong Run
+    # Configuration. Thư mục chạy có thể là gốc repo hoặc thư mục module nên thử cả hai; không có file thì bỏ qua.
+    # Trong Docker file này không có trong image, Compose truyền biến môi trường như cũ.
+    import:
+      - "optional:file:.env[.properties]"
+      - "optional:file:../.env[.properties]"
   data:
     # Controller nhận Pageable, frontend nhận Page DTO gồm content và metadata phân trang.
     web:

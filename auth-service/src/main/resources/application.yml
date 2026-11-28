@@ -7,6 +7,24 @@
 spring:
   application:
     name: auth-service
+  config:
+    # Chạy từ IntelliJ: đọc thêm .env ở gốc repo (MAIL_* để gửi OTP qua Gmail, không commit). Thư mục chạy có thể
+    # là gốc repo hoặc thư mục module nên thử cả hai; không có file thì bỏ qua. Docker truyền biến qua Compose.
+    import:
+      - "optional:file:.env[.properties]"
+      - "optional:file:../.env[.properties]"
+  mail:
+    # SMTP gửi mã OTP đăng ký. Mặc định Mailpit (localhost:1025, xem thư ở http://localhost:8025).
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${MAIL_SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${MAIL_SMTP_STARTTLS:false}
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
   datasource:
     # Mặc định chạy thẳng từ IntelliJ: MySQL cài trên máy (cổng 3306, root/root) như các service khác, database tự tạo nếu chưa có.
     # Docker Compose tự truyền DB_HOST/DB_PORT/DB_PASSWORD riêng nên không bị ảnh hưởng.
@@ -33,6 +51,16 @@ eventhub:
     realm: "${KEYCLOAK_REALM:eventhub}"
     client-id: "${KEYCLOAK_AUTH_CLIENT_ID:eventhub-auth-service}"
     client-secret: "${KEYCLOAK_AUTH_CLIENT_SECRET:eventhub-auth-service-dev-secret}"
+  auth:
+    mail-from: "${MAIL_FROM:noreply@eventhub.local}"
+    otp:
+      # Mã OTP đăng ký: hiệu lực 5 phút, gửi lại sau 60 giây, tối đa 5 mã/giờ/email, sai 5 lần thì hủy mã.
+      ttl: PT5M
+      resend-cooldown: PT60S
+      max-sends-per-hour: 5
+      max-attempts: 5
+      # Sau khi nhập đúng mã, có 30 phút để bấm "Tạo tài khoản".
+      verification-ttl: PT30M
 
 server:
   port: "${SERVER_PORT:8081}"

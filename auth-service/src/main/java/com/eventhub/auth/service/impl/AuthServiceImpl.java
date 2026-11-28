@@ -16,6 +16,7 @@ import com.eventhub.auth.entity.UserProfile;
 import com.eventhub.auth.exception.BusinessException;
 import com.eventhub.auth.repository.UserProfileRepository;
 import com.eventhub.auth.service.AuthService;
+import com.eventhub.auth.service.RegistrationOtpService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -39,13 +40,16 @@ public class AuthServiceImpl implements AuthService {
     private final KeycloakUserClient userClient;
     private final UserProfileRepository profiles;
     private final EmailRateLimiter emailRateLimiter;
+    private final RegistrationOtpService registrationOtp;
 
     public AuthServiceImpl(KeycloakTokenClient tokenClient, KeycloakUserClient userClient,
-                           UserProfileRepository profiles, EmailRateLimiter emailRateLimiter) {
+                           UserProfileRepository profiles, EmailRateLimiter emailRateLimiter,
+                           RegistrationOtpService registrationOtp) {
         this.tokenClient = tokenClient;
         this.userClient = userClient;
         this.profiles = profiles;
         this.emailRateLimiter = emailRateLimiter;
+        this.registrationOtp = registrationOtp;
     }
 
     @Override
@@ -54,12 +58,15 @@ public class AuthServiceImpl implements AuthService {
         String fullName = request.fullName().trim().replaceAll("\\s+", " ");
         String phone = request.phoneNumber() == null || request.phoneNumber().isBlank()
                 ? null : request.phoneNumber().trim();
+        // Email phải được xác thực bằng OTP trước; token chỉ bị hủy khi đăng ký thành công, lỗi khác (vd trùng SĐT)
+        // thì người dùng sửa form và gửi lại mà không phải lấy mã mới.
+        registrationOtp.requireVerified(email, request.verificationToken());
         // Kiểm tra trước để không tạo user Keycloak rồi mới phát hiện số điện thoại trùng.
         if (phone != null && profiles.existsByPhoneNumber(phone)) {
             throw new BusinessException(ErrorCode.PHONE_ALREADY_EXISTS, "Phone number is already registered");
         }
         String[] name = splitName(fullName);
-        UUID userId = userClient.createUser(email, request.password(), name[0], name[1]);
+        UUID userId = userClient.createUser(email, request.password(), name[0], name[1], true);
 
         UserProfile profile;
         try {
@@ -80,9 +87,9 @@ public class AuthServiceImpl implements AuthService {
             }
             throw error;
         }
-        sendVerificationQuietly(userId);
+        registrationOtp.consume(request.verificationToken());
         return new UserResponse(userId, email, profile.getFullName(), BusinessRole.CUSTOMER.name(), "ACTIVE",
-                false, Instant.now());
+                true, Instant.now());
     }
 
     @Override
@@ -201,15 +208,6 @@ public class AuthServiceImpl implements AuthService {
                 .filter(r -> BusinessRole.isBusinessRole(r.name()) && !role.name().equals(r.name()))
                 .toList();
         userClient.removeRealmRoles(userId, others);
-    }
-
-    /** Mail xác minh không chặn đăng ký: SMTP lỗi thì người dùng gửi lại qua /auth/verify-email/resend. */
-    private void sendVerificationQuietly(UUID userId) {
-        try {
-            userClient.sendVerifyEmail(userId);
-        } catch (RuntimeException error) {
-            log.warn("Could not send verification email to user {}: {}", userId, error.getMessage());
-        }
     }
 
     private static void rejectSelf(UUID adminId, UUID userId) {

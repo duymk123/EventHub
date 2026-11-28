@@ -3,7 +3,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { loginSchema, type LoginForm } from "@/schemas/forms";
 import { useAction } from "@/hooks/use-api";
 import { authApi } from "@/lib/api/endpoints";
 import { session } from "@/lib/auth/session";
+import { RegisterEmailOtp, normalizeEmail } from "./register-email-otp";
 import type { Role } from "@/types";
 import { toast } from "sonner";
 
@@ -38,6 +39,11 @@ export function AuthPage({
     resolver: zodResolver(loginSchema),
     defaultValues: { name: "", email: "", password: forgot ? "--------" : "" },
   });
+  // Đăng ký: email phải xác thực bằng OTP trước; token chỉ hợp lệ cho đúng email đã xác thực.
+  const [verification, setVerification] = useState<{ email: string; token: string } | null>(null);
+  const emailValue = useWatch({ control: form.control, name: "email" });
+  const verifiedToken =
+    verification && verification.email === normalizeEmail(emailValue ?? "") ? verification.token : null;
   const submit = form.handleSubmit((v) =>
     run(async () => {
       if (forgot) {
@@ -48,13 +54,26 @@ export function AuthPage({
         return;
       }
       if (register) {
+        if (v.password.length < 8) {
+          form.setError("password", { message: "Mật khẩu cần ít nhất 8 ký tự" });
+          return;
+        }
         if (v.name.trim().length < 2) {
           form.setError("name", { message: "Vui lòng nhập họ và tên" });
           return;
         }
-        await authApi.register({ email: v.email.trim(), password: v.password, fullName: v.name.trim() });
-        const user = await session.login(v.email.trim(), v.password);
-        toast.success("Tạo tài khoản thành công. Hãy mở email để xác minh trước khi đặt vé.");
+        if (!verifiedToken) {
+          form.setError("email", { message: "Vui lòng lấy mã và xác thực email trước khi tạo tài khoản" });
+          return;
+        }
+        await authApi.register({
+          email: normalizeEmail(v.email),
+          password: v.password,
+          fullName: v.name.trim(),
+          verificationToken: verifiedToken,
+        });
+        const user = await session.login(normalizeEmail(v.email), v.password);
+        toast.success("Tạo tài khoản thành công.");
         router.push(next ?? homeOf(user.role));
       } else {
         const user = await session.login(v.email.trim(), v.password);
@@ -116,17 +135,32 @@ export function AuthPage({
               )}
             </div>
           )}
-          <div className="field">
-            <label className="field-label" htmlFor="auth-email">
-              Địa chỉ email
-            </label>
-            <Input id="auth-email" type="email" autoComplete="email" {...form.register("email")} />
-            {form.formState.errors.email && (
-              <p className="form-error">
-                {form.formState.errors.email.message}
-              </p>
-            )}
-          </div>
+          {register ? (
+            <RegisterEmailOtp
+              email={emailValue ?? ""}
+              inputProps={form.register("email")}
+              error={form.formState.errors.email?.message}
+              validateEmail={() => form.trigger("email")}
+              verifiedEmail={verifiedToken ? verification!.email : null}
+              onVerified={(email, token) => {
+                setVerification({ email, token });
+                form.clearErrors("email");
+              }}
+              onChangeEmail={() => setVerification(null)}
+            />
+          ) : (
+            <div className="field">
+              <label className="field-label" htmlFor="auth-email">
+                Địa chỉ email
+              </label>
+              <Input id="auth-email" type="email" autoComplete="email" {...form.register("email")} />
+              {form.formState.errors.email && (
+                <p className="form-error">
+                  {form.formState.errors.email.message}
+                </p>
+              )}
+            </div>
+          )}
           {!forgot && (
             <div className="field">
               <label className="field-label" htmlFor="auth-password">
@@ -161,7 +195,7 @@ export function AuthPage({
               </Link>
             </div>
           )}
-          <Button type="submit" disabled={busy} className="w-full h-12">
+          <Button type="submit" disabled={busy || (register && !verifiedToken)} className="w-full h-12">
             {busy
               ? "Đang xử lý..."
               : forgot

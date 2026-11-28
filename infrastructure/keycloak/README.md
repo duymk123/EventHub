@@ -40,6 +40,11 @@ Tắt: `docker compose stop keycloak keycloak-db` (giữ dữ liệu). Xóa sạ
 | `admin@eventhub.local` | `Admin@123` | ADMIN |
 | `organizer@eventhub.local` | `Organizer@123` | ORGANIZER |
 | `customer@eventhub.local` | `Customer@123` | CUSTOMER |
+| `admin` (`admin-demo@eventhub.local`) | `1` | ADMIN |
+| `org` (`org-demo@eventhub.local`) | `1` | ORGANIZER |
+| `customer` (`customer-demo@eventhub.local`) | `1` | CUSTOMER |
+
+Ba tài khoản ngắn gọn dùng username `admin`, `org`, `customer`. Trong EventHub, form đăng nhập nhận email nên dùng email trong ngoặc; các mật khẩu `1` chỉ dành cho local/dev. Realm tắt tùy chọn ép email làm username; đăng ký trong EventHub vẫn đặt username bằng email. Sau khi Keycloak đang chạy, cập nhật cả realm đã tồn tại mà không xóa dữ liệu bằng `powershell -ExecutionPolicy Bypass -File infrastructure/keycloak/add-demo-users.ps1`.
 
 User đăng ký qua `POST /api/v1/auth/register` được auth-service gán **CUSTOMER trực tiếp**. Role mặc định `default-roles-eventhub` **không** chứa business role nào, nên khi ADMIN đổi role (`PATCH /api/v1/admin/users/{id}/role`) chỉ cần thay một mapping. Mỗi user chỉ mang **một** business role: mọi service từ chối (401) token có hai role nghiệp vụ.
 

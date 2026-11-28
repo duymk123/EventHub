@@ -11,6 +11,7 @@ import com.eventhub.auth.dto.request.RegisterRequest;
 import com.eventhub.auth.entity.UserProfile;
 import com.eventhub.auth.exception.BusinessException;
 import com.eventhub.auth.repository.UserProfileRepository;
+import com.eventhub.auth.service.RegistrationOtpService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -20,6 +21,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -39,6 +41,7 @@ class AuthServiceImplTest {
     private KeycloakUserClient users;
     private UserProfileRepository profiles;
     private EmailRateLimiter emailRateLimiter;
+    private RegistrationOtpService otp;
     private AuthServiceImpl service;
 
     @BeforeEach
@@ -48,48 +51,52 @@ class AuthServiceImplTest {
         profiles = mock(UserProfileRepository.class);
         emailRateLimiter = mock(EmailRateLimiter.class);
         when(emailRateLimiter.tryAcquire(anyString())).thenReturn(true);
-        service = new AuthServiceImpl(tokens, users, profiles, emailRateLimiter);
+        otp = mock(RegistrationOtpService.class);
+        service = new AuthServiceImpl(tokens, users, profiles, emailRateLimiter, otp);
         when(users.getUser(userId)).thenReturn(new KeycloakUser(userId.toString(), "a@x.vn", "A", "B", true, false, 0L));
     }
 
     @Test
-    void registerAssignsCustomerAndSendsVerificationEmail() {
-        when(users.createUser(anyString(), anyString(), anyString(), anyString())).thenReturn(userId);
+    void registerWithVerifiedOtpCreatesVerifiedCustomer() {
+        when(users.createUser(anyString(), anyString(), anyString(), anyString(), anyBoolean())).thenReturn(userId);
         when(users.directRealmRoles(userId)).thenReturn(List.of(DEFAULT));
         when(users.availableRealmRoles(userId)).thenReturn(List.of(CUSTOMER, ORGANIZER));
         when(profiles.save(any())).thenAnswer(call -> call.getArgument(0));
 
-        var response = service.register(new RegisterRequest("A@X.vn", "Secret@123", "Nguyễn Văn A", null));
+        var response = service.register(new RegisterRequest("A@X.vn", "Secret@123", "Nguyễn Văn A", null, "token"));
 
+        verify(otp).requireVerified("a@x.vn", "token");
+        verify(users).createUser("a@x.vn", "Secret@123", "Văn A", "Nguyễn", true);
         verify(users).addRealmRoles(userId, List.of(CUSTOMER));
-        verify(users).sendVerifyEmail(userId);
+        verify(users, never()).sendVerifyEmail(any());
+        verify(otp).consume("token");
         assertThat(response.role()).isEqualTo("CUSTOMER");
-        assertThat(response.emailVerified()).isFalse();
+        assertThat(response.emailVerified()).isTrue();
     }
 
     @Test
     void registerRollsBackKeycloakUserWhenRoleAssignmentFails() {
-        when(users.createUser(anyString(), anyString(), anyString(), anyString())).thenReturn(userId);
+        when(users.createUser(anyString(), anyString(), anyString(), anyString(), anyBoolean())).thenReturn(userId);
         when(users.directRealmRoles(userId)).thenReturn(List.of());
         when(users.availableRealmRoles(userId)).thenReturn(List.of(CUSTOMER));
         doThrow(new BusinessException(ErrorCode.AUTH_PROVIDER_UNAVAILABLE, "down"))
                 .when(users).addRealmRoles(any(), any());
 
-        assertThatThrownBy(() -> service.register(new RegisterRequest("a@x.vn", "Secret@123", "A", null)))
+        assertThatThrownBy(() -> service.register(new RegisterRequest("a@x.vn", "Secret@123", "A", null, "token")))
                 .isInstanceOf(BusinessException.class);
         verify(users).deleteUserQuietly(userId);
         verify(profiles, never()).save(any());
     }
 
     @Test
-    void verificationEmailFailureDoesNotFailRegistration() {
-        when(users.createUser(anyString(), anyString(), anyString(), anyString())).thenReturn(userId);
-        when(users.directRealmRoles(userId)).thenReturn(List.of(CUSTOMER));
-        when(profiles.save(any())).thenAnswer(call -> call.getArgument(0));
-        doThrow(new BusinessException(ErrorCode.AUTH_PROVIDER_UNAVAILABLE, "smtp")).when(users).sendVerifyEmail(userId);
+    void registerWithoutVerifiedEmailCreatesNoUser() {
+        doThrow(new BusinessException(ErrorCode.EMAIL_VERIFICATION_REQUIRED, "verify first"))
+                .when(otp).requireVerified(anyString(), anyString());
 
-        assertThat(service.register(new RegisterRequest("a@x.vn", "Secret@123", "A", null)).id()).isEqualTo(userId);
-        verify(users, never()).deleteUserQuietly(any());
+        assertCode(() -> service.register(new RegisterRequest("a@x.vn", "Secret@123", "A", null, "bad")),
+                ErrorCode.EMAIL_VERIFICATION_REQUIRED);
+        verify(users, never()).createUser(anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        verify(otp, never()).consume(anyString());
     }
 
     @Test

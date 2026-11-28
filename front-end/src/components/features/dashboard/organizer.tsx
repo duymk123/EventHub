@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -50,9 +50,20 @@ import { downloadCsv } from "./overview";
 import type { Event, EventStatus, TicketType, TierName } from "@/types";
 import { toast } from "sonner";
 
+/** C07: cổng soát vé mở từ 60 phút trước giờ bắt đầu đến giờ kết thúc; server kiểm tra lại khi quét. */
+const GATE_OPEN_BEFORE_MS = 3_600_000;
+function canScan(event: Event, now: number) {
+  return (
+    ["PUBLISHED", "CLOSED"].includes(event.status) &&
+    now >= Date.parse(event.startTime) - GATE_OPEN_BEFORE_MS &&
+    now <= Date.parse(event.endTime)
+  );
+}
+
 export function OrganizerEvents() {
   const query = useOrganizerEvents();
   const refresh = useRefresh();
+  const now = useNow();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(0);
@@ -138,6 +149,14 @@ export function OrganizerEvents() {
                 )}
               </div>
               <div className="managed-event-actions">
+                {now > 0 && canScan(e, now) && (
+                  <Button size="sm" asChild>
+                    <Link href={`/organizer/checkin?event=${e.id}`}>
+                      <ScanLine size={13} />
+                      Quét vé
+                    </Link>
+                  </Button>
+                )}
                 {["DRAFT", "REJECTED"].includes(e.status) && (
                   <Button asChild variant="secondary" size="sm">
                     <Link href={`/organizer/events/${e.id}/edit`}>
@@ -824,6 +843,63 @@ const SCAN_TEXT: Record<string, string> = {
   CHECK_OUT: "Đã ghi nhận ra cổng. Vé này không thể vào lại.",
 };
 
+type ScanResult =
+  | { kind: "checking" }
+  | { kind: "ok" | "fail"; title: string; text: string; at: number };
+
+let audio: AudioContext | null = null;
+/**
+ * Báo kết quả cho nhân viên cổng không cần nhìn màn hình: một tiếng bíp cao khi hợp lệ, hai tiếng trầm khi bị từ
+ * chối, kèm rung trên điện thoại. Trình duyệt chặn âm thanh thì bỏ qua.
+ */
+function gateFeedback(ok: boolean) {
+  try {
+    navigator.vibrate?.(ok ? 120 : [90, 60, 90]);
+    audio ??= new AudioContext();
+    const tones = ok ? [{ f: 1046, at: 0 }] : [{ f: 220, at: 0 }, { f: 220, at: 0.2 }];
+    for (const tone of tones) {
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.frequency.value = tone.f;
+      osc.type = ok ? "sine" : "square";
+      gain.gain.value = 0.08;
+      osc.connect(gain).connect(audio.destination);
+      const start = audio.currentTime + tone.at;
+      osc.start(start);
+      osc.stop(start + 0.15);
+    }
+  } catch {
+    // Không có âm thanh/rung: kết quả vẫn hiện trên màn hình.
+  }
+}
+
+/** Ô kết quả lớn ngay trên camera để nhân viên thấy ngay sau mỗi lượt quét. */
+function ScanBanner({ result }: { result: ScanResult | null }) {
+  if (!result) return null;
+  if (result.kind === "checking") {
+    return (
+      <div className="scan-banner checking" role="status" aria-live="polite">
+        <ScanLine size={26} />
+        <div>
+          <strong>Đang kiểm tra vé...</strong>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className={`scan-banner ${result.kind}`} role="status" aria-live="assertive">
+      {result.kind === "ok" ? <CheckCircle2 size={30} /> : <XCircle size={30} />}
+      <div>
+        <strong>{result.title}</strong>
+        <p>{result.text}</p>
+        <span>
+          {new Date(result.at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function Checkin() {
   const mine = useOrganizerEvents();
   const now = useNow();
@@ -831,27 +907,34 @@ export function Checkin() {
   const events = (mine.data ?? []).filter((e) =>
     ["PUBLISHED", "CLOSED"].includes(e.status),
   );
+  // Vào từ nút "Quét vé" của một sự kiện thì chọn sẵn sự kiện đó; không thì ưu tiên sự kiện đang diễn ra.
+  const fromLink = useSearchParams().get("event");
   const [picked, setPicked] = useState<string | null>(null);
-  const eventId = picked ?? events[0]?.id ?? "";
+  const eventId =
+    picked ??
+    events.find((e) => e.id === fromLink)?.id ??
+    (now > 0 ? events.find((e) => canScan(e, now))?.id : undefined) ??
+    events[0]?.id ??
+    "";
   const event = events.find((e) => e.id === eventId);
   const [gateId] = useState(readGateId);
   const [code, setCode] = useState("");
   const [action, setAction] = useState<"check-in" | "check-out">("check-in");
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<ScanResult | null>(null);
   const { busy, run } = useAction();
   const attendance = useEventAttendance(eventId || undefined);
-  // C07: cổng mở từ 60 phút trước giờ bắt đầu đến giờ kết thúc; server kiểm tra lại.
-  const inWindow =
-    event && now
-      ? now >= Date.parse(event.startTime) - 3_600_000 &&
-        now <= Date.parse(event.endTime)
-      : true;
+  const inWindow = event && now ? canScan(event, now) : true;
 
   function scan(value: string) {
-    if (!eventId || !value.trim()) return;
-    run(
+    if (!value.trim() || busy) return;
+    if (!eventId) {
+      setResult({ kind: "fail", title: "Chưa chọn sự kiện", text: "Chọn sự kiện cần soát vé rồi quét lại.", at: Date.now() });
+      gateFeedback(false);
+      return;
+    }
+    setResult({ kind: "checking" });
+    // Lỗi: useAction hiện toast với thông báo theo mã lỗi; ở đây thêm ô kết quả lớn và âm báo.
+    void run(
       async () => {
         try {
           return await ticketApi.scan(action, {
@@ -861,20 +944,21 @@ export function Checkin() {
           });
         } catch (error) {
           setResult({
-            ok: false,
-            text:
-              error instanceof Error
-                ? error.message
-                : "Không kiểm tra được vé.",
+            kind: "fail",
+            title: action === "check-in" ? "Check-in thất bại" : "Check-out thất bại",
+            text: error instanceof Error ? error.message : "Không kiểm tra được vé.",
+            at: Date.now(),
           });
+          gateFeedback(false);
           throw error;
         }
       },
       (r) => {
-        setResult({
-          ok: true,
-          text: SCAN_TEXT[r.scanType] ?? "Đã cập nhật trạng thái vé.",
-        });
+        const title = r.scanType === "CHECK_OUT" ? "Check-out thành công" : "Check-in thành công";
+        const text = SCAN_TEXT[r.scanType] ?? "Đã cập nhật trạng thái vé.";
+        setResult({ kind: "ok", title, text, at: Date.now() });
+        gateFeedback(true);
+        toast.success(title, { description: text });
         setCode("");
         void refresh(["analytics", "attendance", eventId]);
       },
@@ -942,6 +1026,7 @@ export function Checkin() {
                 </button>
               ))}
             </div>
+            <ScanBanner result={result} />
             <QrScanner onDetect={scan} disabled={busy} />
             <form
               onSubmit={(e) => {
@@ -976,16 +1061,6 @@ export function Checkin() {
                     : "Xác nhận check-out"}
               </Button>
             </form>
-            {result && (
-              <div
-                className="scan-result"
-                role="status"
-                style={result.ok ? undefined : { color: "var(--destructive)" }}
-              >
-                {result.ok ? <CheckCircle2 size={22} /> : <XCircle size={22} />}
-                {result.text}
-              </div>
-            )}
           </section>
           <section>
             <div className="panel">

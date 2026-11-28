@@ -16,7 +16,7 @@ paths:
       - Auth
       operationId: register
       summary: AUTH-UC01 Đăng ký
-      description: Facade EventHub → Keycloak. Tạo tài khoản qua API Keycloak được cấp quyền, gán CUSTOMER; không lưu password hash local. Chính sách email verification cần cấu hình.
+      description: Facade EventHub → Keycloak. Bắt buộc verificationToken từ /auth/register/otp/verify (email đã xác thực bằng OTP). Tạo tài khoản Keycloak với emailVerified=true, gán CUSTOMER; không gửi link xác minh, không lưu password hash local. Thiếu/sai token → 400 EMAIL_VERIFICATION_REQUIRED.
       requestBody:
         required: true
         content:
@@ -34,6 +34,97 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '409':
           description: EMAIL_ALREADY_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-contract-status: implemented
+  /auth/register/otp:
+    post:
+      tags:
+      - Auth
+      operationId: sendRegisterOtp
+      summary: Gửi mã OTP xác thực email trước khi đăng ký
+      description: Công khai. Gửi mã 6 số (hiệu lực 5 phút) tới email. Gửi lại sau 60 giây, tối đa 5 mã/giờ/email.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '204':
+          description: Đã gửi mã
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: EMAIL_ALREADY_EXISTS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: TOO_MANY_REQUESTS (gửi lại quá sớm hoặc quá 5 mã/giờ)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: EMAIL_DELIVERY_FAILED (SMTP lỗi) hoặc AUTH_PROVIDER_UNAVAILABLE
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-contract-status: implemented
+  /auth/register/otp/verify:
+    post:
+      tags:
+      - Auth
+      operationId: verifyRegisterOtp
+      summary: Kiểm tra mã OTP, nhận verificationToken cho đăng ký
+      description: Công khai. Sai 5 lần thì mã bị hủy. verificationToken hiệu lực 30 phút, chỉ dùng một lần và chỉ cho đúng email đã xác thực.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email:
+                  type: string
+                  format: email
+                code:
+                  type: string
+                  pattern: '^\d{6}$'
+      responses:
+        '200':
+          description: Mã đúng
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verificationToken:
+                    type: string
+                  expiresIn:
+                    type: integer
+                    description: Số giây token còn hiệu lực
+        '400':
+          description: OTP_INVALID, OTP_EXPIRED hoặc VALIDATION_ERROR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: OTP_TOO_MANY_ATTEMPTS
           content:
             application/json:
               schema:
@@ -689,6 +780,7 @@ components:
       - email
       - password
       - fullName
+      - verificationToken
       properties:
         email:
           type: string
@@ -702,6 +794,9 @@ components:
           type: string
           maxLength: 100
           example: Nguyễn Văn A
+        verificationToken:
+          type: string
+          description: Nhận từ POST /auth/register/otp/verify
         phoneNumber:
           type: string
           maxLength: 20

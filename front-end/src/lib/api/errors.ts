@@ -13,6 +13,11 @@ export const errors: Record<string, string> = {
   ACCOUNT_LOCKED: "Tài khoản đang bị khóa. Vui lòng liên hệ hỗ trợ.",
   EMAIL_NOT_VERIFIED: "Tài khoản chưa hoàn tất xác minh email. Vui lòng kiểm tra hộp thư.",
   TOO_MANY_REQUESTS: "Bạn đã thao tác quá nhiều lần. Vui lòng thử lại sau ít phút.",
+  OTP_INVALID: "Mã xác thực chưa đúng. Vui lòng kiểm tra lại.",
+  OTP_EXPIRED: "Mã xác thực đã hết hạn. Hãy bấm “Gửi lại mã”.",
+  OTP_TOO_MANY_ATTEMPTS: "Bạn đã nhập sai quá nhiều lần. Hãy lấy mã mới.",
+  EMAIL_VERIFICATION_REQUIRED: "Vui lòng xác thực email bằng mã OTP trước khi tạo tài khoản.",
+  EMAIL_DELIVERY_FAILED: "Chưa gửi được email xác thực. Vui lòng thử lại sau ít phút.",
   INVALID_REFRESH_TOKEN:
     "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.",
   REFRESH_TOKEN_EXPIRED: "Phiên đăng nhập đã hết hạn.",

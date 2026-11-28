@@ -19,7 +19,8 @@ export type HolderForm = z.infer<typeof holderSchema>;
 export const loginSchema = z.object({
   name: z.string(),
   email: z.email("Email chưa đúng định dạng"),
-  password: z.string().min(8, "Mật khẩu cần ít nhất 8 ký tự").max(128),
+  // Login không áp đặt độ dài tối thiểu; policy tạo mật khẩu được kiểm tra riêng khi đăng ký.
+  password: z.string().min(1, "Nhập mật khẩu").max(128),
 });
 export type LoginForm = z.infer<typeof loginSchema>;
 export const eventSchema = z

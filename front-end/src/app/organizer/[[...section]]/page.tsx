@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { Workspace } from "@/components/features/dashboard/workspace";
 import { Overview } from "@/components/features/dashboard/overview";
@@ -30,7 +31,10 @@ export default async function OrganizerPage({
     ) : path === "attendees" ? (
       <Attendees />
     ) : path === "checkin" ? (
-      <Checkin />
+      // Checkin đọc ?event= bằng useSearchParams nên cần Suspense.
+      <Suspense>
+        <Checkin />
+      </Suspense>
     ) : null;
   if (!page) notFound();
   return <Workspace>{page}</Workspace>;

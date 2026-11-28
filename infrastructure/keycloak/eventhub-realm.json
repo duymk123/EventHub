@@ -4,7 +4,7 @@
   "enabled": true,
   "sslRequired": "external",
   "registrationAllowed": false,
-  "registrationEmailAsUsername": true,
+  "registrationEmailAsUsername": false,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,
@@ -324,6 +324,63 @@
     }
   ],
   "users": [
+    {
+      "username": "admin",
+      "email": "admin-demo@eventhub.local",
+      "firstName": "Admin",
+      "lastName": "Demo",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "1",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-eventhub",
+        "ADMIN"
+      ]
+    },
+    {
+      "username": "org",
+      "email": "org-demo@eventhub.local",
+      "firstName": "Organizer",
+      "lastName": "Demo",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "1",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-eventhub",
+        "ORGANIZER"
+      ]
+    },
+    {
+      "username": "customer",
+      "email": "customer-demo@eventhub.local",
+      "firstName": "Customer",
+      "lastName": "Demo",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "1",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-eventhub",
+        "CUSTOMER"
+      ]
+    },
     {
       "username": "admin@eventhub.local",
       "email": "admin@eventhub.local",

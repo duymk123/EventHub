@@ -10,8 +10,23 @@ import type { EventStatus, Role, TierName } from "@/types";
 
 // ---------------------------------------------------------------- Auth
 export const authApi = {
-  register: (body: { email: string; password: string; fullName: string; phoneNumber?: string }) =>
-    api<UserDto>("/auth/register", { method: "POST", body, auth: false }),
+  /** Gửi mã OTP 6 số tới email sắp đăng ký (204). */
+  sendRegisterOtp: (email: string) =>
+    api<void>("/auth/register/otp", { method: "POST", body: { email }, auth: false }),
+  /** Kiểm tra mã OTP; đúng thì trả verificationToken dùng cho register. */
+  verifyRegisterOtp: (email: string, code: string) =>
+    api<{ verificationToken: string; expiresIn: number }>("/auth/register/otp/verify", {
+      method: "POST",
+      body: { email, code },
+      auth: false,
+    }),
+  register: (body: {
+    email: string;
+    password: string;
+    fullName: string;
+    phoneNumber?: string;
+    verificationToken: string;
+  }) => api<UserDto>("/auth/register", { method: "POST", body, auth: false }),
   me: () => api<UserDto>("/auth/me"),
   changePassword: (body: { currentPassword: string; newPassword: string }) =>
     api<void>("/auth/change-password", { method: "POST", body }),

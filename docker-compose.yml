@@ -17,11 +17,15 @@ name: eventhub
 #   admin@eventhub.local / Admin@123            (ADMIN)
 #   organizer@eventhub.local / Organizer@123    (ORGANIZER)
 #   customer@eventhub.local / Customer@123      (CUSTOMER)
+#   admin / 1                                    (ADMIN, local demo)
+#   org / 1                                      (ORGANIZER, local demo)
+#   customer / 1                                 (CUSTOMER, local demo)
 #
 # Biến tùy chọn (đặt trong file .env cạnh file này, không commit):
 #   MYSQL_ROOT_PASSWORD   mật khẩu root MySQL, mặc định "root"
 #   VNPAY_TMN_CODE, VNPAY_HASH_SECRET   thông tin VNPay sandbox; để trống thì Order tắt thanh toán VNPay
-#   MAIL_USERNAME, MAIL_PASSWORD        chỉ cần khi đổi Mailpit sang SMTP thật
+#   MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_SMTP_AUTH, MAIL_SMTP_STARTTLS, MAIL_FROM
+#                         gửi mail vé/đơn hàng qua SMTP thật (vd Gmail) thay vì Mailpit; xem notification-service
 #
 # Dừng: docker compose down (giữ dữ liệu). Xóa sạch dữ liệu: docker compose down -v
 
@@ -262,11 +266,21 @@ services:
       KEYCLOAK_SERVER_URL: http://keycloak:8080
       DB_HOST: auth-db
       DB_NAME: eventhub_auth
+      # Gửi mã OTP đăng ký: cùng SMTP với notification-service (Mailpit mặc định, Gmail nếu đặt MAIL_* trong .env).
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
+      MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-false}
+      MAIL_FROM: ${MAIL_FROM:-noreply@eventhub.local}
     depends_on:
       auth-db:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     restart: unless-stopped
     networks:
       - eventhub
@@ -356,10 +370,16 @@ services:
       DB_HOST: notification-db
       DB_NAME: eventhub_notification
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      MAIL_HOST: mailpit
-      MAIL_PORT: "1025"
+      # Mặc định gửi vào Mailpit (http://localhost:8025). Muốn mail về hộp thư thật (vd Gmail) thì đặt trong .env:
+      #   MAIL_HOST=smtp.gmail.com  MAIL_PORT=587  MAIL_SMTP_AUTH=true  MAIL_SMTP_STARTTLS=true
+      #   MAIL_USERNAME=<gmail của bạn>  MAIL_PASSWORD=<App Password 16 ký tự>  MAIL_FROM=<gmail của bạn>
+      MAIL_HOST: ${MAIL_HOST:-mailpit}
+      MAIL_PORT: ${MAIL_PORT:-1025}
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
+      MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-false}
+      MAIL_FROM: ${MAIL_FROM:-noreply@eventhub.local}
     depends_on:
       notification-db:
         condition: service_healthy

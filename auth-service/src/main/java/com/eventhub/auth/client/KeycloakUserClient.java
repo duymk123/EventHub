@@ -89,20 +89,21 @@ public class KeycloakUserClient {
     }
 
     /**
-     * Tạo user đã bật, email dùng làm username, email CHƯA xác minh (auth-service gửi mail xác minh sau đó).
+     * Tạo user đã bật, email dùng làm username. Đăng ký qua OTP đã chứng minh sở hữu email nên truyền
+     * emailVerified=true (Keycloak không gửi thêm mail xác minh).
      * Role nghiệp vụ không gán ở đây: realm không còn đưa CUSTOMER vào role mặc định, caller gán trực tiếp.
      * Email trùng → EMAIL_ALREADY_EXISTS; mật khẩu không đạt chính sách realm → VALIDATION_ERROR.
      *
      * @return id user mới (cũng là sub trong JWT).
      */
-    public UUID createUser(String email, String password, String firstName, String lastName) {
+    public UUID createUser(String email, String password, String firstName, String lastName, boolean emailVerified) {
         Map<String, Object> body = Map.of(
                 "username", email,
                 "email", email,
                 "firstName", firstName,
                 "lastName", lastName,
                 "enabled", true,
-                "emailVerified", false,
+                "emailVerified", emailVerified,
                 "credentials", List.of(Map.of("type", "password", "value", password, "temporary", false)));
         try {
             ResponseEntity<Void> response = withAdminToken(token -> restClient.post().uri(usersPath)

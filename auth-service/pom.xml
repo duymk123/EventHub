@@ -41,6 +41,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!-- Gửi mã OTP xác thực email khi đăng ký (SMTP cấu hình qua MAIL_*) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
         <!-- JWT: xác thực và phân quyền người dùng -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

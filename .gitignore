@@ -9,6 +9,7 @@ out/
 .env
 .env.*
 !.env.example
+!.env.sample
 *.log
 .m2/
 .maven-user-home/
